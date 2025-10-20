@@ -154,10 +154,10 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx }) => {
                             <li className={checks.cardCount ? 'text-green-400' : 'text-gray-400'}>{t('fbc_req_card_count', {count: req.cardCount})} ({submission.length}/{req.cardCount})</li>
                             {req.minAvgOvr && <li className={checks.minAvgOvr ? 'text-green-400' : 'text-gray-400'}>{t('fbc_req_min_avg_ovr', {ovr: req.minAvgOvr})}</li>}
                              {req.minTotalValue && <li className={checks.minTotalValue ? 'text-green-400' : 'text-gray-400'}>{t('fbc_req_min_total_value', {value: req.minTotalValue})}</li>}
-                            {/* Fix: Cast `c` to number to satisfy the type requirement of the translation function's replacement parameter. */}
-                            {req.exactRarityCount && Object.entries(req.exactRarityCount).map(([r, c]) => <li key={r} className={checks[`exact_${r}`] ? 'text-green-400' : 'text-gray-400'}>{t('fbc_req_exact_rarity', {count: c as number, rarity: r})}</li>)}
-                            {/* Fix: Cast `c` to number to satisfy the type requirement of the translation function's replacement parameter. */}
-                            {req.minRarityCount && Object.entries(req.minRarityCount).map(([r, c]) => <li key={r} className={checks[`min_${r}`] ? 'text-green-400' : 'text-gray-400'}>{t('fbc_req_min_rarity', {count: c as number, rarity: r})}</li>)}
+                            {/* FIX: Check for undefined values from optional properties before rendering to avoid type errors. */}
+                            {req.exactRarityCount && Object.entries(req.exactRarityCount).map(([r, c]) => c !== undefined && <li key={r} className={checks[`exact_${r}`] ? 'text-green-400' : 'text-gray-400'}>{t('fbc_req_exact_rarity', {count: c, rarity: r})}</li>)}
+                            {/* FIX: Check for undefined values from optional properties before rendering to avoid type errors. */}
+                            {req.minRarityCount && Object.entries(req.minRarityCount).map(([r, c]) => c !== undefined && <li key={r} className={checks[`min_${r}`] ? 'text-green-400' : 'text-gray-400'}>{t('fbc_req_min_rarity', {count: c, rarity: r})}</li>)}
                         </ul>
                          <h3 className="text-xl mb-2">{t('fbc_reward_card')}</h3>
                          <div className="flex justify-center mb-6">

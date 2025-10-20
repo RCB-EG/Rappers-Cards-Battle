@@ -17,4 +17,6 @@ export const initialState: GameState = {
   completedEvoIds: [],
   activeEvolution: null,
   lastRewardClaimTime: null,
+  freePacksOpenedToday: 0,
+  lastFreePackResetTime: null,
 };

@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 // Fix: Correctly import all necessary types from the central types definition file.
-import { GameState, Card as CardType, GameView, PackType, MarketCard, Settings, FBCChallenge, Evolution, FormationLayoutId, Stats } from './types';
+import { GameState, Card as CardType, GameView, PackType, MarketCard, Settings, FBCChallenge, Evolution, FormationLayoutId, Stats, Deal } from './types';
 import { initialState } from './data/initialState';
 import { allCards, packs, fbcData, evoData, formationLayouts } from './data/gameData';
 import { translations, TranslationKey } from './utils/translations';
@@ -195,6 +196,36 @@ const App: React.FC = () => {
 
     const handleOpenPack = useCallback((packType: PackType, isReward = false) => {
         const pack = packs[packType];
+        
+        // Free pack limit logic
+        if (packType === 'free' && !isReward && !isDevMode) {
+            const now = Date.now();
+            const twelveHours = 12 * 60 * 60 * 1000;
+            let packsOpened = gameState.freePacksOpenedToday;
+            let lastReset = gameState.lastFreePackResetTime;
+
+            // Reset if it's been more than 12 hours since last reset
+            if (lastReset === null || (now - lastReset > twelveHours)) {
+                packsOpened = 0;
+                lastReset = now;
+            }
+            
+            if (packsOpened >= 3) {
+                setMessageModal({ title: "No Free Packs", message: "You have already claimed all your free packs for now. Come back later!" });
+                // Update state in case only the reset time needs updating
+                if (gameState.freePacksOpenedToday !== packsOpened || gameState.lastFreePackResetTime !== lastReset) {
+                  updateGameState({ freePacksOpenedToday: packsOpened, lastFreePackResetTime: lastReset });
+                }
+                return;
+            }
+            // Use a functional update to ensure we're working with the latest state
+            setGameState(prevState => ({
+                ...prevState,
+                freePacksOpenedToday: packsOpened + 1,
+                lastFreePackResetTime: lastReset,
+            }));
+        }
+
         if (!isReward) {
             if (gameState.coins < pack.cost && !isDevMode) {
                 setMessageModal({ title: "Not Enough Coins", message: "You don't have enough coins to buy this pack." });
@@ -217,8 +248,10 @@ const App: React.FC = () => {
         let cumulative = 0;
         let chosenRarity: CardType['rarity'] | undefined;
 
-        for (const rarity in pack.rarityChances) {
-            cumulative += pack.rarityChances[rarity as CardType['rarity']] ?? 0;
+        const validChances = Object.entries(pack.rarityChances).filter(([, chance]) => chance && chance > 0);
+
+        for (const [rarity, chance] of validChances) {
+            cumulative += chance;
             if (rand < cumulative) {
                 chosenRarity = rarity as CardType['rarity'];
                 break;
@@ -227,22 +260,44 @@ const App: React.FC = () => {
 
         if (!chosenRarity) return;
 
-        // --- Logic to exclude reward-only cards ---
         const exclusiveCardIds = new Set([
             ...fbcData.map(fbc => fbc.reward.cardId),
             ...evoData.map(evo => evo.resultCardId)
         ].filter(Boolean));
         const possibleCards = allCards.filter(c => c.rarity === chosenRarity && !exclusiveCardIds.has(c.id));
-        // --- End of exclusion logic ---
-
+        
         if (possibleCards.length === 0) {
-            // This is a fallback in case a rarity tier only has exclusive cards.
-            // A better solution would be to re-roll, but for now, we just inform the user.
             setMessageModal({ title: "Pack Error", message: "No available cards for this rarity. This is rare!"});
             return;
         }
 
-        const newCard: CardType = { ...possibleCards[Math.floor(Math.random() * possibleCards.length)], id: crypto.randomUUID() };
+        let selectedCardTemplate: CardType;
+
+        if (possibleCards.length > 1) {
+            const maxOvr = Math.max(...possibleCards.map(c => c.ovr));
+            const weightedCards = possibleCards.map(card => ({
+                card,
+                weight: (maxOvr - card.ovr) + 5,
+            }));
+
+            const totalWeight = weightedCards.reduce((sum, item) => sum + item.weight, 0);
+            let randomWeight = Math.random() * totalWeight;
+
+            for (const item of weightedCards) {
+                randomWeight -= item.weight;
+                if (randomWeight <= 0) {
+                    selectedCardTemplate = item.card;
+                    break;
+                }
+            }
+            if (!selectedCardTemplate!) {
+                selectedCardTemplate = weightedCards[weightedCards.length - 1].card;
+            }
+        } else {
+            selectedCardTemplate = possibleCards[0];
+        }
+
+        const newCard: CardType = { ...selectedCardTemplate!, id: crypto.randomUUID() };
         
         const isDuplicateInStorage = gameState.storage.some(c => c.name === newCard.name && c.rarity === newCard.rarity);
 
@@ -260,7 +315,7 @@ const App: React.FC = () => {
                 updateGameState({ storage: [...gameState.storage, newCard] });
             }
         }
-    }, [gameState.coins, isDevMode, settings.animationsOn, trackEvolutionTask, gameState.storage, playSfx]);
+    }, [gameState, isDevMode, settings.animationsOn, trackEvolutionTask, playSfx]);
 
     const handlePackAnimationEnd = (card: CardType) => {
         setPackCard(null);
@@ -485,7 +540,7 @@ const App: React.FC = () => {
     const renderView = () => {
         switch (currentView) {
             case 'store':
-                return <Store onOpenPack={(packType) => handleOpenPack(packType, false)} coins={gameState.coins} isDevMode={isDevMode} t={t} />;
+                return <Store onOpenPack={(packType) => handleOpenPack(packType, false)} gameState={gameState} isDevMode={isDevMode} t={t} />;
             case 'collection':
                 return <Collection gameState={gameState} setGameState={updateGameState} setCardForOptions={setCardWithOptions} t={t} />;
             case 'market':

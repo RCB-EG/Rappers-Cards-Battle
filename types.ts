@@ -98,6 +98,8 @@ export interface GameState {
     tasks: Record<string, number>;
   } | null;
   lastRewardClaimTime: number | null;
+  freePacksOpenedToday: number;
+  lastFreePackResetTime: number | null;
 }
 
 export interface Deal {
