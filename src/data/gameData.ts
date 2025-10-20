@@ -127,17 +127,18 @@ export const packs: Record<PackType, PackData> = {
     cost: 4000,
     rarityChances: {
       silver: 10,
-      gold: 84,
-      rotm: 3,
+      gold: 83,
+      rotm: 4,
       icon: 3,
     },
   },
   legendary: {
     cost: 40000,
     rarityChances: {
-      gold: 80,
-      rotm: 10,
-      icon: 10,
+      gold: 70,
+      rotm: 15,
+      icon: 14,
+      legend: 1,
     },
   },
 };
