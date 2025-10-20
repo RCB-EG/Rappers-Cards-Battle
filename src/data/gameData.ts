@@ -110,34 +110,34 @@ export const packs: Record<PackType, PackData> = {
   free: {
     cost: 0,
     rarityChances: {
-      bronze: 85,
-      silver: 15,
+      bronze: 65,
+      silver: 25,
+      gold: 10,
     },
   },
   builder: {
     cost: 1200,
     rarityChances: {
-      bronze: 60,
+      bronze: 45,
       silver: 35,
-      gold: 5,
+      gold: 20,
     },
   },
   special: {
     cost: 4000,
     rarityChances: {
-      silver: 58,
-      gold: 35,
-      rotm: 5,
-      icon: 2,
+      silver: 10,
+      gold: 84,
+      rotm: 3,
+      icon: 3,
     },
   },
   legendary: {
     cost: 40000,
     rarityChances: {
-      gold: 74,
-      rotm: 15,
+      gold: 80,
+      rotm: 10,
       icon: 10,
-      legend: 1,
     },
   },
 };

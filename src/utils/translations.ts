@@ -1,3 +1,4 @@
+
 export const translations = {
   en: {
     play: 'Play',

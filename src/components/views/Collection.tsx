@@ -29,7 +29,8 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
 
     const formationRating = useMemo(() => {
         if (formationCardCount === 0) return '-';
-        const totalOvr = Object.values(gameState.formation).reduce((sum, card) => sum + ((card as CardType | null)?.ovr || 0), 0);
+        // Fix: Explicitly cast `card` as CardType to resolve errors where `card` is inferred as `unknown`.
+        const totalOvr = Object.values(gameState.formation).reduce((sum: number, card) => sum + ((card as CardType)?.ovr || 0), 0);
         return Math.round(totalOvr / formationCardCount);
     }, [gameState.formation, formationCardCount]);
 

@@ -1,3 +1,4 @@
+
 import React from 'react';
 // Fix: Import Card type for casting.
 import { GameState, Card } from '../types';
@@ -15,8 +16,8 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ gameState, onToggleDevMode, isDevMode, onOpenSettings, lang, setLang, t }) => {
-    // Fix: Explicitly cast 'card' as Card to access 'value' property safely.
-    const formationValue = Object.values(gameState.formation).reduce((sum, card) => sum + ((card as Card | null)?.value || 0), 0);
+    // Fix: Explicitly cast `card` as Card to resolve 'unknown' type error.
+    const formationValue = Object.values(gameState.formation).reduce((sum: number, card) => sum + ((card as Card)?.value || 0), 0);
 
     return (
         <header>

@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 // Fix: Correctly import all necessary types from the central types definition file.
-import { GameState, Card as CardType, GameView, PackType, MarketCard, Settings, FBCChallenge, Evolution, FormationLayoutId, Stats } from './types';
+import { GameState, Card as CardType, GameView, PackType, MarketCard, Settings, FBCChallenge, Evolution, FormationLayoutId, Stats, Deal } from './types';
 import { initialState } from './data/initialState';
 import { allCards, packs, fbcData, evoData, formationLayouts } from './data/gameData';
 import { translations, TranslationKey } from './utils/translations';

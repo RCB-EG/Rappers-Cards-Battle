@@ -1,3 +1,5 @@
+
+
 import React, { useState } from 'react';
 import { PackType } from '../../types';
 import Modal from '../modals/Modal';
@@ -78,7 +80,10 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, coins, isDevMode, t }) => {
                     <div className="text-center text-white">
                         <div className="text-left my-4 p-4 bg-black/20 rounded-md">
                             <h4 className="font-header text-gold-light text-xl mb-2">Probabilities:</h4>
-                            {Object.entries(currentPackData.rarityChances).map(([rarity, chance]) =>(
+                            {/* Fix: Use a `typeof` check to properly narrow the type of `chance` from unknown and fix the comparison error. */}
+                            {Object.entries(currentPackData.rarityChances)
+                                .filter(([, chance]) => typeof chance === 'number' && chance > 0)
+                                .map(([rarity, chance]) =>(
                                 <p key={rarity} className="capitalize text-gray-300">{rarity}: {chance}%</p>
                             ))}
                         </div>
