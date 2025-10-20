@@ -130,7 +130,9 @@ export interface Deal {
 
 export interface User {
     username: string;
-    password?: string; // Password can be optional for some flows
+    email?: string;
+    password?: string;
+    avatar?: string;
 }
 
 export type CurrentUser = User | null;

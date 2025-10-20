@@ -20,6 +20,8 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode, isDevMode, onOpenSettings, onOpenLogin, onOpenSignUp, onLogout, lang, setLang, t }) => {
     const formationValue = Object.values(gameState.formation).reduce((sum: number, card) => sum + ((card as Card)?.value || 0), 0);
     const displayName = currentUser ? currentUser.username : t('user_guest');
+    const avatarSrc = currentUser?.avatar || `https://api.dicebear.com/8.x/bottts/svg?seed=guest&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+
 
     return (
         <header>
@@ -57,8 +59,9 @@ const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode
                     <div className="stat-box bg-[rgba(10,10,10,0.7)] rounded-lg px-5 py-2 min-w-[160px] border border-gold-dark/30 shadow-glow flex items-center justify-center text-lg text-white gap-2">
                         <span>{t('stat_value')}:</span> <span className="text-gold-light">{formationValue}</span>
                     </div>
-                    <div className="stat-box bg-[rgba(10,10,10,0.7)] rounded-lg px-5 py-2 min-w-[160px] border border-gold-dark/30 shadow-glow flex items-center justify-center text-lg text-white gap-2">
-                         <span>{t('stat_user')}:</span> <span className="text-gold-light">{displayName}</span>
+                    <div className="stat-box bg-[rgba(10,10,10,0.7)] rounded-lg px-5 py-2 min-w-[160px] border border-gold-dark/30 shadow-glow flex items-center justify-center text-lg text-white gap-3">
+                         <img src={avatarSrc} alt="User Avatar" className="w-8 h-8 rounded-full border-2 border-gold-dark/50 bg-gray-700" />
+                         <span className="text-gold-light">{displayName}</span>
                     </div>
                 </div>
             </div>

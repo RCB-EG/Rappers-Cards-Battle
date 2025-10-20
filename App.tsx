@@ -146,6 +146,10 @@ const App: React.FC = () => {
             setAuthError('Username already taken.');
             return;
         }
+        if (accounts.some((acc: User) => acc.email === user.email)) {
+            setAuthError(t('email_taken'));
+            return;
+        }
         accounts.push(user);
         localStorage.setItem('rappersGameAccounts', JSON.stringify(accounts));
         

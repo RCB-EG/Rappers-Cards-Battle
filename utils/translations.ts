@@ -106,9 +106,13 @@ export const translations = {
     logout: 'Logout',
     username: 'Username',
     password: 'Password',
+    email_address: 'Email Address',
     login_title: 'Log In to Your Account',
     signup_title: 'Create an Account',
     user_guest: 'Guest',
+    email_taken: 'This email is already registered.',
+    choose_avatar: 'Choose Your Avatar',
+    error_avatar_required: 'Please select an avatar.',
   },
   ar: {
     play: 'العب',
@@ -217,9 +221,13 @@ export const translations = {
     logout: 'تسجيل الخروج',
     username: 'اسم المستخدم',
     password: 'كلمة المرور',
+    email_address: 'البريد الإلكتروني',
     login_title: 'تسجيل الدخول إلى حسابك',
     signup_title: 'إنشاء حساب جديد',
     user_guest: 'زائر',
+    email_taken: 'هذا البريد الإلكتروني مسجل بالفعل.',
+    choose_avatar: 'اختر صورتك الرمزية',
+    error_avatar_required: 'يرجى اختيار صورة رمزية.',
   },
 };
 

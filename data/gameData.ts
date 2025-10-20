@@ -243,3 +243,15 @@ export const formationLayouts: Record<FormationLayoutId, FormationStructure> = {
       allPositions: ['lw', 'st', 'rw', 'lm', 'cm1', 'cm2', 'rm', 'cb1', 'cb2', 'cb3', 'gk'],
   }
 };
+
+export const avatars: string[] = [
+    'https://i.imghippo.com/files/TJIH8608wZk.png',
+    'https://i.imghippo.com/files/XrUB6208Bo.png',
+    'https://i.imghippo.com/files/xJZ6974gJo.png',
+    'https://i.imghippo.com/files/KhA8194TQM.png',
+    'https://i.imghippo.com/files/pri9634jY.png',
+    'https://i.imghippo.com/files/MMSE8115wr.png',
+    'https://i.imghippo.com/files/tvk2942qe.png',
+    'https://i.imghippo.com/files/NY2664HFI.png',
+    'https://i.imghippo.com/files/Xq2208pkM.png',
+];
