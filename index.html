@@ -319,6 +319,15 @@
           font-family: 'Lilita One', cursive;
       }
       
+      /* --- NOTIFICATION BADGE --- */
+      @keyframes pulse-badge {
+          0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+          50% { transform: scale(1.05); box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
+      }
+      .notification-badge {
+          animation: pulse-badge 2s infinite;
+      }
+      
       /* --- MOBILE OPTIMIZATIONS (screens smaller than 768px) --- */
       @media (max-width: 768px) {
         body {

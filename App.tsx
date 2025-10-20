@@ -1,5 +1,6 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 // Fix: Correctly import all necessary types from the central types definition file.
 import { GameState, Card as CardType, GameView, PackType, MarketCard, Settings, FBCChallenge, Evolution, FormationLayoutId, Stats, Deal, ObjectiveProgress } from './types';
 import { initialState } from './data/initialState';
@@ -540,6 +541,37 @@ const App: React.FC = () => {
         setIsDailyRewardModalOpen(false);
     };
 
+    // --- NOTIFICATION LOGIC ---
+    const claimableObjectivesCount = useMemo(() => {
+        return objectivesData.reduce((count, obj) => {
+            const progress = gameState.objectiveProgress[obj.id];
+            if (progress && progress.progress >= obj.target && !progress.claimed) {
+                return count + 1;
+            }
+            return count;
+        }, 0);
+    }, [gameState.objectiveProgress]);
+
+    const claimableEvoCount = useMemo(() => {
+        const { activeEvolution } = gameState;
+        if (!activeEvolution) return 0;
+
+        const evoDef = evoData.find(e => e.id === activeEvolution.evoId);
+        if (!evoDef) return 0;
+
+        const allTasksComplete = evoDef.tasks.every(task =>
+            (activeEvolution.tasks[task.id] || 0) >= task.target
+        );
+
+        return allTasksComplete ? 1 : 0;
+    }, [gameState.activeEvolution]);
+
+    const fbcNotificationCount = useMemo(() => {
+        // This notification is disabled because it showed all *available* challenges,
+        // which was confusing. It should only show for claimable/new items.
+        return 0;
+    }, []);
+
     const renderView = () => {
         switch (currentView) {
             case 'store':
@@ -572,7 +604,16 @@ const App: React.FC = () => {
                     <Particles />
                     <Header gameState={gameState} onToggleDevMode={handleToggleDevMode} isDevMode={isDevMode} onOpenSettings={() => setIsSettingsOpen(true)} lang={lang} setLang={setLang} t={t} />
                     <main className="container mx-auto px-4 pb-8">
-                        <Navigation currentView={currentView} setCurrentView={setCurrentView} t={t} />
+                        <Navigation 
+                            currentView={currentView} 
+                            setCurrentView={setCurrentView} 
+                            t={t}
+                            notificationCounts={{
+                                objectives: claimableObjectivesCount,
+                                evo: claimableEvoCount,
+                                fbc: fbcNotificationCount,
+                            }}
+                        />
                         {renderView()}
                     </main>
                 </>
