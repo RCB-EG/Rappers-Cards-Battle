@@ -127,3 +127,10 @@ export interface Deal {
     offeredCard: Card;
     message: string;
 }
+
+export interface User {
+    username: string;
+    password?: string; // Password can be optional for some flows
+}
+
+export type CurrentUser = User | null;
