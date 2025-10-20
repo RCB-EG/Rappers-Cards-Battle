@@ -1,4 +1,4 @@
-import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats } from '../types';
+import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective } from '../types';
 
 const generateStats = (ovr: number): Stats => {
     const base = ovr > 70 ? ovr - 10 : ovr - 5;
@@ -174,6 +174,16 @@ export const evoData: Evolution[] = [
         resultCardId: 'evo_abo_1'
     }
 ];
+
+export const objectivesData: Objective[] = [
+    // Daily
+    { id: 'd1', type: 'daily', descriptionKey: 'obj_open_free_pack', task: 'open_free_packs', target: 1, reward: { type: 'coins', amount: 250 } },
+    { id: 'd2', type: 'daily', descriptionKey: 'obj_list_card', task: 'list_market_cards', target: 1, reward: { type: 'coins', amount: 500 } },
+    // Weekly
+    { id: 'w1', type: 'weekly', descriptionKey: 'obj_open_builder_packs', task: 'open_builder_packs', target: 5, reward: { type: 'pack', packType: 'builder' } },
+    { id: 'w2', type: 'weekly', descriptionKey: 'obj_complete_fbc', task: 'complete_fbcs', target: 1, reward: { type: 'coins', amount: 2000 } },
+];
+
 
 interface Position {
   id: string;

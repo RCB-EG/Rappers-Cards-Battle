@@ -36,6 +36,7 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setCurrentView, t 
     { labelKey: 'nav_battle', view: 'battle' },
     { labelKey: 'nav_fbc', view: 'fbc' },
     { labelKey: 'nav_evo', view: 'evo' },
+    { labelKey: 'nav_objectives', view: 'objectives' },
   ];
 
   return (

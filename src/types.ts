@@ -2,7 +2,7 @@
 
 export type Rarity = 'bronze' | 'silver' | 'gold' | 'icon' | 'rotm' | 'legend' | 'event';
 
-export type GameView = 'store' | 'collection' | 'market' | 'battle' | 'fbc' | 'evo';
+export type GameView = 'store' | 'collection' | 'market' | 'battle' | 'fbc' | 'evo' | 'objectives';
 
 export type PackType = 'free' | 'builder' | 'special' | 'legendary';
 
@@ -75,6 +75,24 @@ export interface Evolution {
     resultCardId: string;
 }
 
+export interface Objective {
+  id: string;
+  type: 'daily' | 'weekly';
+  descriptionKey: string;
+  task: string;
+  target: number;
+  reward: {
+    type: 'coins' | 'pack';
+    amount?: number;
+    packType?: PackType;
+  };
+}
+
+export interface ObjectiveProgress {
+    progress: number;
+    claimed: boolean;
+}
+
 export interface Settings {
   musicOn: boolean;
   musicVolume: number;
@@ -100,6 +118,9 @@ export interface GameState {
   lastRewardClaimTime: number | null;
   freePacksOpenedToday: number;
   lastFreePackResetTime: number | null;
+  objectiveProgress: Record<string, ObjectiveProgress>;
+  lastDailyReset: number | null;
+  lastWeeklyReset: number | null;
 }
 
 export interface Deal {
