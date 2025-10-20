@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState } from 'react';
 import { GameState, Objective } from '../../types';
-import { objectivesData } from '../../data/gameData';
+import { objectiveData } from '../../data/objectiveData';
 import Button from '../Button';
 import { TranslationKey } from '../../utils/translations';
 
@@ -10,23 +11,16 @@ interface ObjectivesProps {
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
 }
 
-const formatTimeLeft = (ms: number) => {
-    const totalSeconds = Math.floor(ms / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-};
-
 const ObjectiveItem: React.FC<{
     objective: Objective;
     progress: number;
-    isClaimed: boolean;
+    claimed: boolean;
     onClaim: () => void;
-    t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
-}> = ({ objective, progress, isClaimed, onClaim, t }) => {
+    t: (key: TranslationKey) => string;
+}> = ({ objective, progress, claimed, onClaim, t }) => {
     const isComplete = progress >= objective.target;
-    
+    const progressPercentage = Math.min(100, (progress / objective.target) * 100);
+
     const renderReward = () => {
         if (objective.reward.type === 'coins') {
             return `${objective.reward.amount} ${t('coins')}`;
@@ -38,26 +32,21 @@ const ObjectiveItem: React.FC<{
     };
 
     return (
-        <div className="bg-darker-gray/50 p-4 rounded-lg border border-gold-dark/20 flex flex-col md:flex-row items-center gap-4">
+        <div className={`bg-black/20 p-4 rounded-lg border-l-4 ${isComplete && !claimed ? 'border-gold-light' : 'border-gray-600'} flex flex-col md:flex-row items-center justify-between gap-4`}>
             <div className="flex-grow w-full">
-                <p className="text-lg text-white">{t(objective.descriptionKey as TranslationKey)}</p>
-                <div className="w-full bg-black/30 rounded-full h-4 mt-1 border border-gray-600">
-                    <div 
-                        className="bg-gradient-to-r from-gold-dark to-gold-light h-full rounded-full transition-all duration-500"
-                        style={{ width: `${Math.min(100, (progress / objective.target) * 100)}%` }}
-                    ></div>
+                <p className="text-white text-lg">{objective.description}</p>
+                <div className="w-full bg-gray-700 rounded-full h-2.5 mt-2">
+                    <div className="bg-gold-light h-2.5 rounded-full transition-all duration-500" style={{ width: `${progressPercentage}%` }}></div>
                 </div>
-                <p className="text-sm text-gray-400 text-right">{Math.min(progress, objective.target)} / {objective.target}</p>
+                 <p className="text-sm text-gray-400 mt-1">{Math.min(progress, objective.target)} / {objective.target}</p>
             </div>
             <div className="flex-shrink-0 flex flex-col items-center gap-2">
-                 <p className="text-gold-light font-bold">{renderReward()}</p>
-                 <Button 
-                    variant={isClaimed || !isComplete ? 'default' : 'keep'} 
-                    onClick={onClaim} 
-                    disabled={!isComplete || isClaimed}
-                >
-                    {isClaimed ? t('completed') : t('claim')}
-                </Button>
+                 <p className="font-bold text-gold-light">{renderReward()}</p>
+                {claimed ? (
+                    <Button disabled>{t('objectives_completed')}</Button>
+                ) : (
+                    <Button variant="keep" onClick={onClaim} disabled={!isComplete}>{t('objectives_claim')}</Button>
+                )}
             </div>
         </div>
     );
@@ -65,67 +54,46 @@ const ObjectiveItem: React.FC<{
 
 
 const Objectives: React.FC<ObjectivesProps> = ({ gameState, onClaimReward, t }) => {
-    const [now, setNow] = useState(Date.now());
+    const [activeTab, setActiveTab] = useState<'daily' | 'weekly'>('daily');
 
-    useEffect(() => {
-        const timer = setInterval(() => setNow(Date.now()), 1000);
-        return () => clearInterval(timer);
-    }, []);
-    
-    const dailyObjectives = objectivesData.filter(obj => obj.type === 'daily');
-    const weeklyObjectives = objectivesData.filter(obj => obj.type === 'weekly');
-    
-    const nextDailyReset = (gameState.lastDailyReset || now) + 24 * 60 * 60 * 1000;
-    const nextWeeklyReset = (gameState.lastWeeklyReset || now) + 7 * 24 * 60 * 60 * 1000;
+    const renderObjectives = (type: 'daily' | 'weekly') => {
+        const objectives = objectiveData[type];
+        return objectives.map(obj => {
+            const progress = gameState.objectives[obj.id] || { progress: 0, claimed: false };
+            return (
+                <ObjectiveItem 
+                    key={obj.id}
+                    objective={obj}
+                    progress={progress.progress}
+                    claimed={progress.claimed}
+                    onClaim={() => onClaimReward(obj.id)}
+                    t={t}
+                />
+            );
+        });
+    };
 
     return (
         <div className="animate-fadeIn">
             <h2 className="font-header text-4xl text-white text-center mb-6 [text-shadow:0_0_5px_#00c7e2,0_0_10px_#00c7e2]">{t('header_objectives')}</h2>
-
-            {/* Daily Objectives */}
-            <div className="mb-8">
-                <div className="flex justify-between items-baseline mb-3">
-                    <h3 className="font-header text-3xl text-gold-light">{t('daily_objectives')}</h3>
-                    <p className="text-gray-400">{t('resets_in', { time: formatTimeLeft(nextDailyReset - now) })}</p>
-                </div>
-                <div className="space-y-3">
-                    {dailyObjectives.map(obj => {
-                        const currentProgress = gameState.objectiveProgress[obj.id] || { progress: 0, claimed: false };
-                        return (
-                             <ObjectiveItem
-                                key={obj.id}
-                                objective={obj}
-                                progress={currentProgress.progress}
-                                isClaimed={currentProgress.claimed}
-                                onClaim={() => onClaimReward(obj.id)}
-                                t={t}
-                            />
-                        )
-                    })}
-                </div>
+            
+            <div className="flex justify-center mb-6 border-b-2 border-gold-dark/30">
+                <button 
+                    onClick={() => setActiveTab('daily')}
+                    className={`px-6 py-2 font-header text-2xl transition-colors duration-200 ${activeTab === 'daily' ? 'text-gold-light border-b-2 border-gold-light' : 'text-gray-500'}`}
+                >
+                    {t('objectives_daily')}
+                </button>
+                <button 
+                    onClick={() => setActiveTab('weekly')}
+                    className={`px-6 py-2 font-header text-2xl transition-colors duration-200 ${activeTab === 'weekly' ? 'text-gold-light border-b-2 border-gold-light' : 'text-gray-500'}`}
+                >
+                    {t('objectives_weekly')}
+                </button>
             </div>
 
-            {/* Weekly Objectives */}
-            <div>
-                <div className="flex justify-between items-baseline mb-3">
-                    <h3 className="font-header text-3xl text-gold-light">{t('weekly_objectives')}</h3>
-                    <p className="text-gray-400">{t('resets_in', { time: formatTimeLeft(nextWeeklyReset - now) })}</p>
-                </div>
-                <div className="space-y-3">
-                    {weeklyObjectives.map(obj => {
-                         const currentProgress = gameState.objectiveProgress[obj.id] || { progress: 0, claimed: false };
-                         return (
-                              <ObjectiveItem
-                                 key={obj.id}
-                                 objective={obj}
-                                 progress={currentProgress.progress}
-                                 isClaimed={currentProgress.claimed}
-                                 onClaim={() => onClaimReward(obj.id)}
-                                 t={t}
-                             />
-                         )
-                    })}
-                </div>
+            <div className="space-y-4">
+                {activeTab === 'daily' ? renderObjectives('daily') : renderObjectives('weekly')}
             </div>
         </div>
     );

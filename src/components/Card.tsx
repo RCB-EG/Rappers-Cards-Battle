@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Card as CardType } from '../types';
 
@@ -37,24 +36,12 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
     ${isEvolving ? 'is-evolving' : ''}
     ${className}
   `;
-  
-  // Style to prevent mobile context menu and selection
-  const cardStyle: React.CSSProperties = {
-    WebkitTouchCallout: 'none', // iOS Safari
-    userSelect: 'none',
-    WebkitUserSelect: 'none', // Safari
-    MozUserSelect: 'none', // Firefox
-    msUserSelect: 'none', // IE/Edge
-  };
-
 
   return (
     <div
       className={cardContainerClasses}
       data-card-id={card.id}
       data-origin={origin}
-      style={cardStyle}
-      onContextMenu={(e) => e.preventDefault()}
       {...props}
     >
       {/* Base layer: Generic rarity background. This is the :first-child for the animation. */}

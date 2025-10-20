@@ -75,22 +75,29 @@ export interface Evolution {
     resultCardId: string;
 }
 
-export interface Objective {
-  id: string;
-  type: 'daily' | 'weekly';
-  descriptionKey: string;
-  task: string;
-  target: number;
-  reward: {
+export interface ObjectiveReward {
     type: 'coins' | 'pack';
     amount?: number;
     packType?: PackType;
-  };
+}
+
+export interface Objective {
+    id: string;
+    description: string;
+    target: number;
+    reward: ObjectiveReward;
+}
+
+export interface ObjectiveData {
+    daily: Objective[];
+    weekly: Objective[];
 }
 
 export interface ObjectiveProgress {
-    progress: number;
-    claimed: boolean;
+    [objectiveId: string]: {
+        progress: number;
+        claimed: boolean;
+    };
 }
 
 export interface Settings {
@@ -118,21 +125,12 @@ export interface GameState {
   lastRewardClaimTime: number | null;
   freePacksOpenedToday: number;
   lastFreePackResetTime: number | null;
-  objectiveProgress: Record<string, ObjectiveProgress>;
-  lastDailyReset: number | null;
-  lastWeeklyReset: number | null;
+  objectives: ObjectiveProgress;
+  lastDailyObjectivesReset: number | null;
+  lastWeeklyObjectivesReset: number | null;
 }
 
 export interface Deal {
     offeredCard: Card;
     message: string;
 }
-
-export interface User {
-    username: string;
-    email?: string;
-    password?: string;
-    avatar?: string;
-}
-
-export type CurrentUser = User | null;

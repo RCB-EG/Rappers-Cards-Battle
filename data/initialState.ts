@@ -1,3 +1,4 @@
+
 import { GameState } from '../types';
 import { formationLayouts } from './gameData';
 
@@ -19,7 +20,7 @@ export const initialState: GameState = {
   lastRewardClaimTime: null,
   freePacksOpenedToday: 0,
   lastFreePackResetTime: null,
-  objectiveProgress: {},
-  lastDailyReset: null,
-  lastWeeklyReset: null,
+  objectives: {},
+  lastDailyObjectivesReset: null,
+  lastWeeklyObjectivesReset: null,
 };

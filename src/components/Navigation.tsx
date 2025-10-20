@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { GameView } from '../types';
 import { TranslationKey } from '../utils/translations';
@@ -7,11 +6,6 @@ interface NavigationProps {
   currentView: GameView;
   setCurrentView: (view: GameView) => void;
   t: (key: TranslationKey) => string;
-  notificationCounts: {
-      objectives: number;
-      evo: number;
-      fbc: number;
-  };
 }
 
 const NavTab: React.FC<{
@@ -19,30 +13,22 @@ const NavTab: React.FC<{
   view: GameView;
   isActive: boolean;
   onClick: (view: GameView) => void;
-  notificationCount: number;
-}> = ({ label, view, isActive, onClick, notificationCount }) => {
+}> = ({ label, view, isActive, onClick }) => {
   const baseClasses = "relative px-4 md:px-8 py-2 font-header text-2xl md:text-3xl tracking-wider cursor-pointer transition-all duration-300 bg-gradient-to-b from-gray-700 to-dark-gray text-gold-dark/70 [clip-path:polygon(0%_50%,8%_0%,92%_0%,100%_50%,92%_100%,8%_100%)] border-t-2 border-b-2 border-t-gray-500 border-b-gray-800 shadow-blue-glow/40";
   const activeClasses = "bg-gradient-to-b from-gray-600 to-gray-800 text-gold-light scale-105 z-10 shadow-[0_0_10px_#00c7e2,0_0_5px_rgba(255,255,255,0.5)]";
   const hoverClasses = "hover:text-gold-light hover:shadow-blue-glow hover:scale-105";
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => onClick(view)}
-        className={`${baseClasses} ${isActive ? activeClasses : hoverClasses}`}
-      >
-        {label}
-      </button>
-      {notificationCount > 0 && (
-          <span className="notification-badge absolute -top-2 -right-2 bg-red-600 text-white text-xs font-main font-bold w-6 h-6 flex items-center justify-center rounded-full border-2 border-darker-gray z-20">
-              {notificationCount}
-          </span>
-      )}
-    </div>
+    <button
+      onClick={() => onClick(view)}
+      className={`${baseClasses} ${isActive ? activeClasses : hoverClasses}`}
+    >
+      {label}
+    </button>
   );
 };
 
-const Navigation: React.FC<NavigationProps> = ({ currentView, setCurrentView, t, notificationCounts }) => {
+const Navigation: React.FC<NavigationProps> = ({ currentView, setCurrentView, t }) => {
   const navItems: { labelKey: TranslationKey; view: GameView }[] = [
     { labelKey: 'nav_store', view: 'store' },
     { labelKey: 'nav_cards', view: 'collection' },
@@ -53,12 +39,6 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setCurrentView, t,
     { labelKey: 'nav_objectives', view: 'objectives' },
   ];
 
-  const countsMap: Partial<Record<GameView, number>> = {
-      objectives: notificationCounts.objectives,
-      evo: notificationCounts.evo,
-      fbc: notificationCounts.fbc,
-  };
-
   return (
     <nav className="mobile-nav-container flex gap-2 md:gap-4 mb-8 flex-wrap justify-center pb-2">
       {navItems.map(item => (
@@ -68,7 +48,6 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setCurrentView, t,
           view={item.view}
           isActive={currentView === item.view}
           onClick={setCurrentView}
-          notificationCount={countsMap[item.view] || 0}
         />
       ))}
     </nav>

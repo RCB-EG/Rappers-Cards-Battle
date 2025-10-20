@@ -127,6 +127,7 @@
 
       /* --- ENHANCED CARD VISUALS --- */
       .card-container {
+        touch-action: none; /* Prevent scrolling/zooming when dragging on mobile */
         overflow: hidden; /* Crucial for shimmer effect */
         -webkit-backface-visibility: hidden;
         -moz-backface-visibility: hidden;
@@ -319,15 +320,6 @@
           font-family: 'Lilita One', cursive;
       }
       
-      /* --- NOTIFICATION BADGE --- */
-      @keyframes pulse-badge {
-          0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-          50% { transform: scale(1.05); box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
-      }
-      .notification-badge {
-          animation: pulse-badge 2s infinite;
-      }
-      
       /* --- MOBILE OPTIMIZATIONS (screens smaller than 768px) --- */
       @media (max-width: 768px) {
         body {
@@ -489,10 +481,6 @@
     <div id="root"></div>
     <audio id="intro-music" src="https://od.lk/s/NTdfMTAxMTA3MjE3Xw/Intro%20Ultra%20Comp.mp3"></audio>
     <audio id="bg-music" loop src="https://od.lk/s/NTdfMTAxMTA3MDY1Xw/Game%20Music%2001.mp3"></audio>
-    
-    <!-- Polyfill for HTML5 Drag & Drop on touch devices -->
-    <script src="https://cdn.jsdelivr.net/npm/drag-drop-touch@1.3.1/DragDropTouch.js"></script>
-    
     <script type="module" src="/src/index.tsx"></script>
   </body>
 </html>
