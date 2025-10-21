@@ -19,7 +19,7 @@ export const initialState: GameState = {
   lastRewardClaimTime: null,
   freePacksOpenedToday: 0,
   lastFreePackResetTime: null,
-  objectives: {},
-  lastDailyObjectivesReset: null,
-  lastWeeklyObjectivesReset: null,
+  objectiveProgress: {},
+  lastDailyReset: null,
+  lastWeeklyReset: null,
 };

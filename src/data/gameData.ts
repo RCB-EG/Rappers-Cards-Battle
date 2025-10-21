@@ -1,4 +1,4 @@
-import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats } from '../types';
+import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective } from '../types';
 
 const generateStats = (ovr: number): Stats => {
     const base = ovr > 70 ? ovr - 10 : ovr - 5;
@@ -127,17 +127,18 @@ export const packs: Record<PackType, PackData> = {
     cost: 4000,
     rarityChances: {
       silver: 10,
-      gold: 84,
-      rotm: 3,
+      gold: 83,
+      rotm: 4,
       icon: 3,
     },
   },
   legendary: {
     cost: 40000,
     rarityChances: {
-      gold: 80,
-      rotm: 10,
-      icon: 10,
+      gold: 70,
+      rotm: 15,
+      icon: 14,
+      legend: 1,
     },
   },
 };
@@ -173,6 +174,16 @@ export const evoData: Evolution[] = [
         resultCardId: 'evo_abo_1'
     }
 ];
+
+export const objectivesData: Objective[] = [
+    // Daily
+    { id: 'd1', type: 'daily', descriptionKey: 'obj_open_free_pack', task: 'open_free_packs', target: 1, reward: { type: 'coins', amount: 250 } },
+    { id: 'd2', type: 'daily', descriptionKey: 'obj_list_card', task: 'list_market_cards', target: 1, reward: { type: 'coins', amount: 500 } },
+    // Weekly
+    { id: 'w1', type: 'weekly', descriptionKey: 'obj_open_builder_packs', task: 'open_builder_packs', target: 5, reward: { type: 'pack', packType: 'builder' } },
+    { id: 'w2', type: 'weekly', descriptionKey: 'obj_complete_fbc', task: 'complete_fbcs', target: 1, reward: { type: 'coins', amount: 2000 } },
+];
+
 
 interface Position {
   id: string;
@@ -232,3 +243,15 @@ export const formationLayouts: Record<FormationLayoutId, FormationStructure> = {
       allPositions: ['lw', 'st', 'rw', 'lm', 'cm1', 'cm2', 'rm', 'cb1', 'cb2', 'cb3', 'gk'],
   }
 };
+
+export const avatars: string[] = [
+    'https://i.imghippo.com/files/TJIH8608wZk.png',
+    'https://i.imghippo.com/files/XrUB6208Bo.png',
+    'https://i.imghippo.com/files/xJZ6974gJo.png',
+    'https://i.imghippo.com/files/KhA8194TQM.png',
+    'https://i.imghippo.com/files/pri9634jY.png',
+    'https://i.imghippo.com/files/MMSE8115wr.png',
+    'https://i.imghippo.com/files/tvk2942qe.png',
+    'https://i.imghippo.com/files/NY2664HFI.png',
+    'https://i.imghippo.com/files/Xq2208pkM.png',
+];

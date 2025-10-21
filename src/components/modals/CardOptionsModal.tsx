@@ -11,6 +11,8 @@ interface CardOptionsModalProps {
   onClose: () => void;
   onListCard: (card: CardType) => void;
   onQuickSell: (card: CardType) => void;
+  onAddToFormation: (card: CardType) => void;
+  isFormationFull: boolean;
   t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
 }
 
@@ -29,16 +31,20 @@ const getRarityColorClass = (rarity: CardType['rarity']) => {
 }
 
 
-const CardOptionsModal: React.FC<CardOptionsModalProps> = ({ cardWithOptions, onClose, onListCard, onQuickSell, t }) => {
+const CardOptionsModal: React.FC<CardOptionsModalProps> = ({ cardWithOptions, onClose, onListCard, onQuickSell, onAddToFormation, isFormationFull, t }) => {
   if (!cardWithOptions) return null;
 
-  const { card } = cardWithOptions;
+  const { card, origin } = cardWithOptions;
   const quickSellValue = calculateQuickSellValue(card);
   
   const handleListClick = () => {
     onListCard(card);
     onClose();
   }
+  
+  const handleAddToFormationClick = () => {
+    onAddToFormation(card);
+  };
 
   return (
     // Make modal wider to accommodate the larger card and info
@@ -84,6 +90,17 @@ const CardOptionsModal: React.FC<CardOptionsModalProps> = ({ cardWithOptions, on
           </div>
           
           <div className="flex flex-col items-center gap-3 mt-4">
+             {origin === 'storage' && (
+              <Button
+                variant="keep"
+                className="w-full"
+                onClick={handleAddToFormationClick}
+                disabled={isFormationFull}
+                title={isFormationFull ? "Your formation is full" : ""}
+              >
+                {t('add_to_formation')}
+              </Button>
+            )}
             <Button variant="sell" className="w-full" onClick={() => onQuickSell(card)}>{t('sell_card', { value: quickSellValue })}</Button>
             <Button variant="default" className="w-full" onClick={handleListClick}>{t('list_on_market')}</Button>
           </div>
