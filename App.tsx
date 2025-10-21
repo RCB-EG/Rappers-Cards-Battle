@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser } from './types';
+import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective } from './types';
 import { initialState } from './data/initialState';
 import { allCards, packs, fbcData, evoData, formationLayouts, objectivesData } from './data/gameData';
 import { translations, TranslationKey } from './utils/translations';
@@ -91,14 +92,36 @@ const App: React.FC = () => {
         let savedState = savedStateJSON ? JSON.parse(savedStateJSON) : null;
         
         if (savedState) {
-             // Migration for older saves
+            // Data Migrations
             if (Array.isArray(savedState.formation)) {
                 const migratedLayout: FormationLayoutId = '4-4-2';
                 const newFormation: Record<string, CardType | null> = {};
                 formationLayouts[migratedLayout].allPositions.forEach(posId => { newFormation[posId] = null; });
                 savedState = { ...initialState, ...savedState, formation: newFormation, formationLayout: migratedLayout, storage: [...savedState.storage, ...savedState.formation] };
             }
-             setGameState({ ...initialState, ...savedState });
+            const firstObjectiveProgressValue = Object.values(savedState.objectiveProgress || {})[0] as any;
+            if (firstObjectiveProgressValue && firstObjectiveProgressValue.tasks === undefined) {
+                const migratedProgress: GameState['objectiveProgress'] = {};
+                // Fix: Correctly type the old objectives for migration to prevent type errors.
+                const oldObjectives: ({ id: string; type: 'daily' | 'weekly'; descriptionKey: string; task: string; target: number; reward: Objective['reward']; })[] = [
+                    { id: 'd1', type: 'daily', descriptionKey: 'obj_open_free_pack_task', task: 'open_free_packs', target: 1, reward: { type: 'coins', amount: 250 } },
+                    { id: 'd2', type: 'daily', descriptionKey: 'obj_list_card_task', task: 'list_market_cards', target: 1, reward: { type: 'coins', amount: 500 } },
+                    { id: 'w1', type: 'weekly', descriptionKey: 'obj_open_builder_packs_task', task: 'open_builder_packs', target: 5, reward: { type: 'pack', packType: 'builder' } },
+                    { id: 'w2', type: 'weekly', descriptionKey: 'obj_complete_fbc_task', task: 'complete_fbcs', target: 1, reward: { type: 'coins', amount: 2000 } },
+                ];
+                oldObjectives.forEach(obj => {
+                    const oldProg = savedState.objectiveProgress[obj.id];
+                    if (oldProg) {
+                        migratedProgress[obj.id] = {
+                            tasks: { [obj.task]: oldProg.progress || 0 },
+                            claimed: oldProg.claimed || false
+                        };
+                    }
+                });
+                savedState.objectiveProgress = migratedProgress;
+            }
+            
+            setGameState({ ...initialState, ...savedState });
         } else if (user) { // New user with no save, give them initial state
             setGameState({ ...initialState, userId: user.username });
         } else { // New guest
@@ -214,22 +237,73 @@ const App: React.FC = () => {
         });
     }, []);
 
-    const trackObjectiveProgress = useCallback((task: string, amount: number) => {
-        setGameState(prev => {
-            const updatedProgress = { ...prev.objectiveProgress };
-            let changed = false;
-            objectivesData.forEach(obj => {
-                if (obj.task === task && !(updatedProgress[obj.id]?.claimed)) {
-                    const current = updatedProgress[obj.id] || { progress: 0, claimed: false };
-                    updatedProgress[obj.id] = { ...current, progress: current.progress + amount };
-                    changed = true;
+    // Effect for state-based evolution tasks
+    useEffect(() => {
+        const { activeEvolution, formation } = gameState;
+        if (!activeEvolution) return;
+
+        const evoDef = evoData.find(e => e.id === activeEvolution.evoId);
+        if (!evoDef) return;
+
+        // Check for Tommy Gun evolution tasks
+        if (evoDef.id === 'tommy_gun_upgrade') {
+            const evolvingCardInFormation = Object.values(formation).find(c => (c as CardType | null)?.id === activeEvolution.cardId);
+
+            const task1Id = 'tommy_gun_in_formation';
+            if (evolvingCardInFormation && (activeEvolution.tasks[task1Id] || 0) < 1) {
+                trackEvolutionTask(task1Id, 1);
+            }
+
+            const task2Id = 'formation_rating_82';
+            if (evolvingCardInFormation && (activeEvolution.tasks[task2Id] || 0) < 1) {
+                const formationCards = Object.values(formation).filter(Boolean) as CardType[];
+                const formationCardCount = formationCards.length;
+                if (formationCardCount > 0) {
+                    const totalOvr = formationCards.reduce((sum, card) => sum + card.ovr, 0);
+                    const formationRating = Math.round(totalOvr / formationCardCount);
+                    if (formationRating >= 82) {
+                        trackEvolutionTask(task2Id, 1);
+                    }
                 }
+            }
+        }
+    }, [gameState.formation, gameState.activeEvolution, trackEvolutionTask]);
+    
+    const trackObjectiveProgress = useCallback((task: string, amount: number, mode: 'increment' | 'set' = 'increment') => {
+        setGameState(prev => {
+            const updatedProgress = JSON.parse(JSON.stringify(prev.objectiveProgress));
+            let changed = false;
+
+            objectivesData.forEach(obj => {
+                if (updatedProgress[obj.id]?.claimed) return;
+
+                obj.tasks.forEach(taskInfo => {
+                    if (taskInfo.id === task) {
+                        if (!updatedProgress[obj.id]) {
+                            updatedProgress[obj.id] = { tasks: {}, claimed: false };
+                        }
+                        const current = updatedProgress[obj.id].tasks[task] || 0;
+                        const newValue = mode === 'increment' ? current + amount : amount;
+                        if (current !== newValue) {
+                            updatedProgress[obj.id].tasks[task] = newValue;
+                            changed = true;
+                        }
+                    }
+                });
             });
+
             return changed ? { ...prev, objectiveProgress: updatedProgress } : prev;
         });
     }, []);
+
+    // Effect for state-based objectives (e.g., formation composition)
+    useEffect(() => {
+        const goldCardsInFormation = Object.values(gameState.formation).filter(c => c && c.rarity === 'gold').length;
+        const requiredGoldCards = 11;
+        trackObjectiveProgress('formation_11_gold', goldCardsInFormation >= requiredGoldCards ? 1 : 0, 'set');
+    }, [gameState.formation, trackObjectiveProgress]);
     
-    const handleOpenPack = useCallback((packType: PackType, isReward = false) => {
+    const handleOpenPack = useCallback((packType: PackType, isReward = false, bypassLimit = false) => {
         playSfx('packBuildup');
         const pack = packs[packType];
         const { rarityChances } = pack;
@@ -244,7 +318,7 @@ const App: React.FC = () => {
             }
         }
         if (!chosenRarity) chosenRarity = 'bronze';
-        const possibleCards = allCards.filter(c => c.rarity === chosenRarity);
+        const possibleCards = allCards.filter(c => c.rarity === chosenRarity && c.isPackable !== false);
         const newCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
 
         setGameState(prev => {
@@ -253,7 +327,7 @@ const App: React.FC = () => {
                 return prev;
             }
             let stateUpdates: Partial<GameState> = {};
-            if (packType === 'free') {
+            if (packType === 'free' && !bypassLimit) {
                 const twelveHours = 12 * 60 * 60 * 1000;
                 const now = Date.now();
                 let { freePacksOpenedToday, lastFreePackResetTime } = prev;
@@ -352,10 +426,11 @@ const App: React.FC = () => {
         setMessageModal({ title: 'Card Listed', message: `${card.name} has been listed on the market for ${price} coins.` });
     };
 
-    const handleQuickSell = (card: CardType) => {
+    // Fix: Renamed `card` parameter to `cardToSell` to avoid potential scoping issues that may cause type inference failures.
+    const handleQuickSell = (cardToSell: CardType) => {
         const { formation, storage } = gameState;
-        const quickSellValue = calculateQuickSellValue(card);
-        const formationPos = Object.keys(formation).find(pos => formation[pos]?.id === card.id);
+        const quickSellValue = calculateQuickSellValue(cardToSell);
+        const formationPos = Object.keys(formation).find(pos => formation[pos]?.id === cardToSell.id);
         
         if (formationPos) {
             const newFormation = { ...formation, [formationPos]: null };
@@ -365,17 +440,18 @@ const App: React.FC = () => {
             });
         } else {
             updateGameState({
-                storage: storage.filter(c => c.id !== card.id),
+                storage: storage.filter(c => c.id !== cardToSell.id),
                 coins: gameState.coins + quickSellValue
             });
         }
 
-        if(card.rarity === 'gold') {
+        // Fix: Added a type assertion to `cardToSell` to resolve a TypeScript error where the type was being inferred as `unknown`.
+        if((cardToSell as CardType).rarity === 'gold') {
             trackEvolutionTask('quicksell_gold_card', 1);
         }
         
         setCardWithOptions(null);
-        setMessageModal({ title: 'Card Sold', message: `You quick sold ${card.name} for ${quickSellValue} coins.` });
+        setMessageModal({ title: 'Card Sold', message: `You quick sold ${cardToSell.name} for ${quickSellValue} coins.` });
     };
 
     const handleFbcSubmit = (challengeId: string, submittedCards: CardType[]) => {
@@ -415,7 +491,7 @@ const App: React.FC = () => {
         });
 
         if (challenge.reward.type === 'pack' && challenge.reward.details) {
-            handleOpenPack(challenge.reward.details, true);
+            handleOpenPack(challenge.reward.details, true, challenge.reward.bypassLimit);
         }
         
         trackObjectiveProgress('complete_fbcs', 1);
@@ -444,6 +520,8 @@ const App: React.FC = () => {
         if (!evoDef || !resultCard) return;
 
         playSfx('rewardClaimed');
+        trackObjectiveProgress('complete_evos', 1);
+        
         setGameState(prev => {
             const originalCardId = prev.activeEvolution!.cardId;
             let newFormation = { ...prev.formation };
@@ -474,16 +552,38 @@ const App: React.FC = () => {
         const objective = objectivesData.find(o => o.id === objectiveId);
         if (!objective) return;
         const progress = gameState.objectiveProgress[objectiveId];
-        if (!progress || progress.claimed || progress.progress < objective.target) return;
-
+        const allTasksComplete = objective.tasks.every(task => (progress?.tasks?.[task.id] || 0) >= task.target);
+        if (!progress || progress.claimed || !allTasksComplete) return;
+    
         playSfx('rewardClaimed');
         setGameState(prev => {
+            let newCoins = prev.coins;
+            let newStorage = [...prev.storage];
+            let rewardCard: CardType | undefined;
+            let rewardMessage = '';
+
             const newProgress = { ...prev.objectiveProgress, [objectiveId]: { ...progress, claimed: true } };
-            if (objective.reward.type === 'coins' && objective.reward.amount) {
-                setMessageModal({ title: 'Reward Claimed!', message: `You received ${objective.reward.amount} coins.` });
-                return { ...prev, coins: prev.coins + objective.reward.amount, objectiveProgress: newProgress };
+
+            switch (objective.reward.type) {
+                case 'coins':
+                    newCoins += objective.reward.amount!;
+                    rewardMessage = `You received ${objective.reward.amount} coins.`;
+                    break;
+                case 'card':
+                    const cardTemplate = allCards.find(c => c.id === objective.reward.cardId);
+                    if (cardTemplate) {
+                        newStorage.push(cardTemplate);
+                        rewardCard = cardTemplate;
+                        rewardMessage = `You earned ${cardTemplate.name}!`;
+                    }
+                    break;
             }
-            return { ...prev, objectiveProgress: newProgress };
+            
+            if (rewardMessage) {
+                 setMessageModal({ title: 'Reward Claimed!', message: rewardMessage, card: rewardCard });
+            }
+
+            return { ...prev, coins: newCoins, storage: newStorage, objectiveProgress: newProgress };
         });
 
         if (objective.reward.type === 'pack' && objective.reward.packType) {
@@ -550,8 +650,11 @@ const App: React.FC = () => {
     const claimableObjectivesCount = useMemo(() => {
         return objectivesData.reduce((count, obj) => {
             const progress = gameState.objectiveProgress[obj.id];
-            if (progress && !progress.claimed && progress.progress >= obj.target) {
-                return count + 1;
+            if (progress && !progress.claimed) {
+                const allTasksComplete = obj.tasks.every(task => (progress.tasks?.[task.id] || 0) >= task.target);
+                if (allTasksComplete) {
+                    return count + 1;
+                }
             }
             return count;
         }, 0);

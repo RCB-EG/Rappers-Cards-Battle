@@ -26,6 +26,7 @@ export interface Card {
   value: number;
   superpowers: string[];
   stats: Stats;
+  isPackable?: boolean;
 }
 
 export interface MarketCard extends Card {
@@ -44,6 +45,9 @@ export interface FBCChallenge {
     id: string;
     title: string;
     description: string;
+    prerequisiteId?: string;
+    groupId?: string;
+    groupFinalRewardCardId?: string;
     requirements: {
         cardCount: number;
         exactRarityCount?: { [key in Rarity]?: number };
@@ -55,6 +59,7 @@ export interface FBCChallenge {
         type: 'pack' | 'card';
         details?: PackType;
         cardId?: string;
+        bypassLimit?: boolean;
     };
 }
 
@@ -75,23 +80,31 @@ export interface Evolution {
     resultCardId: string;
 }
 
+export interface ObjectiveTask {
+    id: string;
+    descriptionKey: string;
+    target: number;
+}
+
 export interface Objective {
   id: string;
-  type: 'daily' | 'weekly';
-  descriptionKey: string;
-  task: string;
-  target: number;
+  type: 'daily' | 'weekly' | 'milestone';
+  titleKey: string;
+  tasks: ObjectiveTask[];
   reward: {
-    type: 'coins' | 'pack';
+    type: 'coins' | 'pack' | 'card';
     amount?: number;
     packType?: PackType;
+    cardId?: string;
   };
 }
 
+
 export interface ObjectiveProgress {
-    progress: number;
+    tasks: Record<string, number>; // Track progress for each task by its ID
     claimed: boolean;
 }
+
 
 export interface Settings {
   musicOn: boolean;

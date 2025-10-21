@@ -29,8 +29,15 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
 
     const formationRating = useMemo(() => {
         if (formationCardCount === 0) return '-';
-        // FIX: Explicitly type `card` as `CardType | null` to fix type inference issue where it was considered `unknown`.
-        const totalOvr = Object.values(gameState.formation).reduce((sum: number, card: CardType | null) => sum + (card?.ovr || 0), 0);
+        // Fix: Replaced `Object.values` with `Object.keys` to iterate over the formation.
+        // This provides better type safety and avoids potential issues with `Object.values` type inference.
+        let totalOvr = 0;
+        for (const posId of Object.keys(gameState.formation)) {
+            const card = gameState.formation[posId];
+            if (card) {
+                totalOvr += card.ovr;
+            }
+        }
         return Math.round(totalOvr / formationCardCount);
     }, [gameState.formation, formationCardCount]);
 

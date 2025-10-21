@@ -87,8 +87,20 @@ export const allCards: Card[] = [
     rarity: 'event',
     image: 'https://i.imghippo.com/files/fZo8874.png', 
     value: 32000, 
+    isPackable: false,
     superpowers: ['Rhyme Crafter'], 
     stats: { lyrc: 88, flow: 86, sing: 85, live: 90, diss: 84, char: 89 }
+  },
+   { 
+    id: 'evo_tommy_gun_1', 
+    name: 'Tommy Gun', 
+    ovr: 84, 
+    rarity: 'event',
+    image: 'https://i.imghippo.com/files/ohZa7371j.png', 
+    value: 7800, 
+    isPackable: false,
+    superpowers: ['Flow Switcher'], 
+    stats: { lyrc: 85, flow: 88, sing: 82, live: 86, diss: 83, char: 85 }
   },
   
   // FBC Cards
@@ -99,8 +111,44 @@ export const allCards: Card[] = [
     rarity: 'gold',
     image: 'https://i.imghippo.com/files/of4978Axs.png',
     value: 44000,
+    isPackable: false,
     superpowers: ['Note Master'],
     stats: generateStats(87)
+  },
+  {
+    id: 'fbc_tommy_gun_1',
+    name: 'Tommy Gun',
+    ovr: 83,
+    rarity: 'gold',
+    image: 'https://i.imghippo.com/files/vEc7611qrg.png',
+    value: 4500,
+    isPackable: false,
+    superpowers: [],
+    stats: generateStats(83)
+  },
+  {
+    id: 'fbc_shabjdeed_1',
+    name: 'Shabjdeed',
+    ovr: 85,
+    rarity: 'gold',
+    image: 'https://i.imghippo.com/files/wgqS8075ng.png',
+    value: 39500,
+    isPackable: false,
+    superpowers: [],
+    stats: generateStats(85)
+  },
+  
+  // Objective Cards
+  {
+    id: 'obj_ra3_1',
+    name: 'Ra3',
+    ovr: 85,
+    rarity: 'gold',
+    image: 'https://i.imghippo.com/files/iH4359ueo.png',
+    value: 34000,
+    isPackable: false,
+    superpowers: ['Rhyme Crafter'],
+    stats: generateStats(85)
   },
 ];
 
@@ -154,6 +202,40 @@ export const fbcData: FBCChallenge[] = [
             minAvgOvr: 84
         },
         reward: { type: 'card', cardId: 'fbc_shehab_1' }
+    },
+    {
+        id: 'tommy_gun_intro',
+        title: 'tommy_gun_arrival_title',
+        description: 'tommy_gun_arrival_desc',
+        requirements: {
+            cardCount: 7,
+            exactRarityCount: { bronze: 3, silver: 3, gold: 1 },
+        },
+        reward: { type: 'card', cardId: 'fbc_tommy_gun_1' }
+    },
+    {
+        id: 'shabjdeed_foundation',
+        groupId: 'shabjdeed_main',
+        groupFinalRewardCardId: 'fbc_shabjdeed_1',
+        title: 'shabjdeed_foundation_title',
+        description: 'shabjdeed_foundation_desc',
+        requirements: {
+            cardCount: 6,
+            exactRarityCount: { bronze: 3, silver: 3 },
+        },
+        reward: { type: 'pack', details: 'free', bypassLimit: true }
+    },
+    {
+        id: 'shabjdeed_golden_era',
+        groupId: 'shabjdeed_main',
+        title: 'shabjdeed_golden_era_title',
+        description: 'shabjdeed_golden_era_desc',
+        prerequisiteId: 'shabjdeed_foundation',
+        requirements: {
+            cardCount: 7,
+            exactRarityCount: { gold: 7 },
+        },
+        reward: { type: 'card', cardId: 'fbc_shabjdeed_1' }
     }
 ];
 
@@ -172,16 +254,42 @@ export const evoData: Evolution[] = [
             { id: 'quicksell_gold_card', description: 'Quick sell a Gold card', target: 1 }
         ],
         resultCardId: 'evo_abo_1'
+    },
+    {
+        id: 'tommy_gun_upgrade',
+        title: 'Lock and Load',
+        description: "Improve Tommy Gun's performance by making him a key part of a high-rated squad.",
+        eligibility: {
+            cardName: 'Tommy Gun',
+            rarity: 'gold',
+        },
+        tasks: [
+            { id: 'tommy_gun_in_formation', description: 'Add Tommy Gun to your starting formation', target: 1 },
+            { id: 'formation_rating_82', description: 'Achieve a squad rating of 82+ with Tommy Gun in the formation', target: 1 }
+        ],
+        resultCardId: 'evo_tommy_gun_1'
     }
 ];
 
 export const objectivesData: Objective[] = [
     // Daily
-    { id: 'd1', type: 'daily', descriptionKey: 'obj_open_free_pack', task: 'open_free_packs', target: 1, reward: { type: 'coins', amount: 250 } },
-    { id: 'd2', type: 'daily', descriptionKey: 'obj_list_card', task: 'list_market_cards', target: 1, reward: { type: 'coins', amount: 500 } },
+    { id: 'd1', type: 'daily', titleKey: 'obj_open_free_pack_title', tasks: [{ id: 'open_free_packs', descriptionKey: 'obj_open_free_pack_task', target: 1 }], reward: { type: 'coins', amount: 250 } },
+    { id: 'd2', type: 'daily', titleKey: 'obj_list_card_title', tasks: [{ id: 'list_market_cards', descriptionKey: 'obj_list_card_task', target: 1 }], reward: { type: 'coins', amount: 500 } },
     // Weekly
-    { id: 'w1', type: 'weekly', descriptionKey: 'obj_open_builder_packs', task: 'open_builder_packs', target: 5, reward: { type: 'pack', packType: 'builder' } },
-    { id: 'w2', type: 'weekly', descriptionKey: 'obj_complete_fbc', task: 'complete_fbcs', target: 1, reward: { type: 'coins', amount: 2000 } },
+    { id: 'w1', type: 'weekly', titleKey: 'obj_open_builder_packs_title', tasks: [{ id: 'open_builder_packs', descriptionKey: 'obj_open_builder_packs_task', target: 5 }], reward: { type: 'pack', packType: 'builder' } },
+    { id: 'w2', type: 'weekly', titleKey: 'obj_complete_fbc_title', tasks: [{ id: 'complete_fbcs', descriptionKey: 'obj_complete_fbc_task', target: 1 }], reward: { type: 'coins', amount: 2000 } },
+    // Milestone
+    {
+        id: 'milestone_a_step_ahead',
+        type: 'milestone',
+        titleKey: 'obj_a_step_ahead_title',
+        tasks: [
+            { id: 'complete_evos', descriptionKey: 'obj_task_complete_evo', target: 1 },
+            { id: 'complete_fbcs', descriptionKey: 'obj_task_complete_fbc', target: 1 },
+            { id: 'formation_11_gold', descriptionKey: 'obj_task_formation_11_gold', target: 1 }
+        ],
+        reward: { type: 'card', cardId: 'obj_ra3_1' }
+    }
 ];
 
 
