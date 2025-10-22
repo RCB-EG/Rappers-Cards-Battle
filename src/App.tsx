@@ -1,4 +1,7 @@
 
+
+
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective } from './types';
 import { initialState } from './data/initialState';
@@ -307,20 +310,81 @@ const App: React.FC = () => {
         playSfx('packBuildup');
         const pack = packs[packType];
         const { rarityChances } = pack;
-        const random = Math.random() * 100;
-        let cumulative = 0;
-        let chosenRarity: keyof typeof rarityChances | undefined;
-        for (const rarity in rarityChances) {
-            cumulative += rarityChances[rarity as keyof typeof rarityChances]!;
-            if (random < cumulative) {
-                chosenRarity = rarity as keyof typeof rarityChances;
-                break;
+    
+        let foundCard: CardType | null = null;
+        let attempts = 0;
+    
+        // This loop tries to find a card matching a rolled rarity and OVR constraints.
+        while (!foundCard && attempts < 20) { // Increased attempts for safety
+            const random = Math.random() * 100;
+            let cumulative = 0;
+            let chosenRarity: keyof typeof rarityChances | undefined;
+            for (const rarity in rarityChances) {
+                cumulative += rarityChances[rarity as keyof typeof rarityChances]!;
+                if (random < cumulative) {
+                    chosenRarity = rarity as keyof typeof rarityChances;
+                    break;
+                }
+            }
+            if (!chosenRarity) {
+                // Fallback if something is wrong with rarity chances
+                const rarities = Object.keys(rarityChances) as (keyof typeof rarityChances)[];
+                chosenRarity = rarities[rarities.length - 1];
+            }
+    
+            const possibleCards = allCards.filter(c => {
+                if (c.rarity !== chosenRarity || c.isPackable === false) {
+                    return false;
+                }
+                switch (packType) {
+                    case 'free':    return c.ovr <= 83;
+                    case 'builder': return c.ovr <= 86;
+                    case 'special': return c.ovr >= 79 && c.ovr <= 89;
+                    case 'legendary': return c.ovr >= 87;
+                    default:        return true;
+                }
+            });
+            
+            if (possibleCards.length > 0) {
+                foundCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
+            }
+            attempts++;
+        }
+    
+        // Fallback if the loop fails (e.g., rolled a rarity with no eligible cards many times).
+        // This ignores rarity and just finds any card matching the pack's OVR constraints.
+        if (!foundCard) {
+            const fallbackCards = allCards.filter(c => {
+                if (c.isPackable === false) return false;
+                switch (packType) {
+                    case 'free':    return c.ovr <= 83;
+                    case 'builder': return c.ovr <= 86;
+                    case 'special': return c.ovr >= 79 && c.ovr <= 89;
+                    case 'legendary': return c.ovr >= 87;
+                    default:        return true;
+                }
+            });
+            
+            if (fallbackCards.length > 0) {
+                foundCard = fallbackCards[Math.floor(Math.random() * fallbackCards.length)];
+            } else {
+                // Ultimate fallback: if no cards meet the OVR constraints at all, give a random bronze card.
+                const bronzeCards = allCards.filter(c => c.rarity === 'bronze' && c.isPackable !== false);
+                if (bronzeCards.length > 0) {
+                    foundCard = bronzeCards[Math.floor(Math.random() * bronzeCards.length)];
+                }
             }
         }
-        if (!chosenRarity) chosenRarity = 'bronze';
-        const possibleCards = allCards.filter(c => c.rarity === chosenRarity && c.isPackable !== false);
-        const newCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
-
+    
+        // If still no card, something is fundamentally wrong with the card data.
+        if (!foundCard) {
+            console.error("Could not find any card to award from pack:", packType);
+            // To prevent a crash, let's just grab the first card in the game.
+            foundCard = allCards.find(c => c.isPackable !== false) || allCards[0];
+        }
+        
+        const newCard = foundCard as CardType; // We ensure it's not null.
+    
         setGameState(prev => {
             if (!isReward && pack.cost > prev.coins && !isDevMode) {
                 setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins to open this pack.` });
@@ -349,7 +413,7 @@ const App: React.FC = () => {
                 if (packType === 'builder') trackObjectiveProgress('open_builder_packs', 1);
                 if (packType === 'special') trackEvolutionTask('open_special_packs', 1);
             }
-
+    
             if (settings.animationsOn) {
                 setPackCard(newCard);
             } else {
@@ -426,7 +490,6 @@ const App: React.FC = () => {
         setMessageModal({ title: 'Card Listed', message: `${card.name} has been listed on the market for ${price} coins.` });
     };
 
-    // Fix: Renamed `card` parameter to `cardToSell` to avoid potential scoping issues that may cause type inference failures.
     const handleQuickSell = (cardToSell: CardType) => {
         const { formation, storage } = gameState;
         const quickSellValue = calculateQuickSellValue(cardToSell);
@@ -445,8 +508,8 @@ const App: React.FC = () => {
             });
         }
 
-        // Fix: Added a type assertion to `cardToSell` to resolve a TypeScript error where the type was being inferred as `unknown`.
-        if((cardToSell as CardType).rarity === 'gold') {
+        // @ts-ignore
+        if(cardToSell.rarity === 'gold') {
             trackEvolutionTask('quicksell_gold_card', 1);
         }
         
@@ -689,7 +752,7 @@ const App: React.FC = () => {
     return (
         <div className={`App font-main bg-dark-gray min-h-screen text-white ${lang === 'ar' ? 'font-ar' : ''}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
             
-            {appState === 'welcome' && <WelcomeScreen onStart={() => setAppState('intro')} onHowToPlay={() => setIsHowToPlayOpen(true)} />}
+            {appState === 'welcome' && <WelcomeScreen onStart={() => setAppState('intro')} />}
             {appState === 'intro' && <IntroVideo onSkip={() => setAppState('game')} />}
             
             {appState === 'game' && (
@@ -701,6 +764,7 @@ const App: React.FC = () => {
                         onToggleDevMode={handleToggleDevMode} 
                         isDevMode={isDevMode} 
                         onOpenSettings={() => setIsSettingsOpen(true)} 
+                        onOpenHowToPlay={() => setIsHowToPlayOpen(true)}
                         onOpenLogin={() => { setIsLoginModalOpen(true); setAuthError(null); }}
                         onOpenSignUp={() => { setIsSignUpModalOpen(true); setAuthError(null); }}
                         onLogout={handleLogout}

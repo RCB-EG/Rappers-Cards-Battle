@@ -9,6 +9,7 @@ interface HeaderProps {
     onToggleDevMode: () => void;
     isDevMode: boolean;
     onOpenSettings: () => void;
+    onOpenHowToPlay: () => void;
     onOpenLogin: () => void;
     onOpenSignUp: () => void;
     onLogout: () => void;
@@ -17,7 +18,7 @@ interface HeaderProps {
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
 }
 
-const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode, isDevMode, onOpenSettings, onOpenLogin, onOpenSignUp, onLogout, lang, setLang, t }) => {
+const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode, isDevMode, onOpenSettings, onOpenHowToPlay, onOpenLogin, onOpenSignUp, onLogout, lang, setLang, t }) => {
     const formationValue = Object.values(gameState.formation).reduce((sum: number, card) => sum + ((card as Card)?.value || 0), 0);
     const displayName = currentUser ? currentUser.username : t('user_guest');
     const avatarSrc = currentUser?.avatar || `https://api.dicebear.com/8.x/bottts/svg?seed=guest&backgroundColor=b6e3f4,c0aede,d1d4f9`;
@@ -28,6 +29,7 @@ const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode
             <div className="header-controls absolute top-4 left-4 right-4 flex justify-between items-center z-10">
                 <div className="flex items-center gap-2">
                     <Button onClick={onOpenSettings} className="px-4 py-2 text-sm">{t('settings')}</Button>
+                    <Button onClick={onOpenHowToPlay} className="px-4 py-2 text-sm">{t('how_to_play')}</Button>
                     {!currentUser && (
                         <>
                             <Button onClick={onOpenLogin} className="px-4 py-2 text-sm">{t('log_in')}</Button>

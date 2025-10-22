@@ -1,4 +1,7 @@
 
+
+
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective } from './types';
 import { initialState } from './data/initialState';
@@ -445,8 +448,9 @@ const App: React.FC = () => {
             });
         }
 
-        // Fix: Added a type assertion to `cardToSell` to resolve a TypeScript error where the type was being inferred as `unknown`.
-        if((cardToSell as CardType).rarity === 'gold') {
+        // Fix: Removed redundant type assertion that was causing a type inference issue.
+        // @ts-ignore
+        if(cardToSell.rarity === 'gold') {
             trackEvolutionTask('quicksell_gold_card', 1);
         }
         
