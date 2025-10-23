@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective } from './types';
-import { initialState } from './data/initialState';
+import { initialState, initialDbState } from './data/initialState';
 import { allCards, packs, fbcData, evoData, formationLayouts, objectivesData } from './data/gameData';
 import { translations, TranslationKey } from './utils/translations';
 import { useSettings } from './hooks/useSettings';
@@ -179,8 +179,8 @@ const App: React.FC = () => {
                 avatar: user.avatar
             });
 
-            // Create initial game state for the new user
-            await setDoc(doc(db, 'gameState', firebaseUser.uid), { ...initialState, uid: firebaseUser.uid });
+            // Create initial game state for the new user, using the clean DB state object
+            await setDoc(doc(db, 'gameState', firebaseUser.uid), { ...initialDbState, uid: firebaseUser.uid });
 
             setIsSignUpModalOpen(false);
             setAuthError(null);
@@ -272,7 +272,7 @@ const App: React.FC = () => {
         }
 
         if (pack.cost > 0 && !isDevMode) {
-             await updateGameStateInDb({ coins: gameState.coins - pack.cost });
+             await updateGameStateInDb({ coins: increment(-pack.cost) as any });
         }
     };
 
@@ -292,7 +292,7 @@ const App: React.FC = () => {
     const handleQuickSellDuplicate = async () => {
         if (duplicateToSell && currentUser) {
             const quickSellValue = calculateQuickSellValue(duplicateToSell);
-            await updateGameStateInDb({ coins: gameState.coins + quickSellValue });
+            await updateGameStateInDb({ coins: increment(quickSellValue) as any });
             setMessageModal({ title: 'Card Sold', message: `You received ${quickSellValue} coins for the duplicate ${duplicateToSell.name}.` });
             setDuplicateToSell(null);
         }
@@ -317,11 +317,11 @@ const App: React.FC = () => {
                 if (!buyerStateDoc.exists()) throw new Error("Your user data could not be found.");
                 if (!marketItemDoc.exists()) throw new Error("This item is no longer available.");
                 
-                const newBuyerCoins = buyerStateDoc.data().coins - card.price;
-                if (newBuyerCoins < 0) throw new Error("You do not have enough coins for this purchase.");
+                const currentBuyerCoins = buyerStateDoc.data().coins;
+                if (currentBuyerCoins < card.price) throw new Error("You do not have enough coins for this purchase.");
     
                 // 1. Debit buyer
-                transaction.update(buyerStateRef, { coins: newBuyerCoins });
+                transaction.update(buyerStateRef, { coins: increment(-card.price) });
     
                 // 2. Add card to buyer's storage
                 const boughtCardData: any = { ...marketItemDoc.data() };
@@ -365,6 +365,9 @@ const App: React.FC = () => {
             sellerUid: currentUser.uid,
             sellerUsername: currentUser.username,
         };
+        // The card being listed might be from formation (no UID) or storage (has UID).
+        // We delete the UID property to ensure the new market document gets a fresh ID.
+        delete newMarketCard.uid;
 
         const batch = writeBatch(db);
         
@@ -422,7 +425,7 @@ const App: React.FC = () => {
         const batch = writeBatch(db);
         const gameStateRef = doc(db, 'gameState', currentUser.uid);
         
-        batch.update(gameStateRef, { coins: gameState.coins + quickSellValue });
+        batch.update(gameStateRef, { coins: increment(quickSellValue) });
         
         if(cardToSell.uid) {
             batch.delete(doc(db, 'users', currentUser.uid, 'storage', cardToSell.uid));
@@ -438,6 +441,64 @@ const App: React.FC = () => {
         setCardWithOptions(null);
         setMessageModal({ title: 'Card Sold', message: `You quick sold ${cardToSell.name} for ${quickSellValue} coins.` });
     };
+    
+    // New handler for formation updates from Collection.tsx
+    const handleFormationUpdate = async (updates: {
+        newFormation: Record<string, CardType | null>,
+        movedToStorage: CardType[],
+        movedFromStorage: CardType[]
+    }) => {
+        if (!currentUser) return;
+        const { newFormation, movedToStorage, movedFromStorage } = updates;
+
+        const batch = writeBatch(db);
+        const gameStateRef = doc(db, 'gameState', currentUser.uid);
+        batch.update(gameStateRef, { formation: newFormation });
+
+        movedToStorage.forEach(card => {
+            const newDocRef = doc(collection(db, 'users', currentUser.uid, 'storage'));
+            const cardData = { ...card };
+            delete cardData.uid; 
+            batch.set(newDocRef, cardData);
+        });
+
+        movedFromStorage.forEach(card => {
+            if (card.uid) { 
+                const docRef = doc(db, 'users', currentUser.uid, 'storage', card.uid);
+                batch.delete(docRef);
+            }
+        });
+
+        await batch.commit();
+    };
+    
+    const handleLayoutChange = async (newLayoutId: FormationLayoutId) => {
+        if (!currentUser) return;
+
+        const currentFormationCards = Object.values(gameState.formation).filter(Boolean) as CardType[];
+        
+        const newLayout = formationLayouts[newLayoutId];
+        const newFormation: Record<string, CardType | null> = {};
+        newLayout.allPositions.forEach(posId => { newFormation[posId] = null; });
+
+        const batch = writeBatch(db);
+
+        const gameStateRef = doc(db, 'gameState', currentUser.uid);
+        batch.update(gameStateRef, {
+            formationLayout: newLayoutId,
+            formation: newFormation
+        });
+
+        currentFormationCards.forEach(card => {
+            const newDocRef = doc(collection(db, 'users', currentUser.uid, 'storage'));
+            const cardData = { ...card };
+            delete cardData.uid;
+            batch.set(newDocRef, cardData);
+        });
+
+        await batch.commit();
+    };
+
 
     if (isLoading) {
         return <div className="fixed inset-0 bg-black z-[100] flex justify-center items-center text-gold-light text-2xl font-header">Loading Game...</div>;
@@ -448,7 +509,7 @@ const App: React.FC = () => {
     const renderView = () => {
         switch (currentView) {
             case 'store': return <Store onOpenPack={handleOpenPack} gameState={gameState} isDevMode={isDevMode} t={t} />;
-            case 'collection': return <Collection gameState={gameState} setGameState={updateGameStateInDb} setCardForOptions={setCardWithOptions} t={t} />;
+            case 'collection': return <Collection gameState={gameState} onFormationUpdate={handleFormationUpdate} onLayoutChange={handleLayoutChange} setCardForOptions={setCardWithOptions} t={t} />;
             case 'market': return <Market market={gameState.market} onBuyCard={handleBuyCard} onDelistCard={handleDelistCard} currentUserUid={currentUser?.uid || ''} t={t} />;
             case 'battle': return <Battle t={t} />;
             case 'fbc': return <FBC gameState={gameState} onFbcSubmit={()=>{}} t={t} playSfx={playSfx} />;

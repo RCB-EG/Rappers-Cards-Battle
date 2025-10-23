@@ -6,6 +6,7 @@ formationLayouts['4-4-2'].allPositions.forEach(posId => {
   initialFormation[posId] = null;
 });
 
+// This is the full client-side initial state
 export const initialState: GameState = {
   uid: null,
   coins: 10000,
@@ -13,6 +14,24 @@ export const initialState: GameState = {
   formationLayout: '4-4-2',
   storage: [],
   market: [],
+  completedFbcIds: [],
+  completedEvoIds: [],
+  activeEvolution: null,
+  lastRewardClaimTime: null,
+  freePacksOpenedToday: 0,
+  lastFreePackResetTime: null,
+  objectiveProgress: {},
+  lastDailyReset: null,
+  lastWeeklyReset: null,
+};
+
+// This is the object to be saved to Firestore for a new user.
+// It intentionally omits `market` and `storage`.
+export const initialDbState = {
+  uid: null,
+  coins: 10000,
+  formation: initialFormation,
+  formationLayout: '4-4-2',
   completedFbcIds: [],
   completedEvoIds: [],
   activeEvolution: null,
