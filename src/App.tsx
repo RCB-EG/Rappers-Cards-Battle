@@ -9,7 +9,7 @@ import { playSound } from './utils/sound';
 import { sfx, getRevealSfxKey } from './data/sounds';
 import { auth, db } from './firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, collection, onSnapshot, writeBatch, addDoc, deleteDoc, query, runTransaction } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, onSnapshot, writeBatch, addDoc, deleteDoc, query, runTransaction, increment } from 'firebase/firestore';
 
 // Components
 import WelcomeScreen from './components/WelcomeScreen';
@@ -36,6 +36,7 @@ import DuplicateSellModal from './components/modals/DuplicateSellModal';
 import DailyRewardModal from './components/modals/DailyRewardModal';
 import LoginModal from './components/modals/LoginModal';
 import SignUpModal from './components/modals/SignUpModal';
+import DelistModal from './components/modals/DelistModal';
 
 const App: React.FC = () => {
     // App Flow State
@@ -303,28 +304,28 @@ const App: React.FC = () => {
             setMessageModal({ title: 'Not Enough Coins', message: `You need ${card.price} coins to buy this card.` });
             return;
         }
-
+    
         try {
+            // Atomic transaction for the buyer and market item
             await runTransaction(db, async (transaction) => {
                 const buyerStateRef = doc(db, 'gameState', currentUser.uid);
-                const sellerStateRef = doc(db, 'gameState', card.sellerUid);
                 const marketItemRef = doc(db, 'market', card.listingId);
-
+    
                 const buyerStateDoc = await transaction.get(buyerStateRef);
-                const sellerStateDoc = await transaction.get(sellerStateRef);
-
-                if (!buyerStateDoc.exists()) throw "Buyer document does not exist!";
+                const marketItemDoc = await transaction.get(marketItemRef);
+    
+                if (!buyerStateDoc.exists()) throw new Error("Your user data could not be found.");
+                if (!marketItemDoc.exists()) throw new Error("This item is no longer available.");
                 
                 const newBuyerCoins = buyerStateDoc.data().coins - card.price;
-                if (newBuyerCoins < 0) throw "Not enough coins.";
-
+                if (newBuyerCoins < 0) throw new Error("You do not have enough coins for this purchase.");
+    
+                // 1. Debit buyer
                 transaction.update(buyerStateRef, { coins: newBuyerCoins });
-
-                if (sellerStateDoc.exists()) {
-                     transaction.update(sellerStateRef, { coins: sellerStateDoc.data().coins + card.price });
-                }
-
-                const boughtCardData: any = { ...card };
+    
+                // 2. Add card to buyer's storage
+                const boughtCardData: any = { ...marketItemDoc.data() };
+                // Clean up market-specific fields before adding to storage
                 delete boughtCardData.listingId;
                 delete boughtCardData.price;
                 delete boughtCardData.sellerUid;
@@ -333,14 +334,25 @@ const App: React.FC = () => {
                 const newCardRef = doc(collection(db, 'users', currentUser.uid, 'storage'));
                 transaction.set(newCardRef, boughtCardData);
                 
+                // 3. Delete market listing
                 transaction.delete(marketItemRef);
             });
-
+    
+            // If transaction is successful, pay the seller. This is not atomic with the above but is safer.
+            try {
+                const sellerStateRef = doc(db, 'gameState', card.sellerUid);
+                await updateDoc(sellerStateRef, { coins: increment(card.price) });
+            } catch (payoutError) {
+                console.error("Payout to seller failed, needs manual reconciliation:", payoutError);
+                // The purchase was still successful for the buyer. We should probably log this error.
+            }
+    
             playSfx('purchase');
             setMessageModal({ title: 'Purchase Successful', message: `You bought ${card.name} for ${card.price} coins.`, card });
-        } catch (e) {
+    
+        } catch (e: any) {
             console.error("Transaction failed: ", e);
-            setMessageModal({ title: 'Purchase Failed', message: 'There was an error processing your purchase.' });
+            setMessageModal({ title: 'Purchase Failed', message: e.message || 'There was an error processing your purchase.' });
         }
     };
 
@@ -357,15 +369,16 @@ const App: React.FC = () => {
         const batch = writeBatch(db);
         
         // Remove from storage or formation
-        if (card.uid) { // Card is in storage
+        if (card.uid) { // Card is in storage, identified by its unique document ID
             batch.delete(doc(db, 'users', currentUser.uid, 'storage', card.uid));
-        } else { // Card is in formation, need to find its position
+        } else { // Card is in formation, identified by its template ID
             const formationPos = Object.keys(gameState.formation).find(pos => gameState.formation[pos]?.id === card.id);
             if (formationPos) {
                  batch.update(doc(db, 'gameState', currentUser.uid), { [`formation.${formationPos}`]: null });
             }
         }
         
+        // Add the new listing to the market collection
         batch.set(doc(collection(db, 'market')), newMarketCard);
         
         await batch.commit();
