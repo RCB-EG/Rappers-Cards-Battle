@@ -18,7 +18,8 @@ export interface Stats {
 }
 
 export interface Card {
-  id: string;
+  id: string; // This is the template ID from allCards
+  uid?: string; // This is the unique Firestore document ID for a card instance
   name: string;
   ovr: number;
   rarity: Rarity;
@@ -30,8 +31,10 @@ export interface Card {
 }
 
 export interface MarketCard extends Card {
+  listingId: string;
   price: number;
-  sellerId: string;
+  sellerUid: string;
+  sellerUsername: string;
 }
 
 export interface PackData {
@@ -115,7 +118,7 @@ export interface Settings {
 }
 
 export interface GameState {
-  userId: string;
+  uid: string | null;
   coins: number;
   formation: Record<string, Card | null>;
   formationLayout: FormationLayoutId;
@@ -142,9 +145,10 @@ export interface Deal {
 }
 
 export interface User {
+    uid: string;
     username: string;
-    email?: string;
-    password?: string;
+    email: string;
+    password?: string; // Only used for sign-up/login forms, not stored
     avatar?: string;
 }
 

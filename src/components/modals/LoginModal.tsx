@@ -7,18 +7,18 @@ import { User } from '../../types';
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLogin: (user: User) => void;
+  onLogin: (user: User) => Promise<void>;
   error: string | null;
   t: (key: TranslationKey) => string;
 }
 
 const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin, error, t }) => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onLogin({ username, password });
+    onLogin({ email, password } as User);
   };
 
   return (
@@ -26,10 +26,10 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin, error
       <form onSubmit={handleSubmit}>
         <div className="my-6 space-y-4">
           <input
-            type="text"
-            placeholder={t('username')}
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            type="email"
+            placeholder={t('email_address')}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             required
             className="w-full bg-darker-gray border border-gold-dark/30 text-white p-3 rounded-md text-center"
           />
