@@ -373,6 +373,35 @@ const App: React.FC = () => {
         setCardToList(null);
         setMessageModal({ title: 'Card Listed', message: `${card.name} has been listed on the market for ${price} coins.` });
     };
+
+    const handleDelistCard = async (card: MarketCard) => {
+        if (!currentUser || card.sellerUid !== currentUser.uid) return;
+    
+        try {
+            const marketItemRef = doc(db, 'market', card.listingId);
+            
+            // Prepare the card data to be added back to storage
+            const cardDataToRestore: any = { ...card };
+            delete cardDataToRestore.listingId;
+            delete cardDataToRestore.price;
+            delete cardDataToRestore.sellerUid;
+            delete cardDataToRestore.sellerUsername;
+            
+            const newStorageCardRef = doc(collection(db, 'users', currentUser.uid, 'storage'));
+    
+            // Use a batch to perform both operations atomically
+            const batch = writeBatch(db);
+            batch.delete(marketItemRef);
+            batch.set(newStorageCardRef, cardDataToRestore);
+    
+            await batch.commit();
+    
+            setMessageModal({ title: 'Card Delisted', message: `${card.name} has been returned to your storage.` });
+        } catch (e) {
+            console.error("Failed to delist card: ", e);
+            setMessageModal({ title: 'Error', message: 'Could not delist the card. Please try again.' });
+        }
+    };
     
     const handleQuickSell = async (cardToSell: CardType) => {
          if (!currentUser) return;
@@ -407,7 +436,7 @@ const App: React.FC = () => {
         switch (currentView) {
             case 'store': return <Store onOpenPack={handleOpenPack} gameState={gameState} isDevMode={isDevMode} t={t} />;
             case 'collection': return <Collection gameState={gameState} setGameState={updateGameStateInDb} setCardForOptions={setCardWithOptions} t={t} />;
-            case 'market': return <Market market={gameState.market} onBuyCard={handleBuyCard} currentUserUid={currentUser?.uid || ''} t={t} />;
+            case 'market': return <Market market={gameState.market} onBuyCard={handleBuyCard} onDelistCard={handleDelistCard} currentUserUid={currentUser?.uid || ''} t={t} />;
             case 'battle': return <Battle t={t} />;
             case 'fbc': return <FBC gameState={gameState} onFbcSubmit={()=>{}} t={t} playSfx={playSfx} />;
             case 'evo': return <Evo gameState={gameState} onStartEvo={()=>{}} onClaimEvo={()=>{}} t={t} playSfx={playSfx} />;
