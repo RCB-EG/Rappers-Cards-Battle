@@ -1,7 +1,5 @@
 
 
-
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective } from './types';
 import { initialState } from './data/initialState';
@@ -39,6 +37,50 @@ import LoginModal from './components/modals/LoginModal';
 import SignUpModal from './components/modals/SignUpModal';
 
 const GUEST_SAVE_KEY = 'rappersGameState_guest';
+
+// --- STATE UPDATE HELPER FUNCTIONS ---
+
+const applyObjectiveProgress = (
+    currentProgress: GameState['objectiveProgress'], 
+    task: string, 
+    amount: number, 
+    mode: 'increment' | 'set' = 'increment'
+): GameState['objectiveProgress'] => {
+    const updatedProgress = JSON.parse(JSON.stringify(currentProgress));
+
+    objectivesData.forEach(obj => {
+        if (updatedProgress[obj.id]?.claimed) return;
+
+        obj.tasks.forEach(taskInfo => {
+            if (taskInfo.id === task) {
+                if (!updatedProgress[obj.id]) {
+                    updatedProgress[obj.id] = { tasks: {}, claimed: false };
+                }
+                const current = updatedProgress[obj.id].tasks[task] || 0;
+                const newValue = mode === 'increment' ? current + amount : amount;
+                if (current !== newValue) {
+                     updatedProgress[obj.id].tasks[task] = newValue;
+                }
+            }
+        });
+    });
+    return updatedProgress;
+};
+
+const applyEvolutionTask = (
+    activeEvolution: GameState['activeEvolution'], 
+    taskId: string, 
+    amount: number
+): GameState['activeEvolution'] => {
+    if (!activeEvolution) return null;
+    const evoDef = evoData.find(e => e.id === activeEvolution.evoId);
+    if (!evoDef || !evoDef.tasks.some(t => t.id === taskId)) return activeEvolution;
+
+    const newTasks = { ...activeEvolution.tasks };
+    newTasks[taskId] = (newTasks[taskId] || 0) + amount;
+
+    return { ...activeEvolution, tasks: newTasks };
+};
 
 const App: React.FC = () => {
     // App Flow State
@@ -226,171 +268,116 @@ const App: React.FC = () => {
     
     const handleToggleDevMode = () => { setIsDevMode(prev => !prev); };
 
-    const trackEvolutionTask = useCallback((taskId: string, amount: number) => {
-        setGameState(prev => {
-            if (!prev.activeEvolution) return prev;
-            const evoDef = evoData.find(e => e.id === prev.activeEvolution!.evoId);
-            if (!evoDef || !evoDef.tasks.some(t => t.id === taskId)) return prev;
-            const newTasks = { ...prev.activeEvolution.tasks };
-            newTasks[taskId] = (newTasks[taskId] || 0) + amount;
-            return {
-                ...prev,
-                activeEvolution: { ...prev.activeEvolution, tasks: newTasks }
-            };
-        });
-    }, []);
-
     // Effect for state-based evolution tasks
     useEffect(() => {
-        const { activeEvolution, formation } = gameState;
+        const { activeEvolution } = gameState;
         if (!activeEvolution) return;
-
+    
         const evoDef = evoData.find(e => e.id === activeEvolution.evoId);
-        if (!evoDef) return;
-
-        // Check for Tommy Gun evolution tasks
-        if (evoDef.id === 'tommy_gun_upgrade') {
-            const evolvingCardInFormation = Object.values(formation).find(c => (c as CardType | null)?.id === activeEvolution.cardId);
-
+        if (!evoDef || evoDef.id !== 'tommy_gun_upgrade') return;
+        
+        setGameState(prev => {
+            if (!prev.activeEvolution || prev.activeEvolution.evoId !== 'tommy_gun_upgrade') return prev;
+    
+            let newActiveEvo = { ...prev.activeEvolution };
+            let changed = false;
+            
+            // Fix: Add explicit type to `some` callback to prevent type inference issues.
+            const evolvingCardInFormation = Object.values(prev.formation).some((c: CardType | null) => c?.id === prev.activeEvolution!.cardId);
+    
             const task1Id = 'tommy_gun_in_formation';
-            if (evolvingCardInFormation && (activeEvolution.tasks[task1Id] || 0) < 1) {
-                trackEvolutionTask(task1Id, 1);
+            if (evolvingCardInFormation && (newActiveEvo.tasks[task1Id] || 0) < 1) {
+                newActiveEvo = applyEvolutionTask(newActiveEvo, task1Id, 1)!;
+                changed = true;
             }
-
+    
             const task2Id = 'formation_rating_82';
-            if (evolvingCardInFormation && (activeEvolution.tasks[task2Id] || 0) < 1) {
-                const formationCards = Object.values(formation).filter(Boolean) as CardType[];
-                const formationCardCount = formationCards.length;
-                if (formationCardCount > 0) {
+            if (evolvingCardInFormation && (newActiveEvo.tasks[task2Id] || 0) < 1) {
+                // Fix: Use a type guard with `filter` to ensure correct type for `formationCards`.
+                const formationCards = Object.values(prev.formation).filter((c): c is CardType => !!c);
+                if (formationCards.length > 0) {
                     const totalOvr = formationCards.reduce((sum, card) => sum + card.ovr, 0);
-                    const formationRating = Math.round(totalOvr / formationCardCount);
+                    const formationRating = Math.round(totalOvr / formationCards.length);
                     if (formationRating >= 82) {
-                        trackEvolutionTask(task2Id, 1);
+                        newActiveEvo = applyEvolutionTask(newActiveEvo, task2Id, 1)!;
+                        changed = true;
                     }
                 }
             }
-        }
-    }, [gameState.formation, gameState.activeEvolution, trackEvolutionTask]);
-    
-    const trackObjectiveProgress = useCallback((task: string, amount: number, mode: 'increment' | 'set' = 'increment') => {
-        setGameState(prev => {
-            const updatedProgress = JSON.parse(JSON.stringify(prev.objectiveProgress));
-            let changed = false;
-
-            objectivesData.forEach(obj => {
-                if (updatedProgress[obj.id]?.claimed) return;
-
-                obj.tasks.forEach(taskInfo => {
-                    if (taskInfo.id === task) {
-                        if (!updatedProgress[obj.id]) {
-                            updatedProgress[obj.id] = { tasks: {}, claimed: false };
-                        }
-                        const current = updatedProgress[obj.id].tasks[task] || 0;
-                        const newValue = mode === 'increment' ? current + amount : amount;
-                        if (current !== newValue) {
-                            updatedProgress[obj.id].tasks[task] = newValue;
-                            changed = true;
-                        }
-                    }
-                });
-            });
-
-            return changed ? { ...prev, objectiveProgress: updatedProgress } : prev;
+            
+            return changed ? { ...prev, activeEvolution: newActiveEvo } : prev;
         });
-    }, []);
+    }, [gameState.formation, gameState.activeEvolution]);
 
     // Effect for state-based objectives (e.g., formation composition)
     useEffect(() => {
-        const goldCardsInFormation = Object.values(gameState.formation).filter(c => c && c.rarity === 'gold').length;
-        const requiredGoldCards = 11;
-        trackObjectiveProgress('formation_11_gold', goldCardsInFormation >= requiredGoldCards ? 1 : 0, 'set');
-    }, [gameState.formation, trackObjectiveProgress]);
+        setGameState(prev => {
+            // Fix: Use a type guard with `filter` to ensure correct type for `c`.
+            const goldCardsInFormation = Object.values(prev.formation).filter((c): c is CardType => !!c && c.rarity === 'gold').length;
+            const requiredGoldCards = 11;
+            
+            const objective = objectivesData.find(o => o.tasks.some(t => t.id === 'formation_11_gold'));
+            if (!objective) return prev;
+            
+            const currentProgress = prev.objectiveProgress[objective.id]?.tasks['formation_11_gold'] || 0;
+            const newProgressValue = goldCardsInFormation >= requiredGoldCards ? 1 : 0;
+            
+            if (currentProgress === newProgressValue) {
+                return prev;
+            }
+    
+            return {
+                ...prev,
+                objectiveProgress: applyObjectiveProgress(prev.objectiveProgress, 'formation_11_gold', newProgressValue, 'set')
+            };
+        });
+    }, [gameState.formation]);
     
     const handleOpenPack = useCallback((packType: PackType, isReward = false, bypassLimit = false) => {
         playSfx('packBuildup');
         const pack = packs[packType];
-        const { rarityChances } = pack;
-    
+        
         let foundCard: CardType | null = null;
         let attempts = 0;
-    
-        // This loop tries to find a card matching a rolled rarity and OVR constraints.
-        while (!foundCard && attempts < 20) { // Increased attempts for safety
+        
+        while (!foundCard && attempts < 20) {
             const random = Math.random() * 100;
             let cumulative = 0;
-            let chosenRarity: keyof typeof rarityChances | undefined;
-            for (const rarity in rarityChances) {
-                cumulative += rarityChances[rarity as keyof typeof rarityChances]!;
+            let chosenRarity: keyof typeof pack.rarityChances | undefined;
+            for (const rarity in pack.rarityChances) {
+                cumulative += pack.rarityChances[rarity as keyof typeof pack.rarityChances]!;
                 if (random < cumulative) {
-                    chosenRarity = rarity as keyof typeof rarityChances;
+                    chosenRarity = rarity as keyof typeof pack.rarityChances;
                     break;
                 }
             }
             if (!chosenRarity) {
-                // Fallback if something is wrong with rarity chances
-                const rarities = Object.keys(rarityChances) as (keyof typeof rarityChances)[];
+                const rarities = Object.keys(pack.rarityChances) as (keyof typeof pack.rarityChances)[];
                 chosenRarity = rarities[rarities.length - 1];
             }
     
-            const possibleCards = allCards.filter(c => {
-                if (c.rarity !== chosenRarity || c.isPackable === false) {
-                    return false;
-                }
-                switch (packType) {
-                    case 'free':    return c.ovr <= 83;
-                    case 'builder': return c.ovr <= 86;
-                    case 'special': return c.ovr >= 79 && c.ovr <= 89;
-                    case 'legendary': return c.ovr >= 87;
-                    default:        return true;
-                }
-            });
-            
+            const possibleCards = allCards.filter(c => c.rarity === chosenRarity && c.isPackable !== false);
             if (possibleCards.length > 0) {
                 foundCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
             }
             attempts++;
         }
     
-        // Fallback if the loop fails (e.g., rolled a rarity with no eligible cards many times).
-        // This ignores rarity and just finds any card matching the pack's OVR constraints.
         if (!foundCard) {
-            const fallbackCards = allCards.filter(c => {
-                if (c.isPackable === false) return false;
-                switch (packType) {
-                    case 'free':    return c.ovr <= 83;
-                    case 'builder': return c.ovr <= 86;
-                    case 'special': return c.ovr >= 79 && c.ovr <= 89;
-                    case 'legendary': return c.ovr >= 87;
-                    default:        return true;
-                }
-            });
-            
-            if (fallbackCards.length > 0) {
-                foundCard = fallbackCards[Math.floor(Math.random() * fallbackCards.length)];
-            } else {
-                // Ultimate fallback: if no cards meet the OVR constraints at all, give a random bronze card.
-                const bronzeCards = allCards.filter(c => c.rarity === 'bronze' && c.isPackable !== false);
-                if (bronzeCards.length > 0) {
-                    foundCard = bronzeCards[Math.floor(Math.random() * bronzeCards.length)];
-                }
-            }
+            const bronzeCards = allCards.filter(c => c.rarity === 'bronze' && c.isPackable !== false);
+            foundCard = bronzeCards.length > 0 ? bronzeCards[Math.floor(Math.random() * bronzeCards.length)] : allCards[0];
         }
-    
-        // If still no card, something is fundamentally wrong with the card data.
-        if (!foundCard) {
-            console.error("Could not find any card to award from pack:", packType);
-            // To prevent a crash, let's just grab the first card in the game.
-            foundCard = allCards.find(c => c.isPackable !== false) || allCards[0];
-        }
-        
-        const newCard = foundCard as CardType; // We ensure it's not null.
-    
+
+        const newCard = foundCard as CardType;
+
         setGameState(prev => {
             if (!isReward && pack.cost > prev.coins && !isDevMode) {
                 setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins to open this pack.` });
                 return prev;
             }
+            
             let stateUpdates: Partial<GameState> = {};
+            
             if (packType === 'free' && !bypassLimit) {
                 const twelveHours = 12 * 60 * 60 * 1000;
                 const now = Date.now();
@@ -407,13 +394,24 @@ const App: React.FC = () => {
                 }
                 stateUpdates.freePacksOpenedToday = freePacksOpenedToday + 1;
                 stateUpdates.lastFreePackResetTime = lastFreePackResetTime;
-                trackObjectiveProgress('open_free_packs', 1);
+                stateUpdates.objectiveProgress = applyObjectiveProgress(prev.objectiveProgress, 'open_free_packs', 1);
+
             } else if (!isReward) {
                 stateUpdates.coins = prev.coins - pack.cost;
-                if (packType === 'builder') trackObjectiveProgress('open_builder_packs', 1);
-                if (packType === 'special') trackEvolutionTask('open_special_packs', 1);
+                let currentObjectiveProgress = prev.objectiveProgress;
+                let currentActiveEvolution = prev.activeEvolution;
+
+                if (packType === 'builder') {
+                    currentObjectiveProgress = applyObjectiveProgress(currentObjectiveProgress, 'open_builder_packs', 1);
+                }
+                if (packType === 'special') {
+                    currentActiveEvolution = applyEvolutionTask(currentActiveEvolution, 'open_special_packs', 1);
+                }
+
+                stateUpdates.objectiveProgress = currentObjectiveProgress;
+                stateUpdates.activeEvolution = currentActiveEvolution;
             }
-    
+
             if (settings.animationsOn) {
                 setPackCard(newCard);
             } else {
@@ -427,7 +425,8 @@ const App: React.FC = () => {
             }
             return { ...prev, ...stateUpdates };
         });
-    }, [isDevMode, settings.animationsOn, trackEvolutionTask, playSfx, trackObjectiveProgress]);
+    }, [isDevMode, settings.animationsOn, playSfx]);
+
 
     const handlePackAnimationEnd = (card: CardType) => {
         setPackCard(null);
@@ -457,7 +456,8 @@ const App: React.FC = () => {
             updateGameState({
                 coins: gameState.coins - card.price,
                 storage: [...gameState.storage, card],
-                market: gameState.market.filter(c => c.id !== card.id),
+                // Fix: Add explicit type to `filter` callback to prevent type inference issues.
+                market: gameState.market.filter((c: MarketCard) => c.id !== card.id),
             });
             playSfx('purchase');
             setMessageModal({ title: 'Purchase Successful', message: `You bought ${card.name} for ${card.price} coins.`, card });
@@ -467,55 +467,71 @@ const App: React.FC = () => {
     };
 
     const handleListCard = (card: CardType, price: number) => {
-        const { formation, storage } = gameState;
         const newMarketCard: MarketCard = { ...card, price, sellerId: gameState.userId };
-        const formationPos = Object.keys(formation).find(pos => formation[pos]?.id === card.id);
-
-        if (formationPos) {
-            const newFormation = { ...formation, [formationPos]: null };
-            updateGameState({
+    
+        setGameState(prev => {
+            const { formation, storage } = prev;
+            const formationPos = Object.keys(formation).find(pos => formation[pos]?.id === card.id);
+    
+            let newFormation = { ...formation };
+            let newStorage = [...storage];
+    
+            if (formationPos) {
+                newFormation[formationPos] = null;
+            } else {
+                // Fix: Add explicit type to `filter` callback to prevent type inference issues.
+                newStorage = storage.filter((c: CardType) => c.id !== card.id);
+            }
+    
+            return {
+                ...prev,
                 formation: newFormation,
-                market: [...gameState.market, newMarketCard]
-            });
-        } else {
-            updateGameState({
-                storage: storage.filter(c => c.id !== card.id),
-                market: [...gameState.market, newMarketCard]
-            });
-        }
+                storage: newStorage,
+                market: [...prev.market, newMarketCard],
+                objectiveProgress: applyObjectiveProgress(prev.objectiveProgress, 'list_market_cards', 1),
+                activeEvolution: applyEvolutionTask(prev.activeEvolution, 'list_cards_market', 1)
+            };
+        });
         
-        trackEvolutionTask('list_cards_market', 1);
-        trackObjectiveProgress('list_market_cards', 1);
         setCardToList(null);
         setMessageModal({ title: 'Card Listed', message: `${card.name} has been listed on the market for ${price} coins.` });
     };
-
+    
     const handleQuickSell = (cardToSell: CardType) => {
-        const { formation, storage } = gameState;
         const quickSellValue = calculateQuickSellValue(cardToSell);
-        const formationPos = Object.keys(formation).find(pos => formation[pos]?.id === cardToSell.id);
         
-        if (formationPos) {
-            const newFormation = { ...formation, [formationPos]: null };
-            updateGameState({
-                formation: newFormation,
-                coins: gameState.coins + quickSellValue
-            });
-        } else {
-            updateGameState({
-                storage: storage.filter(c => c.id !== cardToSell.id),
-                coins: gameState.coins + quickSellValue
-            });
-        }
+        setGameState(prev => {
+            const { formation, storage } = prev;
+            const formationPos = Object.keys(formation).find(pos => formation[pos]?.id === cardToSell.id);
+            
+            let newFormation = { ...formation };
+            let newStorage = [...storage];
+            let newActiveEvolution = prev.activeEvolution;
 
-        // @ts-ignore
-        if(cardToSell.rarity === 'gold') {
-            trackEvolutionTask('quicksell_gold_card', 1);
-        }
+            if (formationPos) {
+                newFormation[formationPos] = null;
+            } else {
+                // Fix: Add explicit type to `filter` callback to prevent type inference issues.
+                newStorage = storage.filter((c: CardType) => c.id !== cardToSell.id);
+            }
+            
+            if (cardToSell.rarity === 'gold') {
+                newActiveEvolution = applyEvolutionTask(prev.activeEvolution, 'quicksell_gold_card', 1);
+            }
+
+            return {
+                ...prev,
+                formation: newFormation,
+                storage: newStorage,
+                coins: prev.coins + quickSellValue,
+                activeEvolution: newActiveEvolution
+            };
+        });
         
         setCardWithOptions(null);
         setMessageModal({ title: 'Card Sold', message: `You quick sold ${cardToSell.name} for ${quickSellValue} coins.` });
     };
+    
 
     const handleFbcSubmit = (challengeId: string, submittedCards: CardType[]) => {
         const challenge = fbcData.find(c => c.id === challengeId);
@@ -531,7 +547,8 @@ const App: React.FC = () => {
                     newFormation[pos] = null;
                 }
             }
-            newStorage = newStorage.filter(c => !submittedIds.has(c.id));
+            // Fix: Add explicit type to `filter` callback to prevent type inference issues.
+            newStorage = newStorage.filter((c: CardType) => !submittedIds.has(c.id));
 
             if (challenge.reward.type === 'card' && challenge.reward.cardId) {
                 const rewardCard = allCards.find(c => c.id === challenge.reward.cardId);
@@ -549,7 +566,8 @@ const App: React.FC = () => {
                 ...prev,
                 formation: newFormation,
                 storage: newStorage,
-                completedFbcIds: [...prev.completedFbcIds, challengeId]
+                completedFbcIds: [...prev.completedFbcIds, challengeId],
+                objectiveProgress: applyObjectiveProgress(prev.objectiveProgress, 'complete_fbcs', 1)
             };
         });
 
@@ -557,7 +575,6 @@ const App: React.FC = () => {
             handleOpenPack(challenge.reward.details, true, challenge.reward.bypassLimit);
         }
         
-        trackObjectiveProgress('complete_fbcs', 1);
         playSfx('rewardClaimed');
     };
 
@@ -576,38 +593,40 @@ const App: React.FC = () => {
     };
 
     const handleClaimEvo = () => {
-        const { activeEvolution } = gameState;
-        if (!activeEvolution) return;
-        const evoDef = evoData.find(e => e.id === activeEvolution.evoId);
-        const resultCard = allCards.find(c => c.id === evoDef?.resultCardId);
-        if (!evoDef || !resultCard) return;
-
         playSfx('rewardClaimed');
-        trackObjectiveProgress('complete_evos', 1);
         
         setGameState(prev => {
+            if (!prev.activeEvolution) return prev;
+            const evoDef = evoData.find(e => e.id === prev.activeEvolution!.evoId);
+            const resultCard = allCards.find(c => c.id === evoDef?.resultCardId);
+            if (!evoDef || !resultCard) return prev;
+
             const originalCardId = prev.activeEvolution!.cardId;
             let newFormation = { ...prev.formation };
-            let newStorage = prev.storage.filter(c => c.id !== originalCardId);
+            // Fix: Add explicit type to `filter` callback to prevent type inference issues.
+            let newStorage = prev.storage.filter((c: CardType) => c.id !== originalCardId);
             const formationPos = Object.keys(prev.formation).find(pos => prev.formation[pos]?.id === originalCardId);
+            
             if (formationPos) {
                 newFormation[formationPos] = resultCard;
             } else {
                 newStorage.push(resultCard);
             }
+
+            setMessageModal({
+                title: 'Evolution Complete!',
+                message: `Your card evolved into ${resultCard.name}!`,
+                card: resultCard,
+            });
+
             return {
                 ...prev,
                 activeEvolution: null,
                 completedEvoIds: [...(prev.completedEvoIds || []), evoDef.id],
                 formation: newFormation,
                 storage: newStorage,
+                objectiveProgress: applyObjectiveProgress(prev.objectiveProgress, 'complete_evos', 1)
             };
-        });
-        
-        setMessageModal({
-            title: 'Evolution Complete!',
-            message: `Your card evolved into ${resultCard.name}!`,
-            card: resultCard,
         });
     };
 
@@ -701,7 +720,8 @@ const App: React.FC = () => {
 
         if (emptyPositionId) {
             const newFormation = { ...formation, [emptyPositionId]: card };
-            const newStorage = storage.filter(c => c.id !== card.id);
+            // Fix: Add explicit type to `filter` callback to prevent type inference issues.
+            const newStorage = storage.filter((c: CardType) => c.id !== card.id);
             updateGameState({ formation: newFormation, storage: newStorage });
             playSfx('success');
             setCardWithOptions(null);

@@ -1,5 +1,3 @@
-
-
 import React, { useState } from 'react';
 import { PackType, GameState } from '../../types';
 import Modal from '../modals/Modal';

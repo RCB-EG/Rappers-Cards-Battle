@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { GameView } from '../types';
 import { TranslationKey } from '../utils/translations';
