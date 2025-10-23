@@ -91,6 +91,7 @@ const App: React.FC = () => {
                 if (userDoc.exists()) {
                     setCurrentUser({ uid: firebaseUser.uid, ...userDoc.data() } as User);
                 } else {
+                    // This case can happen if the user doc is deleted but auth record remains. Log them out.
                     await signOut(auth);
                 }
             } else {
@@ -102,12 +103,11 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
+    // Listener for Game State (coins, formation, etc.)
     useEffect(() => {
         if (!currentUser) return;
 
         const gameStateDocRef = doc(db, 'gameState', currentUser.uid);
-        const storageCollectionRef = collection(db, 'users', currentUser.uid, 'storage');
-
         const unsubscribeGameState = onSnapshot(gameStateDocRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
@@ -115,17 +115,23 @@ const App: React.FC = () => {
             }
         });
         
+        return () => unsubscribeGameState();
+    }, [currentUser]);
+
+    // Listener for user's card storage (sub-collection)
+    useEffect(() => {
+        if (!currentUser) return;
+
+        const storageCollectionRef = collection(db, 'users', currentUser.uid, 'storage');
         const unsubscribeStorage = onSnapshot(storageCollectionRef, (querySnapshot) => {
             const storageCards = querySnapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id })) as CardType[];
             setGameState(prevState => ({ ...prevState, storage: storageCards }));
         });
 
-        return () => {
-            unsubscribeGameState();
-            unsubscribeStorage();
-        };
+        return () => unsubscribeStorage();
     }, [currentUser]);
 
+    // Listener for the global market
     useEffect(() => {
         const marketCollectionRef = collection(db, 'market');
         const q = query(marketCollectionRef);
@@ -160,16 +166,19 @@ const App: React.FC = () => {
 
 
     const handleSignUp = async (user: User) => {
+        if (!user.email || !user.password) return;
         try {
-            const userCredential = await createUserWithEmailAndPassword(auth, user.email!, user.password!);
+            const userCredential = await createUserWithEmailAndPassword(auth, user.email, user.password);
             const firebaseUser = userCredential.user;
 
+            // Create user profile document
             await setDoc(doc(db, 'users', firebaseUser.uid), {
                 username: user.username,
                 email: user.email,
                 avatar: user.avatar
             });
 
+            // Create initial game state for the new user
             await setDoc(doc(db, 'gameState', firebaseUser.uid), { ...initialState, uid: firebaseUser.uid });
 
             setIsSignUpModalOpen(false);
@@ -180,8 +189,9 @@ const App: React.FC = () => {
     };
 
     const handleLogin = async (user: User) => {
+        if (!user.email || !user.password) return;
         try {
-            await signInWithEmailAndPassword(auth, user.email!, user.password!);
+            await signInWithEmailAndPassword(auth, user.email, user.password);
             setIsLoginModalOpen(false);
             setAuthError(null);
         } catch (error: any) {
@@ -192,6 +202,12 @@ const App: React.FC = () => {
     const handleLogout = async () => {
         await signOut(auth);
     };
+    
+    const updateGameStateInDb = async (updates: Partial<GameState>) => {
+        if (!currentUser) return;
+        const gameStateRef = doc(db, 'gameState', currentUser.uid);
+        await updateDoc(gameStateRef, updates);
+    }
 
     const handleToggleDevMode = () => setIsDevMode(prev => !prev);
     
@@ -201,10 +217,13 @@ const App: React.FC = () => {
             return;
         }
         playSfx('packBuildup');
-        // ... (pack opening logic remains the same)
-        // Find card...
         const pack = packs[packType];
         
+        if (pack.cost > gameState.coins && !isDevMode) {
+             setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins to open this pack.` });
+            return;
+        }
+
         let foundCard: CardType | null = null;
         let attempts = 0;
         
@@ -251,8 +270,8 @@ const App: React.FC = () => {
             }
         }
 
-        if (pack.cost > 0) {
-             await updateDoc(doc(db, 'gameState', currentUser.uid), { coins: gameState.coins - pack.cost });
+        if (pack.cost > 0 && !isDevMode) {
+             await updateGameStateInDb({ coins: gameState.coins - pack.cost });
         }
     };
 
@@ -272,7 +291,7 @@ const App: React.FC = () => {
     const handleQuickSellDuplicate = async () => {
         if (duplicateToSell && currentUser) {
             const quickSellValue = calculateQuickSellValue(duplicateToSell);
-            await updateDoc(doc(db, 'gameState', currentUser.uid), { coins: gameState.coins + quickSellValue });
+            await updateGameStateInDb({ coins: gameState.coins + quickSellValue });
             setMessageModal({ title: 'Card Sold', message: `You received ${quickSellValue} coins for the duplicate ${duplicateToSell.name}.` });
             setDuplicateToSell(null);
         }
@@ -305,7 +324,7 @@ const App: React.FC = () => {
                      transaction.update(sellerStateRef, { coins: sellerStateDoc.data().coins + card.price });
                 }
 
-                const boughtCardData = { ...card };
+                const boughtCardData: any = { ...card };
                 delete boughtCardData.listingId;
                 delete boughtCardData.price;
                 delete boughtCardData.sellerUid;
@@ -382,18 +401,13 @@ const App: React.FC = () => {
         return <div className="fixed inset-0 bg-black z-[100] flex justify-center items-center text-gold-light text-2xl font-header">Loading Game...</div>;
     }
 
-    // All other handlers like FBC, Evo, Objectives would need similar async/Firestore logic
-    // For brevity, those are omitted, but would follow the same pattern:
-    // 1. Check for currentUser
-    // 2. Perform database operations (updateDoc, setDoc, deleteDoc)
-    // 3. Let onSnapshot listeners update the local state naturally
+    // TODO: Other handlers like FBC, Evo, Objectives would need similar async/Firestore logic
 
     const renderView = () => {
-        // ... views are rendered the same way ...
         switch (currentView) {
-            case 'store': return <Store onOpenPack={(packType) => handleOpenPack(packType)} gameState={gameState} isDevMode={isDevMode} t={t} />;
-            case 'collection': return <Collection gameState={gameState} setGameState={() => {}} setCardForOptions={setCardWithOptions} t={t} />;
-            case 'market': return <Market market={gameState.market} onBuyCard={handleBuyCard} currentUserId={currentUser?.uid || ''} t={t} />;
+            case 'store': return <Store onOpenPack={handleOpenPack} gameState={gameState} isDevMode={isDevMode} t={t} />;
+            case 'collection': return <Collection gameState={gameState} setGameState={updateGameStateInDb} setCardForOptions={setCardWithOptions} t={t} />;
+            case 'market': return <Market market={gameState.market} onBuyCard={handleBuyCard} currentUserUid={currentUser?.uid || ''} t={t} />;
             case 'battle': return <Battle t={t} />;
             case 'fbc': return <FBC gameState={gameState} onFbcSubmit={()=>{}} t={t} playSfx={playSfx} />;
             case 'evo': return <Evo gameState={gameState} onStartEvo={()=>{}} onClaimEvo={()=>{}} t={t} playSfx={playSfx} />;
@@ -432,7 +446,12 @@ const App: React.FC = () => {
                             t={t}
                             notificationCounts={{ objectives: 0, evo: 0, fbc: 0 }}
                         />
-                        {renderView()}
+                        {currentUser ? renderView() : (
+                            <div className="text-center py-20">
+                                <h2 className="font-header text-3xl text-gold-light">Please Log In</h2>
+                                <p className="text-gray-400 mt-2">Log in or create an account to start your journey.</p>
+                            </div>
+                        )}
                     </main>
                 </>
             )}

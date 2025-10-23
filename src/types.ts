@@ -19,7 +19,7 @@ export interface Stats {
 
 export interface Card {
   id: string; // This is the template ID from allCards
-  uid?: string; // This is the unique Firestore document ID for a card instance
+  uid?: string; // This is the unique Firestore document ID for a card instance in storage
   name: string;
   ovr: number;
   rarity: Rarity;

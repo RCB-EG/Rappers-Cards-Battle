@@ -7,7 +7,7 @@ import { User } from '../../types';
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLogin: (user: User) => Promise<void>;
+  onLogin: (user: Partial<User>) => void;
   error: string | null;
   t: (key: TranslationKey) => string;
 }
@@ -18,7 +18,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin, error
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onLogin({ email, password } as User);
+    onLogin({ email, password });
   };
 
   return (
