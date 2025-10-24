@@ -42,6 +42,10 @@ export interface PackData {
   rarityChances: {
     [key in Rarity]?: number;
   };
+  // New properties for the weighted system
+  packableRarities: Rarity[];
+  ovrWeightingFactor: number; // e.g., 0.9 (a 10% weight reduction per OVR point above baseline)
+  valueWeightingFactor: number; // e.g., 0.95 (a 5% weight reduction per 10k value above baseline)
 }
 
 export interface FBCChallenge {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective } from './types';
+import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective, Rarity } from './types';
 import { initialState, initialDbState } from './data/initialState';
 import { allCards, packs, fbcData, evoData, formationLayouts, objectivesData } from './data/gameData';
 import { translations, TranslationKey } from './utils/translations';
@@ -242,36 +242,44 @@ const App: React.FC = () => {
             return;
         }
 
+        // --- NEW WEIGHTED PROBABILITY LOGIC ---
+        const OVR_BASELINE = 80; // OVR penalty starts applying above this rating
+        const VALUE_BASELINE = 10000; // Value penalty starts applying for each 10k increment
+
+        const possibleCards = allCards.filter(c => c.isPackable !== false && pack.packableRarities.includes(c.rarity));
+
+        const weightedCards = possibleCards.map(card => {
+            const baseWeight = pack.rarityChances[card.rarity] || 0;
+            
+            // Apply OVR penalty: higher OVR = lower weight
+            const ovrPenalty = card.ovr > OVR_BASELINE ? Math.pow(pack.ovrWeightingFactor, card.ovr - OVR_BASELINE) : 1;
+            
+            // Apply Value penalty: higher value = lower weight
+            const valuePenalty = card.value > VALUE_BASELINE ? Math.pow(pack.valueWeightingFactor, card.value / VALUE_BASELINE) : 1;
+
+            const finalWeight = baseWeight * ovrPenalty * valuePenalty;
+
+            return { card, weight: finalWeight };
+        }).filter(item => item.weight > 0);
+
+        const totalWeight = weightedCards.reduce((sum, item) => sum + item.weight, 0);
+        let random = Math.random() * totalWeight;
+
         let foundCard: CardType | null = null;
-        let attempts = 0;
-        
-        while (!foundCard && attempts < 20) {
-            const random = Math.random() * 100;
-            let cumulative = 0;
-            let chosenRarity: keyof typeof pack.rarityChances | undefined;
-            for (const rarity in pack.rarityChances) {
-                cumulative += pack.rarityChances[rarity as keyof typeof pack.rarityChances]!;
-                if (random < cumulative) {
-                    chosenRarity = rarity as keyof typeof pack.rarityChances;
-                    break;
-                }
+        for (const { card, weight } of weightedCards) {
+            random -= weight;
+            if (random <= 0) {
+                foundCard = card;
+                break;
             }
-            if (!chosenRarity) {
-                const rarities = Object.keys(pack.rarityChances) as (keyof typeof pack.rarityChances)[];
-                chosenRarity = rarities[rarities.length - 1];
-            }
-    
-            const possibleCards = allCards.filter(c => c.rarity === chosenRarity && c.isPackable !== false);
-            if (possibleCards.length > 0) {
-                foundCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
-            }
-            attempts++;
         }
-    
+        
         if (!foundCard) {
+            // Fallback in case of rounding errors or empty weighted list
             const bronzeCards = allCards.filter(c => c.rarity === 'bronze' && c.isPackable !== false);
             foundCard = bronzeCards.length > 0 ? bronzeCards[Math.floor(Math.random() * bronzeCards.length)] : allCards[0];
         }
+        // --- END OF NEW LOGIC ---
 
         const newCard = { ...foundCard } as CardType;
         delete newCard.uid;
@@ -580,7 +588,7 @@ const App: React.FC = () => {
                 isFormationFull={false}
                 t={t} 
             />
-            <MarketModal cardToList={cardToList} onClose={() => setCardToList(null)} onList={handleListCard} t={t} />
+            <MarketModal cardToList={cardToList} onClose={() => setCardToList(null)} onList={handleListCard} />
             <DuplicateSellModal card={duplicateToSell} onSell={handleQuickSellDuplicate} t={t} />
             <DailyRewardModal isOpen={isDailyRewardModalOpen} onClaim={()=>{}} />
         </div>

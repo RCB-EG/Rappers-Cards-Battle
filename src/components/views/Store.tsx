@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { PackType, GameState } from '../../types';
+import React, { useState, useMemo } from 'react';
+import { PackType, GameState, PackData, Rarity } from '../../types';
 import Modal from '../modals/Modal';
 import Button from '../Button';
-import { packs } from '../../data/gameData';
+import { packs, allCards } from '../../data/gameData';
 import { TranslationKey } from '../../utils/translations';
 
 interface StoreProps {
@@ -11,6 +11,41 @@ interface StoreProps {
   isDevMode: boolean;
   t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
 }
+
+// Helper function to calculate dynamic probabilities for display
+const calculatePackProbabilities = (pack: PackData): Record<string, number> => {
+    const OVR_BASELINE = 80;
+    const VALUE_BASELINE = 10000;
+
+    const possibleCards = allCards.filter(c => c.isPackable !== false && pack.packableRarities.includes(c.rarity));
+
+    const weightedCards = possibleCards.map(card => {
+        const baseWeight = pack.rarityChances[card.rarity] || 0;
+        const ovrPenalty = card.ovr > OVR_BASELINE ? Math.pow(pack.ovrWeightingFactor, card.ovr - OVR_BASELINE) : 1;
+        const valuePenalty = card.value > VALUE_BASELINE ? Math.pow(pack.valueWeightingFactor, card.value / VALUE_BASELINE) : 1;
+        const finalWeight = baseWeight * ovrPenalty * valuePenalty;
+        return { rarity: card.rarity, weight: finalWeight };
+    });
+
+    const totalWeight = weightedCards.reduce((sum, item) => sum + item.weight, 0);
+    if (totalWeight === 0) return {};
+
+    const rarityTotals: Record<string, number> = {};
+    for (const item of weightedCards) {
+        if (!rarityTotals[item.rarity]) {
+            rarityTotals[item.rarity] = 0;
+        }
+        rarityTotals[item.rarity] += item.weight;
+    }
+
+    const probabilities: Record<string, number> = {};
+    for (const rarity in rarityTotals) {
+        probabilities[rarity] = (rarityTotals[rarity] / totalWeight) * 100;
+    }
+
+    return probabilities;
+};
+
 
 const Store: React.FC<StoreProps> = ({ onOpenPack, gameState, isDevMode, t }) => {
     const [confirmingPack, setConfirmingPack] = useState<PackType | null>(null);
@@ -22,6 +57,11 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, gameState, isDevMode, t }) =>
         special: { src: 'https://i.postimg.cc/sxS0M4cT/Special.png', label: t('pack_special') },
         legendary: { src: 'https://i.postimg.cc/63Fm6md7/Legendary.png', label: t('pack_legendary') }
     };
+    
+    const dynamicProbabilities = useMemo(() => {
+        if (!confirmingPack) return null;
+        return calculatePackProbabilities(packs[confirmingPack]);
+    }, [confirmingPack]);
 
     const twelveHours = 12 * 60 * 60 * 1000;
     const now = Date.now();
@@ -76,14 +116,18 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, gameState, isDevMode, t }) =>
             </div>
 
             <Modal isOpen={!!confirmingPack} onClose={() => setConfirmingPack(null)} title={`Confirm ${confirmingPack} Pack`}>
-                {currentPackData && (
+                {currentPackData && dynamicProbabilities && (
                     <div className="text-center text-white">
                         <div className="text-left my-4 p-4 bg-black/20 rounded-md">
                             <h4 className="font-header text-gold-light text-xl mb-2">Probabilities:</h4>
-                            {Object.entries(currentPackData.rarityChances)
-                                .filter(([, chance]) => typeof chance === 'number' && chance > 0)
+                            {Object.entries(dynamicProbabilities)
+                                .sort((a, b) => {
+                                    // FIX: The values from Object.entries are inferred as unknown, so we cast them to number for sorting.
+                                    return (b[1] as number) - (a[1] as number);
+                                }) // Sort by probability desc
                                 .map(([rarity, chance]) =>(
-                                <p key={rarity} className="capitalize text-gray-300">{rarity}: {chance}%</p>
+                                // FIX: The 'chance' value from Object.entries is inferred as unknown, so we cast to number to use .toFixed().
+                                <p key={rarity} className="capitalize text-gray-300">{rarity}: {(chance as number).toFixed(2)}%</p>
                             ))}
                         </div>
                         {currentPackData.cost > 0 && (
