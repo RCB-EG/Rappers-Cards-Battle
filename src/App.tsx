@@ -92,7 +92,6 @@ const App: React.FC = () => {
                 if (userDoc.exists()) {
                     setCurrentUser({ uid: firebaseUser.uid, ...userDoc.data() } as User);
                 } else {
-                    // This case can happen if the user doc is deleted but auth record remains. Log them out.
                     await signOut(auth);
                 }
             } else {
@@ -111,8 +110,28 @@ const App: React.FC = () => {
         const gameStateDocRef = doc(db, 'gameState', currentUser.uid);
         const unsubscribeGameState = onSnapshot(gameStateDocRef, (docSnap) => {
             if (docSnap.exists()) {
-                const data = docSnap.data();
-                setGameState(prevState => ({ ...prevState, ...data, uid: currentUser.uid }));
+                const dataFromDb = docSnap.data();
+                setGameState(prevState => {
+                    // This prevents the gameState document from overwriting the market/storage
+                    // which are managed by their own separate listeners.
+                    const updatedState = {
+                        ...prevState,
+                        coins: dataFromDb.coins,
+                        formation: dataFromDb.formation,
+                        formationLayout: dataFromDb.formationLayout,
+                        completedFbcIds: dataFromDb.completedFbcIds || [],
+                        completedEvoIds: dataFromDb.completedEvoIds || [],
+                        activeEvolution: dataFromDb.activeEvolution || null,
+                        lastRewardClaimTime: dataFromDb.lastRewardClaimTime || null,
+                        freePacksOpenedToday: dataFromDb.freePacksOpenedToday || 0,
+                        lastFreePackResetTime: dataFromDb.lastFreePackResetTime || null,
+                        objectiveProgress: dataFromDb.objectiveProgress || {},
+                        lastDailyReset: dataFromDb.lastDailyReset || null,
+                        lastWeeklyReset: dataFromDb.lastWeeklyReset || null,
+                        uid: currentUser.uid,
+                    };
+                    return updatedState;
+                });
             }
         });
         
@@ -172,14 +191,12 @@ const App: React.FC = () => {
             const userCredential = await createUserWithEmailAndPassword(auth, user.email, user.password);
             const firebaseUser = userCredential.user;
 
-            // Create user profile document
             await setDoc(doc(db, 'users', firebaseUser.uid), {
                 username: user.username,
                 email: user.email,
                 avatar: user.avatar
             });
 
-            // Create initial game state for the new user, using the clean DB state object
             await setDoc(doc(db, 'gameState', firebaseUser.uid), { ...initialDbState, uid: firebaseUser.uid });
 
             setIsSignUpModalOpen(false);
@@ -257,7 +274,7 @@ const App: React.FC = () => {
         }
 
         const newCard = { ...foundCard } as CardType;
-        delete newCard.uid; // Ensure no UID is carried over from template
+        delete newCard.uid;
 
         if (settings.animationsOn) {
             setPackCard(newCard);
@@ -306,7 +323,6 @@ const App: React.FC = () => {
         }
     
         try {
-            // Atomic transaction for the buyer and market item
             await runTransaction(db, async (transaction) => {
                 const buyerStateRef = doc(db, 'gameState', currentUser.uid);
                 const marketItemRef = doc(db, 'market', card.listingId);
@@ -320,12 +336,9 @@ const App: React.FC = () => {
                 const currentBuyerCoins = buyerStateDoc.data().coins;
                 if (currentBuyerCoins < card.price) throw new Error("You do not have enough coins for this purchase.");
     
-                // 1. Debit buyer
                 transaction.update(buyerStateRef, { coins: increment(-card.price) });
     
-                // 2. Add card to buyer's storage
                 const boughtCardData: any = { ...marketItemDoc.data() };
-                // Clean up market-specific fields before adding to storage
                 delete boughtCardData.listingId;
                 delete boughtCardData.price;
                 delete boughtCardData.sellerUid;
@@ -334,17 +347,14 @@ const App: React.FC = () => {
                 const newCardRef = doc(collection(db, 'users', currentUser.uid, 'storage'));
                 transaction.set(newCardRef, boughtCardData);
                 
-                // 3. Delete market listing
                 transaction.delete(marketItemRef);
             });
     
-            // If transaction is successful, pay the seller. This is not atomic with the above but is safer.
             try {
                 const sellerStateRef = doc(db, 'gameState', card.sellerUid);
                 await updateDoc(sellerStateRef, { coins: increment(card.price) });
             } catch (payoutError) {
                 console.error("Payout to seller failed, needs manual reconciliation:", payoutError);
-                // The purchase was still successful for the buyer. We should probably log this error.
             }
     
             playSfx('purchase');
@@ -365,23 +375,19 @@ const App: React.FC = () => {
             sellerUid: currentUser.uid,
             sellerUsername: currentUser.username,
         };
-        // The card being listed might be from formation (no UID) or storage (has UID).
-        // We delete the UID property to ensure the new market document gets a fresh ID.
-        delete newMarketCard.uid;
+        delete (newMarketCard as Partial<CardType>).uid;
 
         const batch = writeBatch(db);
         
-        // Remove from storage or formation
-        if (card.uid) { // Card is in storage, identified by its unique document ID
+        if (card.uid) {
             batch.delete(doc(db, 'users', currentUser.uid, 'storage', card.uid));
-        } else { // Card is in formation, identified by its template ID
+        } else {
             const formationPos = Object.keys(gameState.formation).find(pos => gameState.formation[pos]?.id === card.id);
             if (formationPos) {
                  batch.update(doc(db, 'gameState', currentUser.uid), { [`formation.${formationPos}`]: null });
             }
         }
         
-        // Add the new listing to the market collection
         batch.set(doc(collection(db, 'market')), newMarketCard);
         
         await batch.commit();
@@ -396,7 +402,6 @@ const App: React.FC = () => {
         try {
             const marketItemRef = doc(db, 'market', card.listingId);
             
-            // Prepare the card data to be added back to storage
             const cardDataToRestore: any = { ...card };
             delete cardDataToRestore.listingId;
             delete cardDataToRestore.price;
@@ -405,7 +410,6 @@ const App: React.FC = () => {
             
             const newStorageCardRef = doc(collection(db, 'users', currentUser.uid, 'storage'));
     
-            // Use a batch to perform both operations atomically
             const batch = writeBatch(db);
             batch.delete(marketItemRef);
             batch.set(newStorageCardRef, cardDataToRestore);
@@ -442,7 +446,6 @@ const App: React.FC = () => {
         setMessageModal({ title: 'Card Sold', message: `You quick sold ${cardToSell.name} for ${quickSellValue} coins.` });
     };
     
-    // New handler for formation updates from Collection.tsx
     const handleFormationUpdate = async (updates: {
         newFormation: Record<string, CardType | null>,
         movedToStorage: CardType[],
@@ -457,7 +460,7 @@ const App: React.FC = () => {
 
         movedToStorage.forEach(card => {
             const newDocRef = doc(collection(db, 'users', currentUser.uid, 'storage'));
-            const cardData = { ...card };
+            const cardData: any = { ...card };
             delete cardData.uid; 
             batch.set(newDocRef, cardData);
         });
@@ -491,7 +494,7 @@ const App: React.FC = () => {
 
         currentFormationCards.forEach(card => {
             const newDocRef = doc(collection(db, 'users', currentUser.uid, 'storage'));
-            const cardData = { ...card };
+            const cardData: any = { ...card };
             delete cardData.uid;
             batch.set(newDocRef, cardData);
         });
