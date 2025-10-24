@@ -231,20 +231,21 @@ const App: React.FC = () => {
     
     const handleOpenPack = async (packType: PackType) => {
         if (!currentUser) {
-            setMessageModal({ title: 'Please Login', message: 'You must be logged in to open packs.' });
+             setMessageModal({ title: 'Please Login', message: 'You must be logged in to open packs.' });
             return;
         }
         playSfx('packBuildup');
         const pack = packs[packType];
-    
+        
         if (pack.cost > gameState.coins && !isDevMode) {
-            setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins to open this pack.` });
+             setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins to open this pack.` });
             return;
         }
-    
-        const OVR_BASELINE = 80;
-        const VALUE_BASELINE = 10000;
-    
+
+        // --- NEW WEIGHTED PROBABILITY LOGIC ---
+        const OVR_BASELINE = 80; // OVR penalty starts applying above this rating
+        const VALUE_BASELINE = 10000; // Value penalty starts applying for each 10k increment
+
         const possibleCards = allCards.filter(c => {
             if (c.isPackable === false) return false;
             if (!pack.packableRarities.includes(c.rarity)) return false;
@@ -253,22 +254,23 @@ const App: React.FC = () => {
             return true;
         });
 
-        if (possibleCards.length === 0) {
-            setMessageModal({ title: 'Pack Error', message: `No cards are currently available for the ${packType} pack.`});
-            return;
-        }
-    
         const weightedCards = possibleCards.map(card => {
             const baseWeight = pack.rarityChances[card.rarity] || 0;
+            
+            // Apply OVR penalty: higher OVR = lower weight
             const ovrPenalty = card.ovr > OVR_BASELINE ? Math.pow(pack.ovrWeightingFactor, card.ovr - OVR_BASELINE) : 1;
+            
+            // Apply Value penalty: higher value = lower weight
             const valuePenalty = card.value > VALUE_BASELINE ? Math.pow(pack.valueWeightingFactor, card.value / VALUE_BASELINE) : 1;
+
             const finalWeight = baseWeight * ovrPenalty * valuePenalty;
+
             return { card, weight: finalWeight };
         }).filter(item => item.weight > 0);
-    
+
         const totalWeight = weightedCards.reduce((sum, item) => sum + item.weight, 0);
         let random = Math.random() * totalWeight;
-    
+
         let foundCard: CardType | null = null;
         for (const { card, weight } of weightedCards) {
             random -= weight;
@@ -277,30 +279,17 @@ const App: React.FC = () => {
                 break;
             }
         }
-    
-        if (!foundCard) {
-            foundCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
-        }
         
-        let finalCard = foundCard;
-        const minOvr = pack.minOvr || 0;
-        const maxOvr = pack.maxOvr || 99;
-
-        if (finalCard.ovr < minOvr || finalCard.ovr > maxOvr) {
-            console.error("Pack logic error: Selected card OVR is outside pack constraints. Overriding with a valid card.", {
-                selectedCard: finalCard.name,
-                ovr: finalCard.ovr,
-                pack: packType,
-                minOvr,
-                maxOvr,
-            });
-            const safeCards = possibleCards.filter(c => c.rarity === 'bronze' || c.rarity === 'silver');
-            finalCard = safeCards.length > 0 ? safeCards[Math.floor(Math.random() * safeCards.length)] : possibleCards[0];
+        if (!foundCard) {
+            // Fallback in case of rounding errors or empty weighted list
+            const bronzeCards = allCards.filter(c => c.rarity === 'bronze' && c.isPackable !== false);
+            foundCard = bronzeCards.length > 0 ? bronzeCards[Math.floor(Math.random() * bronzeCards.length)] : allCards[0];
         }
-    
-        const newCard = { ...finalCard } as CardType;
+        // --- END OF NEW LOGIC ---
+
+        const newCard = { ...foundCard } as CardType;
         delete newCard.uid;
-    
+
         if (settings.animationsOn) {
             setPackCard(newCard);
         } else {
@@ -312,9 +301,9 @@ const App: React.FC = () => {
                 setMessageModal({ title: 'New Card!', message: `You packed ${newCard.name}!`, card: newCard });
             }
         }
-    
+
         if (pack.cost > 0 && !isDevMode) {
-            await updateGameStateInDb({ coins: increment(-pack.cost) as any });
+             await updateGameStateInDb({ coins: increment(-pack.cost) as any });
         }
     };
 
@@ -561,7 +550,7 @@ const App: React.FC = () => {
                         currentUser={currentUser}
                         onToggleDevMode={handleToggleDevMode} 
                         isDevMode={isDevMode} 
-                        onOpenSettings={() => setIsSettingsOpen(false)} 
+                        onOpenSettings={() => setIsSettingsOpen(true)} 
                         onOpenHowToPlay={() => setIsHowToPlayOpen(true)}
                         onOpenLogin={() => { setIsLoginModalOpen(true); setAuthError(null); }}
                         onOpenSignUp={() => { setIsSignUpModalOpen(true); setAuthError(null); }}
