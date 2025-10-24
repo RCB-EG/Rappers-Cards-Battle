@@ -3,7 +3,6 @@ import Modal from './Modal';
 import Button from '../Button';
 import Card from '../Card';
 import { Card as CardType } from '../../types';
-import { TranslationKey } from '../../utils/translations';
 
 interface MarketModalProps {
   cardToList: CardType | null;

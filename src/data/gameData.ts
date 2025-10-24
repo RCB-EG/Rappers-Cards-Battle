@@ -161,6 +161,7 @@ export const packs: Record<PackType, PackData> = {
     rarityChances: { bronze: 65, silver: 25, gold: 10 },
     ovrWeightingFactor: 0.7, // Heavy penalty for high OVR
     valueWeightingFactor: 0.8, // Heavy penalty for high value
+    maxOvr: 80,
   },
   builder: {
     cost: 1200,
@@ -168,6 +169,7 @@ export const packs: Record<PackType, PackData> = {
     rarityChances: { bronze: 45, silver: 35, gold: 20 },
     ovrWeightingFactor: 0.75,
     valueWeightingFactor: 0.85,
+    maxOvr: 84,
   },
   special: {
     cost: 4000,
@@ -175,6 +177,8 @@ export const packs: Record<PackType, PackData> = {
     rarityChances: { silver: 10, gold: 83, rotm: 4, icon: 3 },
     ovrWeightingFactor: 0.85,
     valueWeightingFactor: 0.9,
+    minOvr: 79,
+    maxOvr: 89,
   },
   legendary: {
     cost: 40000,
@@ -182,6 +186,7 @@ export const packs: Record<PackType, PackData> = {
     rarityChances: { gold: 70, rotm: 15, icon: 14, legend: 1 },
     ovrWeightingFactor: 0.92, // Lower penalty, easier to get high OVR
     valueWeightingFactor: 0.95, // Lower penalty, easier to get high value
+    minOvr: 86,
   },
 };
 

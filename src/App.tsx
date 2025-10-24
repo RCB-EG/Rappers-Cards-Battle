@@ -92,6 +92,7 @@ const App: React.FC = () => {
                 if (userDoc.exists()) {
                     setCurrentUser({ uid: firebaseUser.uid, ...userDoc.data() } as User);
                 } else {
+                    // This case handles if a user exists in Auth but not in Firestore DB.
                     await signOut(auth);
                 }
             } else {
@@ -105,42 +106,26 @@ const App: React.FC = () => {
 
     // Listener for Game State (coins, formation, etc.)
     useEffect(() => {
-        if (!currentUser) return;
+        if (!currentUser?.uid) return;
 
         const gameStateDocRef = doc(db, 'gameState', currentUser.uid);
         const unsubscribeGameState = onSnapshot(gameStateDocRef, (docSnap) => {
             if (docSnap.exists()) {
                 const dataFromDb = docSnap.data();
-                setGameState(prevState => {
-                    // This prevents the gameState document from overwriting the market/storage
-                    // which are managed by their own separate listeners.
-                    const updatedState = {
-                        ...prevState,
-                        coins: dataFromDb.coins,
-                        formation: dataFromDb.formation,
-                        formationLayout: dataFromDb.formationLayout,
-                        completedFbcIds: dataFromDb.completedFbcIds || [],
-                        completedEvoIds: dataFromDb.completedEvoIds || [],
-                        activeEvolution: dataFromDb.activeEvolution || null,
-                        lastRewardClaimTime: dataFromDb.lastRewardClaimTime || null,
-                        freePacksOpenedToday: dataFromDb.freePacksOpenedToday || 0,
-                        lastFreePackResetTime: dataFromDb.lastFreePackResetTime || null,
-                        objectiveProgress: dataFromDb.objectiveProgress || {},
-                        lastDailyReset: dataFromDb.lastDailyReset || null,
-                        lastWeeklyReset: dataFromDb.lastWeeklyReset || null,
-                        uid: currentUser.uid,
-                    };
-                    return updatedState;
-                });
+                setGameState(prevState => ({
+                    ...prevState,
+                    ...dataFromDb,
+                    uid: currentUser.uid,
+                }));
             }
         });
         
         return () => unsubscribeGameState();
-    }, [currentUser]);
+    }, [currentUser?.uid]);
 
     // Listener for user's card storage (sub-collection)
     useEffect(() => {
-        if (!currentUser) return;
+        if (!currentUser?.uid) return;
 
         const storageCollectionRef = collection(db, 'users', currentUser.uid, 'storage');
         const unsubscribeStorage = onSnapshot(storageCollectionRef, (querySnapshot) => {
@@ -149,7 +134,7 @@ const App: React.FC = () => {
         });
 
         return () => unsubscribeStorage();
-    }, [currentUser]);
+    }, [currentUser?.uid]);
 
     // Listener for the global market
     useEffect(() => {
@@ -206,7 +191,7 @@ const App: React.FC = () => {
         }
     };
 
-    const handleLogin = async (user: User) => {
+    const handleLogin = async (user: Partial<User>) => {
         if (!user.email || !user.password) return;
         try {
             await signInWithEmailAndPassword(auth, user.email, user.password);
@@ -231,40 +216,44 @@ const App: React.FC = () => {
     
     const handleOpenPack = async (packType: PackType) => {
         if (!currentUser) {
-             setMessageModal({ title: 'Please Login', message: 'You must be logged in to open packs.' });
+            setMessageModal({ title: 'Please Login', message: 'You must be logged in to open packs.' });
             return;
         }
         playSfx('packBuildup');
         const pack = packs[packType];
-        
+    
         if (pack.cost > gameState.coins && !isDevMode) {
-             setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins to open this pack.` });
+            setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins to open this pack.` });
             return;
         }
+    
+        const OVR_BASELINE = 80;
+        const VALUE_BASELINE = 10000;
+    
+        const possibleCards = allCards.filter(c => {
+            if (c.isPackable === false) return false;
+            if (!pack.packableRarities.includes(c.rarity)) return false;
+            if (pack.minOvr && c.ovr < pack.minOvr) return false;
+            if (pack.maxOvr !== undefined && c.ovr > pack.maxOvr) return false;
+            return true;
+        });
 
-        // --- NEW WEIGHTED PROBABILITY LOGIC ---
-        const OVR_BASELINE = 80; // OVR penalty starts applying above this rating
-        const VALUE_BASELINE = 10000; // Value penalty starts applying for each 10k increment
-
-        const possibleCards = allCards.filter(c => c.isPackable !== false && pack.packableRarities.includes(c.rarity));
-
+        if (possibleCards.length === 0) {
+            setMessageModal({ title: 'Pack Error', message: `No cards are currently available for the ${packType} pack.`});
+            return;
+        }
+    
         const weightedCards = possibleCards.map(card => {
             const baseWeight = pack.rarityChances[card.rarity] || 0;
-            
-            // Apply OVR penalty: higher OVR = lower weight
             const ovrPenalty = card.ovr > OVR_BASELINE ? Math.pow(pack.ovrWeightingFactor, card.ovr - OVR_BASELINE) : 1;
-            
-            // Apply Value penalty: higher value = lower weight
             const valuePenalty = card.value > VALUE_BASELINE ? Math.pow(pack.valueWeightingFactor, card.value / VALUE_BASELINE) : 1;
-
             const finalWeight = baseWeight * ovrPenalty * valuePenalty;
-
             return { card, weight: finalWeight };
         }).filter(item => item.weight > 0);
-
+    
         const totalWeight = weightedCards.reduce((sum, item) => sum + item.weight, 0);
         let random = Math.random() * totalWeight;
-
+    
         let foundCard: CardType | null = null;
         for (const { card, weight } of weightedCards) {
             random -= weight;
@@ -273,17 +262,31 @@ const App: React.FC = () => {
                 break;
             }
         }
-        
+    
         if (!foundCard) {
-            // Fallback in case of rounding errors or empty weighted list
-            const bronzeCards = allCards.filter(c => c.rarity === 'bronze' && c.isPackable !== false);
-            foundCard = bronzeCards.length > 0 ? bronzeCards[Math.floor(Math.random() * bronzeCards.length)] : allCards[0];
+            // This is a fallback in case the weighting logic fails or results in no card.
+            // We'll pick a random card from the already correctly filtered pool.
+            foundCard = possibleCards.length > 0 ? possibleCards[Math.floor(Math.random() * possibleCards.length)] : null;
         }
-        // --- END OF NEW LOGIC ---
+    
+        // Final safeguard: If for any reason a card is chosen that shouldn't have been, we default to a safe random choice.
+        const packMinOvr = pack.minOvr || 0;
+        const packMaxOvr = pack.maxOvr === undefined ? 99 : pack.maxOvr;
+        if (!foundCard || foundCard.ovr < packMinOvr || foundCard.ovr > packMaxOvr) {
+            console.error("Safeguard triggered: Invalid card selected. Re-selecting from valid pool.", {
+                card: foundCard?.name,
+                ovr: foundCard?.ovr,
+                pack: packType,
+                min: packMinOvr,
+                max: packMaxOvr
+            });
+            foundCard = possibleCards.length > 0 ? possibleCards[Math.floor(Math.random() * possibleCards.length)] : allCards[0];
+        }
 
-        const newCard = { ...foundCard } as CardType;
+        const finalCard = foundCard;
+        const newCard = { ...finalCard } as CardType;
         delete newCard.uid;
-
+    
         if (settings.animationsOn) {
             setPackCard(newCard);
         } else {
@@ -295,9 +298,9 @@ const App: React.FC = () => {
                 setMessageModal({ title: 'New Card!', message: `You packed ${newCard.name}!`, card: newCard });
             }
         }
-
+    
         if (pack.cost > 0 && !isDevMode) {
-             await updateGameStateInDb({ coins: increment(-pack.cost) as any });
+            await updateGameStateInDb({ coins: increment(-pack.cost) as any });
         }
     };
 
@@ -387,9 +390,9 @@ const App: React.FC = () => {
 
         const batch = writeBatch(db);
         
-        if (card.uid) {
+        if (card.uid) { // Card is from storage
             batch.delete(doc(db, 'users', currentUser.uid, 'storage', card.uid));
-        } else {
+        } else { // Card is from formation
             const formationPos = Object.keys(gameState.formation).find(pos => gameState.formation[pos]?.id === card.id);
             if (formationPos) {
                  batch.update(doc(db, 'gameState', currentUser.uid), { [`formation.${formationPos}`]: null });
@@ -439,9 +442,9 @@ const App: React.FC = () => {
         
         batch.update(gameStateRef, { coins: increment(quickSellValue) });
         
-        if(cardToSell.uid) {
+        if(cardToSell.uid) { // Card from storage
             batch.delete(doc(db, 'users', currentUser.uid, 'storage', cardToSell.uid));
-        } else {
+        } else { // Card from formation
              const formationPos = Object.keys(gameState.formation).find(pos => gameState.formation[pos]?.id === cardToSell.id);
              if (formationPos) {
                  batch.update(gameStateRef, { [`formation.${formationPos}`]: null });
@@ -510,12 +513,12 @@ const App: React.FC = () => {
         await batch.commit();
     };
 
-
     if (isLoading) {
         return <div className="fixed inset-0 bg-black z-[100] flex justify-center items-center text-gold-light text-2xl font-header">Loading Game...</div>;
     }
 
-    // TODO: Other handlers like FBC, Evo, Objectives would need similar async/Firestore logic
+    const formationCardCount = useMemo(() => Object.values(gameState.formation).filter(Boolean).length, [gameState.formation]);
+    const isFormationFull = formationCardCount >= 11;
 
     const renderView = () => {
         switch (currentView) {
@@ -585,7 +588,7 @@ const App: React.FC = () => {
                 onListCard={(card) => { setCardToList(card); setCardWithOptions(null); }} 
                 onQuickSell={handleQuickSell}
                 onAddToFormation={()=>{}}
-                isFormationFull={false}
+                isFormationFull={isFormationFull}
                 t={t} 
             />
             <MarketModal cardToList={cardToList} onClose={() => setCardToList(null)} onList={handleListCard} />
