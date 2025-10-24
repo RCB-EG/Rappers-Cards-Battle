@@ -39,6 +39,7 @@ const CardOptionsModal: React.FC<CardOptionsModalProps> = ({ cardWithOptions, on
   
   const handleListClick = () => {
     onListCard(card);
+    onClose();
   }
   
   const handleAddToFormationClick = () => {

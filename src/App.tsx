@@ -92,7 +92,6 @@ const App: React.FC = () => {
                 if (userDoc.exists()) {
                     setCurrentUser({ uid: firebaseUser.uid, ...userDoc.data() } as User);
                 } else {
-                    // This case handles if a user exists in Auth but not in Firestore DB.
                     await signOut(auth);
                 }
             } else {
@@ -106,26 +105,42 @@ const App: React.FC = () => {
 
     // Listener for Game State (coins, formation, etc.)
     useEffect(() => {
-        if (!currentUser?.uid) return;
+        if (!currentUser) return;
 
         const gameStateDocRef = doc(db, 'gameState', currentUser.uid);
         const unsubscribeGameState = onSnapshot(gameStateDocRef, (docSnap) => {
             if (docSnap.exists()) {
                 const dataFromDb = docSnap.data();
-                setGameState(prevState => ({
-                    ...prevState,
-                    ...dataFromDb,
-                    uid: currentUser.uid,
-                }));
+                setGameState(prevState => {
+                    // This prevents the gameState document from overwriting the market/storage
+                    // which are managed by their own separate listeners.
+                    const updatedState = {
+                        ...prevState,
+                        coins: dataFromDb.coins,
+                        formation: dataFromDb.formation,
+                        formationLayout: dataFromDb.formationLayout,
+                        completedFbcIds: dataFromDb.completedFbcIds || [],
+                        completedEvoIds: dataFromDb.completedEvoIds || [],
+                        activeEvolution: dataFromDb.activeEvolution || null,
+                        lastRewardClaimTime: dataFromDb.lastRewardClaimTime || null,
+                        freePacksOpenedToday: dataFromDb.freePacksOpenedToday || 0,
+                        lastFreePackResetTime: dataFromDb.lastFreePackResetTime || null,
+                        objectiveProgress: dataFromDb.objectiveProgress || {},
+                        lastDailyReset: dataFromDb.lastDailyReset || null,
+                        lastWeeklyReset: dataFromDb.lastWeeklyReset || null,
+                        uid: currentUser.uid,
+                    };
+                    return updatedState;
+                });
             }
         });
         
         return () => unsubscribeGameState();
-    }, [currentUser?.uid]);
+    }, [currentUser]);
 
     // Listener for user's card storage (sub-collection)
     useEffect(() => {
-        if (!currentUser?.uid) return;
+        if (!currentUser) return;
 
         const storageCollectionRef = collection(db, 'users', currentUser.uid, 'storage');
         const unsubscribeStorage = onSnapshot(storageCollectionRef, (querySnapshot) => {
@@ -134,7 +149,7 @@ const App: React.FC = () => {
         });
 
         return () => unsubscribeStorage();
-    }, [currentUser?.uid]);
+    }, [currentUser]);
 
     // Listener for the global market
     useEffect(() => {
@@ -191,7 +206,7 @@ const App: React.FC = () => {
         }
     };
 
-    const handleLogin = async (user: Partial<User>) => {
+    const handleLogin = async (user: User) => {
         if (!user.email || !user.password) return;
         try {
             await signInWithEmailAndPassword(auth, user.email, user.password);
@@ -234,7 +249,7 @@ const App: React.FC = () => {
             if (c.isPackable === false) return false;
             if (!pack.packableRarities.includes(c.rarity)) return false;
             if (pack.minOvr && c.ovr < pack.minOvr) return false;
-            if (pack.maxOvr !== undefined && c.ovr > pack.maxOvr) return false;
+            if (pack.maxOvr && c.ovr > pack.maxOvr) return false;
             return true;
         });
 
@@ -264,26 +279,25 @@ const App: React.FC = () => {
         }
     
         if (!foundCard) {
-            // This is a fallback in case the weighting logic fails or results in no card.
-            // We'll pick a random card from the already correctly filtered pool.
-            foundCard = possibleCards.length > 0 ? possibleCards[Math.floor(Math.random() * possibleCards.length)] : null;
+            foundCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
+        }
+        
+        let finalCard = foundCard;
+        const minOvr = pack.minOvr || 0;
+        const maxOvr = pack.maxOvr || 99;
+
+        if (finalCard.ovr < minOvr || finalCard.ovr > maxOvr) {
+            console.error("Pack logic error: Selected card OVR is outside pack constraints. Overriding with a valid card.", {
+                selectedCard: finalCard.name,
+                ovr: finalCard.ovr,
+                pack: packType,
+                minOvr,
+                maxOvr,
+            });
+            const safeCards = possibleCards.filter(c => c.rarity === 'bronze' || c.rarity === 'silver');
+            finalCard = safeCards.length > 0 ? safeCards[Math.floor(Math.random() * safeCards.length)] : possibleCards[0];
         }
     
-        // Final safeguard: If for any reason a card is chosen that shouldn't have been, we default to a safe random choice.
-        const packMinOvr = pack.minOvr || 0;
-        const packMaxOvr = pack.maxOvr === undefined ? 99 : pack.maxOvr;
-        if (!foundCard || foundCard.ovr < packMinOvr || foundCard.ovr > packMaxOvr) {
-            console.error("Safeguard triggered: Invalid card selected. Re-selecting from valid pool.", {
-                card: foundCard?.name,
-                ovr: foundCard?.ovr,
-                pack: packType,
-                min: packMinOvr,
-                max: packMaxOvr
-            });
-            foundCard = possibleCards.length > 0 ? possibleCards[Math.floor(Math.random() * possibleCards.length)] : allCards[0];
-        }
-
-        const finalCard = foundCard;
         const newCard = { ...finalCard } as CardType;
         delete newCard.uid;
     
@@ -390,9 +404,9 @@ const App: React.FC = () => {
 
         const batch = writeBatch(db);
         
-        if (card.uid) { // Card is from storage
+        if (card.uid) {
             batch.delete(doc(db, 'users', currentUser.uid, 'storage', card.uid));
-        } else { // Card is from formation
+        } else {
             const formationPos = Object.keys(gameState.formation).find(pos => gameState.formation[pos]?.id === card.id);
             if (formationPos) {
                  batch.update(doc(db, 'gameState', currentUser.uid), { [`formation.${formationPos}`]: null });
@@ -442,9 +456,9 @@ const App: React.FC = () => {
         
         batch.update(gameStateRef, { coins: increment(quickSellValue) });
         
-        if(cardToSell.uid) { // Card from storage
+        if(cardToSell.uid) {
             batch.delete(doc(db, 'users', currentUser.uid, 'storage', cardToSell.uid));
-        } else { // Card from formation
+        } else {
              const formationPos = Object.keys(gameState.formation).find(pos => gameState.formation[pos]?.id === cardToSell.id);
              if (formationPos) {
                  batch.update(gameStateRef, { [`formation.${formationPos}`]: null });
@@ -513,12 +527,12 @@ const App: React.FC = () => {
         await batch.commit();
     };
 
+
     if (isLoading) {
         return <div className="fixed inset-0 bg-black z-[100] flex justify-center items-center text-gold-light text-2xl font-header">Loading Game...</div>;
     }
 
-    const formationCardCount = useMemo(() => Object.values(gameState.formation).filter(Boolean).length, [gameState.formation]);
-    const isFormationFull = formationCardCount >= 11;
+    // TODO: Other handlers like FBC, Evo, Objectives would need similar async/Firestore logic
 
     const renderView = () => {
         switch (currentView) {
@@ -547,7 +561,7 @@ const App: React.FC = () => {
                         currentUser={currentUser}
                         onToggleDevMode={handleToggleDevMode} 
                         isDevMode={isDevMode} 
-                        onOpenSettings={() => setIsSettingsOpen(true)} 
+                        onOpenSettings={() => setIsSettingsOpen(false)} 
                         onOpenHowToPlay={() => setIsHowToPlayOpen(true)}
                         onOpenLogin={() => { setIsLoginModalOpen(true); setAuthError(null); }}
                         onOpenSignUp={() => { setIsSignUpModalOpen(true); setAuthError(null); }}
@@ -588,7 +602,7 @@ const App: React.FC = () => {
                 onListCard={(card) => { setCardToList(card); setCardWithOptions(null); }} 
                 onQuickSell={handleQuickSell}
                 onAddToFormation={()=>{}}
-                isFormationFull={isFormationFull}
+                isFormationFull={false}
                 t={t} 
             />
             <MarketModal cardToList={cardToList} onClose={() => setCardToList(null)} onList={handleListCard} />

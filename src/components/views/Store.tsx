@@ -21,7 +21,7 @@ const calculatePackProbabilities = (pack: PackData): Record<string, number> => {
         if (c.isPackable === false) return false;
         if (!pack.packableRarities.includes(c.rarity)) return false;
         if (pack.minOvr && c.ovr < pack.minOvr) return false;
-        if (pack.maxOvr !== undefined && c.ovr > pack.maxOvr) return false;
+        if (pack.maxOvr && c.ovr > pack.maxOvr) return false;
         return true;
     });
 
@@ -127,8 +127,12 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, gameState, isDevMode, t }) =>
                         <div className="text-left my-4 p-4 bg-black/20 rounded-md">
                             <h4 className="font-header text-gold-light text-xl mb-2">Probabilities:</h4>
                             {Object.entries(dynamicProbabilities)
-                                .sort((a, b) => (b[1] as number) - (a[1] as number)) // Sort by probability desc
+                                .sort((a, b) => {
+                                    // FIX: The values from Object.entries are inferred as unknown, so we cast them to number for sorting.
+                                    return (b[1] as number) - (a[1] as number);
+                                }) // Sort by probability desc
                                 .map(([rarity, chance]) =>(
+                                // FIX: The 'chance' value from Object.entries is inferred as unknown, so we cast to number to use .toFixed().
                                 <p key={rarity} className="capitalize text-gray-300">{rarity}: {(chance as number).toFixed(2)}%</p>
                             ))}
                         </div>
