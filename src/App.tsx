@@ -63,6 +63,7 @@ const App: React.FC = () => {
     const [packCard, setPackCard] = useState<CardType | null>(null);
     const [cardWithOptions, setCardWithOptions] = useState<{ card: CardType; origin: 'formation' | 'storage' } | null>(null);
     const [cardToList, setCardToList] = useState<CardType | null>(null);
+    const [cardToDelist, setCardToDelist] = useState<MarketCard | null>(null);
     const [duplicateToSell, setDuplicateToSell] = useState<CardType | null>(null);
     const [isDailyRewardModalOpen, setIsDailyRewardModalOpen] = useState(false);
     
@@ -92,6 +93,8 @@ const App: React.FC = () => {
                 if (userDoc.exists()) {
                     setCurrentUser({ uid: firebaseUser.uid, ...userDoc.data() } as User);
                 } else {
+                    // This case handles if a user exists in auth but not firestore db.
+                    // This can happen if db is wiped.
                     await signOut(auth);
                 }
             } else {
@@ -111,27 +114,11 @@ const App: React.FC = () => {
         const unsubscribeGameState = onSnapshot(gameStateDocRef, (docSnap) => {
             if (docSnap.exists()) {
                 const dataFromDb = docSnap.data();
-                setGameState(prevState => {
-                    // This prevents the gameState document from overwriting the market/storage
-                    // which are managed by their own separate listeners.
-                    const updatedState = {
-                        ...prevState,
-                        coins: dataFromDb.coins,
-                        formation: dataFromDb.formation,
-                        formationLayout: dataFromDb.formationLayout,
-                        completedFbcIds: dataFromDb.completedFbcIds || [],
-                        completedEvoIds: dataFromDb.completedEvoIds || [],
-                        activeEvolution: dataFromDb.activeEvolution || null,
-                        lastRewardClaimTime: dataFromDb.lastRewardClaimTime || null,
-                        freePacksOpenedToday: dataFromDb.freePacksOpenedToday || 0,
-                        lastFreePackResetTime: dataFromDb.lastFreePackResetTime || null,
-                        objectiveProgress: dataFromDb.objectiveProgress || {},
-                        lastDailyReset: dataFromDb.lastDailyReset || null,
-                        lastWeeklyReset: dataFromDb.lastWeeklyReset || null,
-                        uid: currentUser.uid,
-                    };
-                    return updatedState;
-                });
+                setGameState(prevState => ({
+                    ...prevState,
+                    ...dataFromDb,
+                    uid: currentUser.uid,
+                }));
             }
         });
         
@@ -140,7 +127,10 @@ const App: React.FC = () => {
 
     // Listener for user's card storage (sub-collection)
     useEffect(() => {
-        if (!currentUser) return;
+        if (!currentUser) {
+            setGameState(p => ({...p, storage: []}));
+            return;
+        };
 
         const storageCollectionRef = collection(db, 'users', currentUser.uid, 'storage');
         const unsubscribeStorage = onSnapshot(storageCollectionRef, (querySnapshot) => {
@@ -206,7 +196,7 @@ const App: React.FC = () => {
         }
     };
 
-    const handleLogin = async (user: User) => {
+    const handleLogin = async (user: Partial<User>) => {
         if (!user.email || !user.password) return;
         try {
             await signInWithEmailAndPassword(auth, user.email, user.password);
@@ -221,12 +211,6 @@ const App: React.FC = () => {
         await signOut(auth);
     };
     
-    const updateGameStateInDb = async (updates: Partial<GameState>) => {
-        if (!currentUser) return;
-        const gameStateRef = doc(db, 'gameState', currentUser.uid);
-        await updateDoc(gameStateRef, updates);
-    }
-
     const handleToggleDevMode = () => setIsDevMode(prev => !prev);
     
     const handleOpenPack = async (packType: PackType) => {
@@ -242,9 +226,8 @@ const App: React.FC = () => {
             return;
         }
 
-        // --- NEW WEIGHTED PROBABILITY LOGIC ---
-        const OVR_BASELINE = 80; // OVR penalty starts applying above this rating
-        const VALUE_BASELINE = 10000; // Value penalty starts applying for each 10k increment
+        const OVR_BASELINE = 80;
+        const VALUE_BASELINE = 10000;
 
         const possibleCards = allCards.filter(c => {
             if (c.isPackable === false) return false;
@@ -256,15 +239,9 @@ const App: React.FC = () => {
 
         const weightedCards = possibleCards.map(card => {
             const baseWeight = pack.rarityChances[card.rarity] || 0;
-            
-            // Apply OVR penalty: higher OVR = lower weight
             const ovrPenalty = card.ovr > OVR_BASELINE ? Math.pow(pack.ovrWeightingFactor, card.ovr - OVR_BASELINE) : 1;
-            
-            // Apply Value penalty: higher value = lower weight
             const valuePenalty = card.value > VALUE_BASELINE ? Math.pow(pack.valueWeightingFactor, card.value / VALUE_BASELINE) : 1;
-
             const finalWeight = baseWeight * ovrPenalty * valuePenalty;
-
             return { card, weight: finalWeight };
         }).filter(item => item.weight > 0);
 
@@ -281,15 +258,18 @@ const App: React.FC = () => {
         }
         
         if (!foundCard) {
-            // Fallback in case of rounding errors or empty weighted list
             const bronzeCards = allCards.filter(c => c.rarity === 'bronze' && c.isPackable !== false);
             foundCard = bronzeCards.length > 0 ? bronzeCards[Math.floor(Math.random() * bronzeCards.length)] : allCards[0];
         }
-        // --- END OF NEW LOGIC ---
 
         const newCard = { ...foundCard } as CardType;
-        delete newCard.uid;
+        delete (newCard as Partial<CardType>).uid;
 
+        const gameStateRef = doc(db, 'gameState', currentUser.uid);
+        if (pack.cost > 0 && !isDevMode) {
+             await updateDoc(gameStateRef, { coins: increment(-pack.cost) });
+        }
+        
         if (settings.animationsOn) {
             setPackCard(newCard);
         } else {
@@ -300,10 +280,6 @@ const App: React.FC = () => {
                 await addDoc(collection(db, 'users', currentUser.uid, 'storage'), newCard);
                 setMessageModal({ title: 'New Card!', message: `You packed ${newCard.name}!`, card: newCard });
             }
-        }
-
-        if (pack.cost > 0 && !isDevMode) {
-             await updateGameStateInDb({ coins: increment(-pack.cost) as any });
         }
     };
 
@@ -323,7 +299,8 @@ const App: React.FC = () => {
     const handleQuickSellDuplicate = async () => {
         if (duplicateToSell && currentUser) {
             const quickSellValue = calculateQuickSellValue(duplicateToSell);
-            await updateGameStateInDb({ coins: increment(quickSellValue) as any });
+            const gameStateRef = doc(db, 'gameState', currentUser.uid);
+            await updateDoc(gameStateRef, { coins: increment(quickSellValue) });
             setMessageModal({ title: 'Card Sold', message: `You received ${quickSellValue} coins for the duplicate ${duplicateToSell.name}.` });
             setDuplicateToSell(null);
         }
@@ -393,9 +370,9 @@ const App: React.FC = () => {
 
         const batch = writeBatch(db);
         
-        if (card.uid) {
+        if (card.uid) { // Card is from storage
             batch.delete(doc(db, 'users', currentUser.uid, 'storage', card.uid));
-        } else {
+        } else { // Card is from formation
             const formationPos = Object.keys(gameState.formation).find(pos => gameState.formation[pos]?.id === card.id);
             if (formationPos) {
                  batch.update(doc(db, 'gameState', currentUser.uid), { [`formation.${formationPos}`]: null });
@@ -431,6 +408,7 @@ const App: React.FC = () => {
             await batch.commit();
     
             setMessageModal({ title: 'Card Delisted', message: `${card.name} has been returned to your storage.` });
+            setCardToDelist(null);
         } catch (e) {
             console.error("Failed to delist card: ", e);
             setMessageModal({ title: 'Error', message: 'Could not delist the card. Please try again.' });
@@ -438,16 +416,16 @@ const App: React.FC = () => {
     };
     
     const handleQuickSell = async (cardToSell: CardType) => {
-         if (!currentUser) return;
+        if (!currentUser) return;
         const quickSellValue = calculateQuickSellValue(cardToSell);
         const batch = writeBatch(db);
         const gameStateRef = doc(db, 'gameState', currentUser.uid);
         
         batch.update(gameStateRef, { coins: increment(quickSellValue) });
         
-        if(cardToSell.uid) {
+        if(cardToSell.uid) { // from storage
             batch.delete(doc(db, 'users', currentUser.uid, 'storage', cardToSell.uid));
-        } else {
+        } else { // from formation
              const formationPos = Object.keys(gameState.formation).find(pos => gameState.formation[pos]?.id === cardToSell.id);
              if (formationPos) {
                  batch.update(gameStateRef, { [`formation.${formationPos}`]: null });
@@ -493,18 +471,13 @@ const App: React.FC = () => {
         if (!currentUser) return;
 
         const currentFormationCards = Object.values(gameState.formation).filter(Boolean) as CardType[];
-        
         const newLayout = formationLayouts[newLayoutId];
         const newFormation: Record<string, CardType | null> = {};
         newLayout.allPositions.forEach(posId => { newFormation[posId] = null; });
 
         const batch = writeBatch(db);
-
         const gameStateRef = doc(db, 'gameState', currentUser.uid);
-        batch.update(gameStateRef, {
-            formationLayout: newLayoutId,
-            formation: newFormation
-        });
+        batch.update(gameStateRef, { formationLayout: newLayoutId, formation: newFormation });
 
         currentFormationCards.forEach(card => {
             const newDocRef = doc(collection(db, 'users', currentUser.uid, 'storage'));
@@ -516,18 +489,45 @@ const App: React.FC = () => {
         await batch.commit();
     };
 
+    const handleAddToFormation = useCallback(async (card: CardType) => {
+        if (!currentUser) return;
+        const { formation, formationLayout } = gameState;
+        const layout = formationLayouts[formationLayout];
+        const emptyPositionId = layout.allPositions.find(posId => !formation[posId]);
+    
+        if (emptyPositionId && card.uid) {
+            const batch = writeBatch(db);
+            const gameStateRef = doc(db, 'gameState', currentUser.uid);
+            const cardInStorageRef = doc(db, 'users', currentUser.uid, 'storage', card.uid);
+            
+            const cardData: any = { ...card };
+            delete cardData.uid;
+
+            batch.update(gameStateRef, { [`formation.${emptyPositionId}`]: cardData });
+            batch.delete(cardInStorageRef);
+    
+            await batch.commit();
+    
+            playSfx('success');
+            setCardWithOptions(null);
+        } else {
+            setMessageModal({ title: 'Formation Full', message: 'Your formation is full. Remove a player to add a new one.' });
+        }
+    }, [currentUser, gameState, playSfx]);
+    
+    const formationCardCount = useMemo(() => Object.values(gameState.formation).filter(Boolean).length, [gameState.formation]);
+    const isFormationFull = formationCardCount >= 11;
+
 
     if (isLoading) {
         return <div className="fixed inset-0 bg-black z-[100] flex justify-center items-center text-gold-light text-2xl font-header">Loading Game...</div>;
     }
 
-    // TODO: Other handlers like FBC, Evo, Objectives would need similar async/Firestore logic
-
     const renderView = () => {
         switch (currentView) {
             case 'store': return <Store onOpenPack={handleOpenPack} gameState={gameState} isDevMode={isDevMode} t={t} />;
             case 'collection': return <Collection gameState={gameState} onFormationUpdate={handleFormationUpdate} onLayoutChange={handleLayoutChange} setCardForOptions={setCardWithOptions} t={t} />;
-            case 'market': return <Market market={gameState.market} onBuyCard={handleBuyCard} onDelistCard={handleDelistCard} currentUserUid={currentUser?.uid || ''} t={t} />;
+            case 'market': return <Market market={gameState.market} onBuyCard={handleBuyCard} onDelistCard={setCardToDelist} currentUserUid={currentUser?.uid || ''} t={t} />;
             case 'battle': return <Battle t={t} />;
             case 'fbc': return <FBC gameState={gameState} onFbcSubmit={()=>{}} t={t} playSfx={playSfx} />;
             case 'evo': return <Evo gameState={gameState} onStartEvo={()=>{}} onClaimEvo={()=>{}} t={t} playSfx={playSfx} />;
@@ -590,13 +590,14 @@ const App: React.FC = () => {
                 onClose={() => setCardWithOptions(null)} 
                 onListCard={(card) => { setCardToList(card); setCardWithOptions(null); }} 
                 onQuickSell={handleQuickSell}
-                onAddToFormation={()=>{}}
-                isFormationFull={false}
+                onAddToFormation={handleAddToFormation}
+                isFormationFull={isFormationFull}
                 t={t} 
             />
-            <MarketModal cardToList={cardToList} onClose={() => setCardToList(null)} onList={handleListCard} />
+            <MarketModal cardToList={cardToList} onClose={() => setCardToList(null)} onList={handleListCard} t={t} />
             <DuplicateSellModal card={duplicateToSell} onSell={handleQuickSellDuplicate} t={t} />
             <DailyRewardModal isOpen={isDailyRewardModalOpen} onClaim={()=>{}} />
+            <DelistModal cardToDelist={cardToDelist} onClose={() => setCardToDelist(null)} onConfirm={handleDelistCard} t={t} />
         </div>
     );
 };

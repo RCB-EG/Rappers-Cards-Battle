@@ -201,7 +201,7 @@ const Collection: React.FC<CollectionProps> = ({ gameState, onFormationUpdate, o
             </div>
 
             <div className="controls-bar flex justify-between items-center mt-6 mb-4 flex-wrap gap-4">
-                <h3 className="text-xl">{t('storage')} ({gameState.storage.length}/50)</h3>
+                <h3 className="text-xl">{t('storage')} ({gameState.storage.length})</h3>
                 <div className="filter-group flex gap-2 items-center">
                     <select id="filter-collection-rarity" value={rarityFilter} onChange={e => setRarityFilter(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-2 rounded-md">
                         <option value="all">All Rarities</option>

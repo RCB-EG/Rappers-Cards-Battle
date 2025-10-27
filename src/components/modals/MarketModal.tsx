@@ -9,9 +9,10 @@ interface MarketModalProps {
   cardToList: CardType | null;
   onClose: () => void;
   onList: (card: CardType, price: number) => Promise<void>;
+  t: (key: TranslationKey) => string;
 }
 
-const MarketModal: React.FC<MarketModalProps> = ({ cardToList, onClose, onList }) => {
+const MarketModal: React.FC<MarketModalProps> = ({ cardToList, onClose, onList, t }) => {
   const [price, setPrice] = useState(100);
   const [isListing, setIsListing] = useState(false);
 
@@ -31,21 +32,17 @@ const MarketModal: React.FC<MarketModalProps> = ({ cardToList, onClose, onList }
         await onList(cardToList, price);
       } catch (error) {
         console.error("Failed to list card:", error);
-        // Optionally show an error to the user here
-      } finally {
-        // The onClose in onList will remove the modal, but this is a safeguard
-        setIsListing(false);
       }
     }
   };
 
   return (
-    <Modal isOpen={!!cardToList} onClose={onClose} title={"List on Market"}>
+    <Modal isOpen={!!cardToList} onClose={onClose} title={t('modal_list_market_title')}>
       <div className="flex justify-center my-4">
         <Card card={cardToList} />
       </div>
       <div className="flex flex-col items-center gap-4 my-4">
-        <label htmlFor="market-price" className="text-white">{"Set your price:"}</label>
+        <label htmlFor="market-price" className="text-white">{t('set_price')}</label>
         <input
           type="number"
           id="market-price"
@@ -57,10 +54,10 @@ const MarketModal: React.FC<MarketModalProps> = ({ cardToList, onClose, onList }
       </div>
       <div className="flex justify-center gap-4 mt-6">
         <Button variant="keep" onClick={handleListClick} disabled={isListing}>
-          {isListing ? 'Listing...' : "List Card"}
+          {isListing ? 'Listing...' : t('list')}
         </Button>
         <Button variant="sell" onClick={onClose} disabled={isListing}>
-          {"Cancel"}
+          {t('cancel')}
         </Button>
       </div>
     </Modal>

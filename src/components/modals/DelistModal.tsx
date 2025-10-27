@@ -16,15 +16,15 @@ const DelistModal: React.FC<DelistModalProps> = ({ cardToDelist, onClose, onConf
   if (!cardToDelist) return null;
 
   return (
-    <Modal isOpen={!!cardToDelist} onClose={onClose} title="Delist Card">
+    <Modal isOpen={!!cardToDelist} onClose={onClose} title={t('modal_delist_card_title')}>
         <div className="flex justify-center my-4">
             <Card card={cardToDelist} />
         </div>
         <p className="text-white text-lg my-4">
-            Are you sure you want to remove this card from the market? It will be returned to your storage.
+            {t('modal_delist_card_confirm')}
         </p>
         <div className="flex justify-center gap-4 mt-6">
-            <Button variant="sell" onClick={() => onConfirm(cardToDelist)}>Delist</Button>
+            <Button variant="sell" onClick={() => onConfirm(cardToDelist)}>{t('delist')}</Button>
             <Button variant="keep" onClick={onClose}>{t('cancel')}</Button>
         </div>
     </Modal>
