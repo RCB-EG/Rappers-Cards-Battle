@@ -6,12 +6,7 @@ import { TranslationKey } from '../../utils/translations';
 
 interface CollectionProps {
     gameState: GameState;
-    onFormationUpdate: (updates: {
-        newFormation: Record<string, CardType | null>,
-        movedToStorage: CardType[],
-        movedFromStorage: CardType[]
-    }) => void;
-    onLayoutChange: (newLayoutId: FormationLayoutId) => void;
+    setGameState: (updates: Partial<GameState>) => void;
     setCardForOptions: (details: { card: CardType; origin: 'formation' | 'storage' } | null) => void;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
 }
@@ -22,7 +17,7 @@ type DraggedCardInfo = {
     positionId?: string;
 };
 
-const Collection: React.FC<CollectionProps> = ({ gameState, onFormationUpdate, onLayoutChange, setCardForOptions, t }) => {
+const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCardForOptions, t }) => {
     const [draggedCard, setDraggedCard] = useState<DraggedCardInfo | null>(null);
     const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
     const [dragOverPosition, setDragOverPosition] = useState<string | null>(null);
@@ -34,6 +29,8 @@ const Collection: React.FC<CollectionProps> = ({ gameState, onFormationUpdate, o
 
     const formationRating = useMemo(() => {
         if (formationCardCount === 0) return '-';
+        // Fix: Replaced `Object.values` with `Object.keys` to iterate over the formation.
+        // This provides better type safety and avoids potential issues with `Object.values` type inference.
         let totalOvr = 0;
         for (const posId of Object.keys(gameState.formation)) {
             const card = gameState.formation[posId];
@@ -72,11 +69,30 @@ const Collection: React.FC<CollectionProps> = ({ gameState, onFormationUpdate, o
     }, [cleanupDragState]);
 
     useEffect(() => {
+        // This global listener handles cases where a drag is cancelled (e.g., dropped outside a valid target).
         document.addEventListener('dragend', handleDragEnd);
         return () => {
             document.removeEventListener('dragend', handleDragEnd);
         };
     }, [handleDragEnd]);
+
+
+    const handleLayoutChange = (newLayoutId: FormationLayoutId) => {
+        const currentCards = Object.values(gameState.formation).filter(Boolean) as CardType[];
+        const newLayout = formationLayouts[newLayoutId];
+        const newFormation: Record<string, CardType | null> = {};
+        newLayout.allPositions.forEach(posId => {
+            newFormation[posId] = null;
+        });
+
+        const newStorage = [...gameState.storage, ...currentCards];
+
+        setGameState({
+            formationLayout: newLayoutId,
+            formation: newFormation,
+            storage: newStorage
+        });
+    };
 
     const handleDragStart = (e: React.DragEvent, card: CardType, origin: 'formation' | 'storage', positionId?: string) => {
         if (gameState.activeEvolution?.cardId === card.id) {
@@ -87,38 +103,36 @@ const Collection: React.FC<CollectionProps> = ({ gameState, onFormationUpdate, o
         e.dataTransfer.effectAllowed = 'move';
         
         setDraggedCard({ card, origin, positionId });
-        setDraggingCardId(card.uid || card.id);
+        setDraggingCardId(card.id);
     };
 
     const handleDrop = (targetArea: 'formation' | 'storage', targetPositionId?: string) => {
         if (!draggedCard) return;
-    
+
         let newFormation = { ...gameState.formation };
-        const movedToStorage: CardType[] = [];
-        const movedFromStorage: CardType[] = [];
-        
-        const { card: movedCard, origin, positionId: sourcePositionId } = draggedCard;
-    
+        let newStorage = [...gameState.storage];
+        const { card: MovedCard, origin, positionId: sourcePositionId } = draggedCard;
+
         if (origin === 'storage' && targetArea === 'formation' && targetPositionId) {
             const displacedCard = newFormation[targetPositionId];
-            newFormation[targetPositionId] = movedCard;
-            movedFromStorage.push(movedCard);
+            newFormation[targetPositionId] = MovedCard;
+            newStorage = newStorage.filter(c => c.id !== MovedCard.id);
             if (displacedCard) {
-                movedToStorage.push(displacedCard);
+                newStorage.push(displacedCard);
             }
         }
         else if (origin === 'formation' && targetArea === 'storage' && sourcePositionId) {
             newFormation[sourcePositionId] = null;
-            movedToStorage.push(movedCard);
+            newStorage.push(MovedCard);
         }
         else if (origin === 'formation' && targetArea === 'formation' && sourcePositionId && targetPositionId) {
             const targetCard = newFormation[targetPositionId];
-            newFormation[targetPositionId] = movedCard;
+            newFormation[targetPositionId] = MovedCard;
             newFormation[sourcePositionId] = targetCard;
         }
-    
-        onFormationUpdate({ newFormation, movedToStorage, movedFromStorage });
-        
+
+        setGameState({ formation: newFormation, storage: newStorage });
+        // Proactively clean up the drag state on a successful drop to fix the opacity bug.
         cleanupDragState();
     };
 
@@ -159,7 +173,7 @@ const Collection: React.FC<CollectionProps> = ({ gameState, onFormationUpdate, o
                     <select
                         id="formation-layout-selector"
                         value={gameState.formationLayout}
-                        onChange={e => onLayoutChange(e.target.value as FormationLayoutId)}
+                        onChange={e => handleLayoutChange(e.target.value as FormationLayoutId)}
                         className="bg-darker-gray border border-gold-dark/30 text-white p-2 rounded-md"
                     >
                         {Object.values(formationLayouts).map(layout => (
@@ -184,7 +198,7 @@ const Collection: React.FC<CollectionProps> = ({ gameState, onFormationUpdate, o
                                         draggable={gameState.activeEvolution?.cardId !== gameState.formation[pos.id]?.id}
                                         onDragStart={(e) => handleDragStart(e, gameState.formation[pos.id]!, 'formation', pos.id)}
                                         onClick={() => handleCardClick(gameState.formation[pos.id]!, 'formation')}
-                                        className={`${gameState.activeEvolution?.cardId === gameState.formation[pos.id]?.id ? 'cursor-not-allowed' : 'cursor-grab'} ${draggingCardId === (gameState.formation[pos.id]?.uid || gameState.formation[pos.id]?.id) ? 'opacity-40' : ''}`}
+                                        className={`${gameState.activeEvolution?.cardId === gameState.formation[pos.id]?.id ? 'cursor-not-allowed' : 'cursor-grab'} ${draggingCardId === gameState.formation[pos.id]?.id ? 'opacity-40' : ''}`}
                                     >
                                         <Card card={gameState.formation[pos.id]!} origin="formation" isEvolving={gameState.activeEvolution?.cardId === gameState.formation[pos.id]?.id} className="!w-[90px] !h-[135px]" />
                                     </div>
@@ -201,7 +215,7 @@ const Collection: React.FC<CollectionProps> = ({ gameState, onFormationUpdate, o
             </div>
 
             <div className="controls-bar flex justify-between items-center mt-6 mb-4 flex-wrap gap-4">
-                <h3 className="text-xl">{t('storage')} ({gameState.storage.length})</h3>
+                <h3 className="text-xl">{t('storage')} ({gameState.storage.length}/50)</h3>
                 <div className="filter-group flex gap-2 items-center">
                     <select id="filter-collection-rarity" value={rarityFilter} onChange={e => setRarityFilter(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-2 rounded-md">
                         <option value="all">All Rarities</option>
@@ -230,11 +244,11 @@ const Collection: React.FC<CollectionProps> = ({ gameState, onFormationUpdate, o
             >
                 {sortedAndFilteredStorage.map(card => (
                      <div 
-                        key={card.uid || card.id}
+                        key={card.id} 
                         draggable={gameState.activeEvolution?.cardId !== card.id}
                         onDragStart={(e) => handleDragStart(e, card, 'storage')} 
                         onClick={() => handleCardClick(card, 'storage')}
-                        className={`${gameState.activeEvolution?.cardId === card.id ? 'cursor-not-allowed' : 'cursor-grab'} ${draggingCardId === (card.uid || card.id) ? 'opacity-40' : ''}`}
+                        className={`${gameState.activeEvolution?.cardId === card.id ? 'cursor-not-allowed' : 'cursor-grab'} ${draggingCardId === card.id ? 'opacity-40' : ''}`}
                      >
                         <Card card={card} origin="storage" isEvolving={gameState.activeEvolution?.cardId === card.id} />
                     </div>

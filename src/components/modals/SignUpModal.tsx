@@ -8,7 +8,7 @@ import { avatars } from '../../data/gameData';
 interface SignUpModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSignUp: (user: User) => Promise<void>;
+  onSignUp: (user: User) => void;
   error: string | null;
   t: (key: TranslationKey) => string;
 }
@@ -27,7 +27,7 @@ const SignUpModal: React.FC<SignUpModalProps> = ({ isOpen, onClose, onSignUp, er
         return;
     }
     setLocalError(null);
-    onSignUp({ username, email, password, avatar: selectedAvatar } as User);
+    onSignUp({ username, email, password, avatar: selectedAvatar });
   };
   
   const handleAvatarSelect = (avatarUrl: string) => {

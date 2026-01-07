@@ -8,31 +8,24 @@ import { TranslationKey } from '../../utils/translations';
 interface MarketModalProps {
   cardToList: CardType | null;
   onClose: () => void;
-  onList: (card: CardType, price: number) => Promise<void>;
+  onList: (card: CardType, price: number) => void;
   t: (key: TranslationKey) => string;
 }
 
 const MarketModal: React.FC<MarketModalProps> = ({ cardToList, onClose, onList, t }) => {
   const [price, setPrice] = useState(100);
-  const [isListing, setIsListing] = useState(false);
 
   useEffect(() => {
     if (cardToList) {
       setPrice(cardToList.value); // Default price to card value
-      setIsListing(false); // Reset listing state when new card is selected
     }
   }, [cardToList]);
 
   if (!cardToList) return null;
 
-  const handleListClick = async () => {
-    if (price > 0 && !isListing) {
-      setIsListing(true);
-      try {
-        await onList(cardToList, price);
-      } catch (error) {
-        console.error("Failed to list card:", error);
-      }
+  const handleListClick = () => {
+    if (price > 0) {
+      onList(cardToList, price);
     }
   };
 
@@ -53,12 +46,8 @@ const MarketModal: React.FC<MarketModalProps> = ({ cardToList, onClose, onList, 
         />
       </div>
       <div className="flex justify-center gap-4 mt-6">
-        <Button variant="keep" onClick={handleListClick} disabled={isListing}>
-          {isListing ? 'Listing...' : t('list')}
-        </Button>
-        <Button variant="sell" onClick={onClose} disabled={isListing}>
-          {t('cancel')}
-        </Button>
+        <Button variant="keep" onClick={handleListClick}>{t('list')}</Button>
+        <Button variant="sell" onClick={onClose}>{t('cancel')}</Button>
       </div>
     </Modal>
   );

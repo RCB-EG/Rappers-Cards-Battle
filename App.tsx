@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective } from './types';
 import { initialState } from './data/initialState';
@@ -312,8 +310,8 @@ const App: React.FC = () => {
     // Effect for state-based objectives (e.g., formation composition)
     useEffect(() => {
         setGameState(prev => {
-            // FIX: Explicitly typed the filter callback parameter `c` and strengthened the type guard to handle potentially malformed data from localStorage.
-            const goldCardsInFormation = Object.values(prev.formation).filter((c: CardType | null): c is CardType => !!c && typeof c === 'object' && c.rarity === 'gold').length;
+            // Fix: Use a type guard with `filter` to ensure correct type for `c`.
+            const goldCardsInFormation = Object.values(prev.formation).filter((c): c is CardType => !!c && (c as CardType).rarity === 'gold').length;
             const requiredGoldCards = 11;
             
             const objective = objectivesData.find(o => o.tasks.some(t => t.id === 'formation_11_gold'));

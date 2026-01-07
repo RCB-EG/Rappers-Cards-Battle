@@ -1,4 +1,4 @@
-import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective, Rarity } from '../types';
+import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective } from '../types';
 
 const generateStats = (ovr: number): Stats => {
     const base = ovr > 70 ? ovr - 10 : ovr - 5;
@@ -157,36 +157,37 @@ export const allCards: Card[] = [
 export const packs: Record<PackType, PackData> = {
   free: {
     cost: 0,
-    packableRarities: ['bronze', 'silver', 'gold'],
-    rarityChances: { bronze: 65, silver: 25, gold: 10 },
-    ovrWeightingFactor: 0.7, // Heavy penalty for high OVR
-    valueWeightingFactor: 0.8, // Heavy penalty for high value
-    maxOvr: 80,
+    rarityChances: {
+      bronze: 65,
+      silver: 25,
+      gold: 10,
+    },
   },
   builder: {
     cost: 1200,
-    packableRarities: ['bronze', 'silver', 'gold'],
-    rarityChances: { bronze: 45, silver: 35, gold: 20 },
-    ovrWeightingFactor: 0.75,
-    valueWeightingFactor: 0.85,
-    maxOvr: 84,
+    rarityChances: {
+      bronze: 45,
+      silver: 35,
+      gold: 20,
+    },
   },
   special: {
     cost: 4000,
-    packableRarities: ['silver', 'gold', 'rotm', 'icon'],
-    rarityChances: { silver: 10, gold: 83, rotm: 4, icon: 3 },
-    ovrWeightingFactor: 0.85,
-    valueWeightingFactor: 0.9,
-    minOvr: 79,
-    maxOvr: 89,
+    rarityChances: {
+      silver: 10,
+      gold: 83,
+      rotm: 4,
+      icon: 3,
+    },
   },
   legendary: {
     cost: 40000,
-    packableRarities: ['gold', 'rotm', 'icon', 'legend'],
-    rarityChances: { gold: 70, rotm: 15, icon: 14, legend: 1 },
-    ovrWeightingFactor: 0.92, // Lower penalty, easier to get high OVR
-    valueWeightingFactor: 0.95, // Lower penalty, easier to get high value
-    minOvr: 86,
+    rarityChances: {
+      gold: 70,
+      rotm: 15,
+      icon: 14,
+      legend: 1,
+    },
   },
 };
 
