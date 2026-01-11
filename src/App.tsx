@@ -35,6 +35,54 @@ import LoginModal from './components/modals/LoginModal';
 import SignUpModal from './components/modals/SignUpModal';
 
 const GUEST_SAVE_KEY = 'rappersGameState_guest';
+const GLOBAL_MARKET_KEY = 'rappersGameGlobalMarket';
+const MAILBOX_KEY = 'rappersGameMailbox';
+
+// --- GLOBAL MARKET HELPERS ---
+
+const getGlobalMarket = (): MarketCard[] => {
+    try {
+        return JSON.parse(localStorage.getItem(GLOBAL_MARKET_KEY) || '[]');
+    } catch { return []; }
+};
+
+const saveGlobalMarket = (market: MarketCard[]) => {
+    localStorage.setItem(GLOBAL_MARKET_KEY, JSON.stringify(market));
+};
+
+const seedGlobalMarket = () => {
+    const market = getGlobalMarket();
+    if (market.length > 0) return;
+    
+    const newCards: MarketCard[] = [];
+    for(let i=0; i<15; i++) {
+        const randomCard = allCards[Math.floor(Math.random() * allCards.length)];
+        if(randomCard) {
+             newCards.push({
+                ...randomCard,
+                id: `market-seed-${Date.now()}-${i}`,
+                price: Math.round(randomCard.value * (0.8 + Math.random() * 0.5)),
+                sellerId: 'system',
+                isSystem: true
+            });
+        }
+    }
+    saveGlobalMarket(newCards);
+};
+
+const sendToMailbox = (recipientId: string, coins: number, cardName: string) => {
+    try {
+        const mail = JSON.parse(localStorage.getItem(MAILBOX_KEY) || '[]');
+        mail.push({ 
+            recipientId, 
+            coins, 
+            cardName, 
+            id: `msg-${Date.now()}-${Math.random()}`, 
+            timestamp: Date.now() 
+        });
+        localStorage.setItem(MAILBOX_KEY, JSON.stringify(mail));
+    } catch (e) { console.error("Mailbox Error", e); }
+};
 
 // --- STATE UPDATE HELPER FUNCTIONS ---
 
@@ -127,72 +175,111 @@ const App: React.FC = () => {
         }
     }, [settings.sfxOn, settings.sfxVolume]);
 
-    // --- MARKET SIMULATION (BOTS) ---
+    // --- MARKET SYNC & BOTS ---
+    
+    // Init Global Market
     useEffect(() => {
-        const listingInterval = setInterval(() => {
-            setGameState(prev => {
-                // Keep market alive but not overflowing
-                if (prev.market.length > 50) {
-                    // Remove old system cards
-                    const keptMarket = prev.market.filter((c, i) => !c.isSystem || i > 0);
-                    return { ...prev, market: keptMarket };
-                }
+        seedGlobalMarket();
+    }, []);
 
-                const randomCard = allCards[Math.floor(Math.random() * allCards.length)];
-                // 30% chance to list a random card
-                if (Math.random() > 0.7 && randomCard) {
-                     const randomPrice = Math.round(randomCard.value * (0.9 + Math.random() * 0.6)); // 0.9x to 1.5x value
-                     const newMarketCard: MarketCard = {
-                        ...randomCard,
-                        id: `market-bot-${Date.now()}-${Math.random()}`,
-                        price: randomPrice,
-                        sellerId: 'system',
-                        isSystem: true
-                    };
-                    return { ...prev, market: [...prev.market, newMarketCard] };
+    // Sync Loop (Polls for global market changes and mailbox)
+    useEffect(() => {
+        const syncInterval = setInterval(() => {
+            // 1. Sync Market
+            const globalMarket = getGlobalMarket();
+            setGameState(prev => {
+                // Simple equality check to avoid render spam (could be optimized further)
+                if (prev.market.length !== globalMarket.length || prev.market[0]?.id !== globalMarket[0]?.id) {
+                    return { ...prev, market: globalMarket };
                 }
                 return prev;
             });
-        }, 8000); // Check every 8 seconds
 
-        const buyingInterval = setInterval(() => {
-             const currentState = gameStateRef.current;
-             const userListings = currentState.market.filter(c => c.sellerId === currentState.userId);
-             
-             if (userListings.length > 0) {
-                 userListings.forEach(card => {
-                     // Bot buys if price is reasonable (< 2x value) and random chance
-                     if (card.price < card.value * 2 && Math.random() < 0.2) {
-                         setGameState(prev => {
-                             // Double check card is still there
-                             if (!prev.market.find(c => c.id === card.id)) return prev;
-                             
-                             const newMarket = prev.market.filter(c => c.id !== card.id);
-                             // Trigger notification outside of this update or just accept the coins
-                             // We'll update coins here
-                             return {
-                                 ...prev,
-                                 market: newMarket,
-                                 coins: prev.coins + card.price
-                             };
-                         });
-                         // Notify user
-                         setMessageModal({
-                             title: 'Card Sold!',
-                             message: `Your ${card.name} was bought for ${card.price} coins!`,
-                             card: card
-                         });
-                         playSfx('rewardClaimed');
-                     }
-                 });
-             }
-        }, 12000); // Bots check market every 12 seconds
+            // 2. Check Mailbox (Offline Sales)
+            const currentUserId = gameStateRef.current.userId;
+            const mail = JSON.parse(localStorage.getItem(MAILBOX_KEY) || '[]');
+            const myMail = mail.filter((m: any) => m.recipientId === currentUserId);
+            
+            if (myMail.length > 0) {
+                const totalCoins = myMail.reduce((sum: number, m: any) => sum + m.coins, 0);
+                const soldCount = myMail.length;
+                
+                // Remove claimed mail
+                const remainingMail = mail.filter((m: any) => m.recipientId !== currentUserId);
+                localStorage.setItem(MAILBOX_KEY, JSON.stringify(remainingMail));
+                
+                // Credit coins
+                setGameState(prev => ({ ...prev, coins: prev.coins + totalCoins }));
+                
+                setMessageModal({ 
+                    title: 'Items Sold!', 
+                    message: `You sold ${soldCount} card(s) on the market for ${totalCoins} coins while you were away.`,
+                });
+                playSfx('rewardClaimed');
+            }
 
-        return () => {
-            clearInterval(listingInterval);
-            clearInterval(buyingInterval);
-        };
+        }, 3000); // Sync every 3 seconds
+
+        return () => clearInterval(syncInterval);
     }, [playSfx]);
+
+    // Bot Logic (Runs on global market)
+    useEffect(() => {
+        const botInterval = setInterval(() => {
+            // 1. Bot Listing (Randomly add system cards to Global Market)
+            const globalMarket = getGlobalMarket();
+            
+            // Cleanup old bots if too many
+            let updatedMarket = globalMarket;
+            if (updatedMarket.length > 60) {
+                updatedMarket = updatedMarket.filter((c, i) => !c.isSystem || i > 10);
+            }
+
+            // Chance to add new card
+            if (Math.random() > 0.6) {
+                const randomCard = allCards[Math.floor(Math.random() * allCards.length)];
+                if (randomCard) {
+                    updatedMarket.push({
+                        ...randomCard,
+                        id: `market-bot-${Date.now()}-${Math.random()}`,
+                        price: Math.round(randomCard.value * (0.9 + Math.random() * 0.6)),
+                        sellerId: 'system',
+                        isSystem: true
+                    });
+                }
+            }
+            saveGlobalMarket(updatedMarket);
+
+            // 2. Bot Buying (Randomly buy player cards from Global Market)
+            const currentGlobalMarket = getGlobalMarket(); // Re-fetch to be safe
+            const userListings = currentGlobalMarket.filter(c => c.sellerId === gameStateRef.current.userId);
+            
+            if (userListings.length > 0) {
+                let marketChanged = false;
+                let newGlobalMarket = [...currentGlobalMarket];
+
+                userListings.forEach(card => {
+                    // Bot buys if price is reasonable (< 2x value) and random chance
+                    if (card.price < card.value * 2 && Math.random() < 0.15) {
+                        // Remove from global market
+                        newGlobalMarket = newGlobalMarket.filter(c => c.id !== card.id);
+                        marketChanged = true;
+                        
+                        // Send coins to user (Mailbox)
+                        sendToMailbox(card.sellerId, card.price, card.name);
+                    }
+                });
+
+                if (marketChanged) {
+                    saveGlobalMarket(newGlobalMarket);
+                }
+            }
+
+        }, 8000); // Bots act every 8 seconds
+
+        return () => clearInterval(botInterval);
+    }, []);
+
 
     // --- AUTH & DATA PERSISTENCE ---
 
@@ -213,9 +300,6 @@ const App: React.FC = () => {
                 formationLayouts[migratedLayout].allPositions.forEach(posId => { newFormation[posId] = null; });
                 savedState = { ...initialState, ...savedState, formation: newFormation, formationLayout: migratedLayout, storage: [...savedState.storage, ...savedState.formation] };
             }
-            // Ensure objectiveProgress is valid
-            if (!savedState.objectiveProgress) savedState.objectiveProgress = {};
-
             const firstObjectiveProgressValue = Object.values(savedState.objectiveProgress || {})[0] as any;
             if (firstObjectiveProgressValue && firstObjectiveProgressValue.tasks === undefined) {
                 const migratedProgress: GameState['objectiveProgress'] = {};
@@ -237,11 +321,12 @@ const App: React.FC = () => {
                 savedState.objectiveProgress = migratedProgress;
             }
             
-            setGameState({ ...initialState, ...savedState });
+            // Always load latest market from global, ignore saved market
+            setGameState({ ...initialState, ...savedState, market: getGlobalMarket() });
         } else if (user) { // New user with no save, give them initial state
-            setGameState({ ...initialState, userId: user.username });
+            setGameState({ ...initialState, userId: user.username, market: getGlobalMarket() });
         } else { // New guest
-            setGameState({ ...initialState, userId: 'guest' });
+            setGameState({ ...initialState, userId: 'guest', market: getGlobalMarket() });
         }
     }, [getSaveKey]);
     
@@ -253,25 +338,12 @@ const App: React.FC = () => {
         loadGameState(user);
     }, [loadGameState]);
 
-    // Ensure objectives are initialized if missing in loaded state
-    useEffect(() => {
-        setGameState(prev => {
-            const newProgress = { ...prev.objectiveProgress };
-            let changed = false;
-            objectivesData.forEach(obj => {
-                if (!newProgress[obj.id]) {
-                    newProgress[obj.id] = { tasks: {}, claimed: false };
-                    changed = true;
-                }
-            });
-            return changed ? { ...prev, objectiveProgress: newProgress } : prev;
-        });
-    }, [appState]); // Run when appState changes to game or on load
-
     // Save state whenever it changes
     useEffect(() => {
         const saveKey = getSaveKey(currentUser);
-        localStorage.setItem(saveKey, JSON.stringify(gameState));
+        // Exclude market from user save to save space and avoid stale data
+        const stateToSave = { ...gameState, market: [] };
+        localStorage.setItem(saveKey, JSON.stringify(stateToSave));
     }, [gameState, currentUser, getSaveKey]);
 
     // Other Effects
@@ -368,7 +440,6 @@ const App: React.FC = () => {
             let newActiveEvo = { ...prev.activeEvolution };
             let changed = false;
             
-            // Fix: Add explicit type to `some` callback to prevent type inference issues.
             const evolvingCardInFormation = Object.values(prev.formation).some((c: CardType | null) => c?.id === prev.activeEvolution!.cardId);
     
             const task1Id = 'tommy_gun_in_formation';
@@ -379,7 +450,6 @@ const App: React.FC = () => {
     
             const task2Id = 'formation_rating_82';
             if (evolvingCardInFormation && (newActiveEvo.tasks[task2Id] || 0) < 1) {
-                // Fix: Use a type guard with `filter` to ensure correct type for `formationCards`.
                 const formationCards = Object.values(prev.formation).filter((c): c is CardType => !!c);
                 if (formationCards.length > 0) {
                     const totalOvr = formationCards.reduce((sum, card) => sum + card.ovr, 0);
@@ -398,7 +468,6 @@ const App: React.FC = () => {
     // Effect for state-based objectives (e.g., formation composition)
     useEffect(() => {
         setGameState(prev => {
-            // Fix: Use a type guard with `filter` to ensure correct type for `c`.
             const goldCardsInFormation = Object.values(prev.formation).filter((c): c is CardType => !!c && (c as CardType).rarity === 'gold').length;
             const requiredGoldCards = 11;
             
@@ -538,23 +607,49 @@ const App: React.FC = () => {
     };
     
     const handleBuyCard = (card: MarketCard) => {
-        if (gameState.coins >= card.price) {
-            updateGameState({
-                coins: gameState.coins - card.price,
-                storage: [...gameState.storage, card],
-                // Fix: Add explicit type to `filter` callback to prevent type inference issues.
-                market: gameState.market.filter((c: MarketCard) => c.id !== card.id),
-            });
-            playSfx('purchase');
-            setMessageModal({ title: 'Purchase Successful', message: `You bought ${card.name} for ${card.price} coins.`, card });
+        const globalMarket = getGlobalMarket();
+        const cardIndex = globalMarket.findIndex(c => c.id === card.id);
+
+        if (cardIndex !== -1) {
+            // Card is available
+            if (gameState.coins >= card.price) {
+                // Update Global Market
+                globalMarket.splice(cardIndex, 1);
+                saveGlobalMarket(globalMarket);
+
+                // Send payment to seller (if not system)
+                if (card.sellerId !== 'system') {
+                    sendToMailbox(card.sellerId, card.price, card.name);
+                }
+
+                // Update Local State
+                updateGameState({
+                    coins: gameState.coins - card.price,
+                    storage: [...gameState.storage, card],
+                    market: globalMarket, // Optimistic update
+                });
+                playSfx('purchase');
+                setMessageModal({ title: 'Purchase Successful', message: `You bought ${card.name} for ${card.price} coins.`, card });
+            } else {
+                setMessageModal({ title: 'Not Enough Coins', message: `You need ${card.price} coins to buy this card.` });
+            }
         } else {
-            setMessageModal({ title: 'Not Enough Coins', message: `You need ${card.price} coins to buy this card.` });
+            // Card was sold or removed
+            setMessageModal({ title: 'Unavailable', message: 'This card has already been sold or removed from the market.' });
+            // Refresh market view
+            setGameState(prev => ({ ...prev, market: getGlobalMarket() }));
         }
     };
 
     const handleListCard = (card: CardType, price: number) => {
         const newMarketCard: MarketCard = { ...card, price, sellerId: gameState.userId };
     
+        // Update Global Market
+        const globalMarket = getGlobalMarket();
+        globalMarket.push(newMarketCard);
+        saveGlobalMarket(globalMarket);
+
+        // Update Local State
         setGameState(prev => {
             const { formation, storage } = prev;
             const formationPos = Object.keys(formation).find(pos => formation[pos]?.id === card.id);
@@ -565,7 +660,6 @@ const App: React.FC = () => {
             if (formationPos) {
                 newFormation[formationPos] = null;
             } else {
-                // Fix: Add explicit type to `filter` callback to prevent type inference issues.
                 newStorage = storage.filter((c: CardType) => c.id !== card.id);
             }
     
@@ -573,14 +667,14 @@ const App: React.FC = () => {
                 ...prev,
                 formation: newFormation,
                 storage: newStorage,
-                market: [...prev.market, newMarketCard],
+                market: globalMarket, // Optimistic update
                 objectiveProgress: applyObjectiveProgress(prev.objectiveProgress, 'list_market_cards', 1),
                 activeEvolution: applyEvolutionTask(prev.activeEvolution, 'list_cards_market', 1)
             };
         });
         
         setCardToList(null);
-        setMessageModal({ title: 'Card Listed', message: `${card.name} has been listed on the market for ${price} coins.` });
+        setMessageModal({ title: 'Card Listed', message: `${card.name} has been listed on the global market for ${price} coins.` });
     };
     
     const handleQuickSell = (cardToSell: CardType) => {
@@ -597,7 +691,6 @@ const App: React.FC = () => {
             if (formationPos) {
                 newFormation[formationPos] = null;
             } else {
-                // Fix: Add explicit type to `filter` callback to prevent type inference issues.
                 newStorage = storage.filter((c: CardType) => c.id !== cardToSell.id);
             }
             
@@ -633,7 +726,6 @@ const App: React.FC = () => {
                     newFormation[pos] = null;
                 }
             }
-            // Fix: Add explicit type to `filter` callback to prevent type inference issues.
             newStorage = newStorage.filter((c: CardType) => !submittedIds.has(c.id));
 
             if (challenge.reward.type === 'card' && challenge.reward.cardId) {
@@ -689,7 +781,6 @@ const App: React.FC = () => {
 
             const originalCardId = prev.activeEvolution!.cardId;
             let newFormation = { ...prev.formation };
-            // Fix: Add explicit type to `filter` callback to prevent type inference issues.
             let newStorage = prev.storage.filter((c: CardType) => c.id !== originalCardId);
             const formationPos = Object.keys(prev.formation).find(pos => prev.formation[pos]?.id === originalCardId);
             
@@ -806,7 +897,6 @@ const App: React.FC = () => {
 
         if (emptyPositionId) {
             const newFormation = { ...formation, [emptyPositionId]: card };
-            // Fix: Add explicit type to `filter` callback to prevent type inference issues.
             const newStorage = storage.filter((c: CardType) => c.id !== card.id);
             updateGameState({ formation: newFormation, storage: newStorage });
             playSfx('success');
