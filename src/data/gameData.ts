@@ -1,25 +1,36 @@
 import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective } from '../types';
 
 // --- GITHUB ASSET CONFIGURATION ---
-const GITHUB_BASE = "https://raw.githubusercontent.com/RCB-EG/Rappers-Cards-Battle/main";
+const GITHUB_BASE = "https://github.com/RCB-EG/Rappers-Cards-Battle/blob/main";
 
 // Helper to format rarity for folder/filenames based on your repo structure
-// Bronze, Silver, Gold, ROTM, Icon, Evo
 const getRepoRarityString = (rarity: string) => {
     if (rarity === 'rotm') return 'ROTM';
-    if (rarity === 'event') return 'Evo'; // Maps internal 'event' type to your 'Evo' folder
+    if (rarity === 'event') return 'Evo';
     return rarity.charAt(0).toUpperCase() + rarity.slice(1);
 };
 
-// Generates the specific URL for a card
-// Format: https://.../Gold/Abo El Anwar Gold (86).png
-const getCardImage = (name: string, rarity: string, ovr: number) => {
+// Generates the specific URL for a card based on the repo format:
+// Folder: [Rarity] (e.g. Gold, Evo, ROTM)
+// Filename: Name Rarity (OVR) [Superpower].png
+const getCardImage = (name: string, rarity: string, ovr: number, superpowers: string[] = []) => {
     const rarityLabel = getRepoRarityString(rarity);
     const folder = rarityLabel; 
-    // Assuming filename uses the same label: "Name Label (OVR).png"
-    const filename = `${name} ${rarityLabel} (${ovr}).png`;
     
-    return `${GITHUB_BASE}/${encodeURIComponent(folder)}/${encodeURIComponent(filename)}`;
+    // Start building filename: "Abo El Anwar Gold (86)"
+    let filenameBase = `${name} ${rarityLabel} (${ovr})`;
+    
+    // If the card has superpowers, append the first one: "Abo El Anwar Gold (86) Superpower"
+    if (superpowers && superpowers.length > 0) {
+        filenameBase += ` ${superpowers[0]}`;
+    }
+
+    const filename = `${filenameBase}.png`;
+    
+    // Use encodeURI for the filename to ensure spaces turn into %20 but parentheses ( ) remain literal
+    // if that's how the browser/github expects them, or usually encodeURIComponent is safer for web.
+    // Given the previous success with blob links, we construct the full path.
+    return `${GITHUB_BASE}/${encodeURIComponent(folder)}/${encodeURIComponent(filename)}?raw=true`;
 };
 
 const generateStats = (ovr: number): Stats => {
@@ -54,49 +65,49 @@ export const allCards: Card[] = [
 
   // Gold
   { id: 'g1', name: 'Abo El Anwar', ovr: 86, rarity: 'gold', image: getCardImage('Abo El Anwar', 'gold', 86), value: 20000, superpowers: [], stats: generateStats(86) },
-  { id: 'g2', name: 'Abyusif', ovr: 91, rarity: 'gold', image: getCardImage('Abyusif', 'gold', 91), value: 200000, superpowers: ['Rhymes Crafter'], stats: generateStats(91) },
-  { id: 'g3', name: 'Afroto', ovr: 89, rarity: 'gold', image: getCardImage('Afroto', 'gold', 89), value: 92000, superpowers: ['Notes Master'], stats: generateStats(89) },
-  { id: 'g4', name: 'Arsenik', ovr: 88, rarity: 'gold', image: getCardImage('Arsenik', 'gold', 88), value: 57000, superpowers: ['Flow Switcher'], stats: generateStats(88) },
-  { id: 'g5', name: 'Batistuta', ovr: 86, rarity: 'gold', image: getCardImage('Batistuta', 'gold', 86), value: 14000, superpowers: ['Notes Master'], stats: generateStats(86) },
-  { id: 'g6', name: 'DizzyTooSkinny', ovr: 86, rarity: 'gold', image: getCardImage('DizzyTooSkinny', 'gold', 86), value: 25000, superpowers: ['Notes Master'], stats: generateStats(86) },
-  { id: 'g7', name: 'El Joker', ovr: 89, rarity: 'gold', image: getCardImage('El Joker', 'gold', 89), value: 97000, superpowers: ['Storyteller'], stats: generateStats(89) },
-  { id: 'g8', name: 'Hala', ovr: 84, rarity: 'gold', image: getCardImage('Hala', 'gold', 84), value: 3000, superpowers: ['Notes Master'], stats: generateStats(84) },
+  { id: 'g2', name: 'Abyusif', ovr: 91, rarity: 'gold', image: getCardImage('Abyusif', 'gold', 91, ['Rhymes Crafter']), value: 200000, superpowers: ['Rhymes Crafter'], stats: generateStats(91) },
+  { id: 'g3', name: 'Afroto', ovr: 89, rarity: 'gold', image: getCardImage('Afroto', 'gold', 89, ['Notes Master']), value: 92000, superpowers: ['Notes Master'], stats: generateStats(89) },
+  { id: 'g4', name: 'Arsenik', ovr: 88, rarity: 'gold', image: getCardImage('Arsenik', 'gold', 88, ['Flow Switcher']), value: 57000, superpowers: ['Flow Switcher'], stats: generateStats(88) },
+  { id: 'g5', name: 'Batistuta', ovr: 86, rarity: 'gold', image: getCardImage('Batistuta', 'gold', 86, ['Notes Master']), value: 14000, superpowers: ['Notes Master'], stats: generateStats(86) },
+  { id: 'g6', name: 'DizzyTooSkinny', ovr: 86, rarity: 'gold', image: getCardImage('DizzyTooSkinny', 'gold', 86, ['Notes Master']), value: 25000, superpowers: ['Notes Master'], stats: generateStats(86) },
+  { id: 'g7', name: 'El Joker', ovr: 89, rarity: 'gold', image: getCardImage('El Joker', 'gold', 89, ['Storyteller']), value: 97000, superpowers: ['Storyteller'], stats: generateStats(89) },
+  { id: 'g8', name: 'Hala', ovr: 84, rarity: 'gold', image: getCardImage('Hala', 'gold', 84, ['Notes Master']), value: 3000, superpowers: ['Notes Master'], stats: generateStats(84) },
   { id: 'g9', name: 'Hussein', ovr: 84, rarity: 'gold', image: getCardImage('Hussein', 'gold', 84), value: 4500, superpowers: [], stats: generateStats(84) },
   { id: 'g10', name: 'Kareem Ossama', ovr: 84, rarity: 'gold', image: getCardImage('Kareem Ossama', 'gold', 84), value: 4800, superpowers: [], stats: generateStats(84) },
-  { id: 'g11', name: 'Lege-Cy', ovr: 89, rarity: 'gold', image: getCardImage('Lege-Cy', 'gold', 89), value: 85000, superpowers: ['Notes Master'], stats: generateStats(89) },
+  { id: 'g11', name: 'Lege-Cy', ovr: 89, rarity: 'gold', image: getCardImage('Lege-Cy', 'gold', 89, ['Notes Master']), value: 85000, superpowers: ['Notes Master'], stats: generateStats(89) },
   { id: 'g12', name: 'Mared Gold', ovr: 82, rarity: 'gold', image: getCardImage('Mared Gold', 'gold', 82), value: 1000, superpowers: [], stats: generateStats(82) },
-  { id: 'g13', name: 'Marwan Moussa', ovr: 90, rarity: 'gold', image: getCardImage('Marwan Moussa', 'gold', 90), value: 120000, superpowers: ['Storyteller'], stats: generateStats(90) },
-  { id: 'g14', name: 'Marwan Pablo', ovr: 89, rarity: 'gold', image: getCardImage('Marwan Pablo', 'gold', 89), value: 100000, superpowers: ['Show Maker'], stats: generateStats(89) },
+  { id: 'g13', name: 'Marwan Moussa', ovr: 90, rarity: 'gold', image: getCardImage('Marwan Moussa', 'gold', 90, ['Storyteller']), value: 120000, superpowers: ['Storyteller'], stats: generateStats(90) },
+  { id: 'g14', name: 'Marwan Pablo', ovr: 89, rarity: 'gold', image: getCardImage('Marwan Pablo', 'gold', 89, ['Show Maker']), value: 100000, superpowers: ['Show Maker'], stats: generateStats(89) },
   { id: 'g15', name: 'Moscow', ovr: 85, rarity: 'gold', image: getCardImage('Moscow', 'gold', 85), value: 6000, superpowers: [], stats: generateStats(85) },
   { id: 'g16', name: 'Mousv', ovr: 85, rarity: 'gold', image: getCardImage('Mousv', 'gold', 85), value: 9000, superpowers: [], stats: generateStats(85) },
   { id: 'g17', name: 'Muhab', ovr: 84, rarity: 'gold', image: getCardImage('Muhab', 'gold', 84), value: 5100, superpowers: [], stats: generateStats(84) },
   { id: 'g18', name: 'Nobi', ovr: 83, rarity: 'gold', image: getCardImage('Nobi', 'gold', 83), value: 1900, superpowers: [], stats: generateStats(83) },
-  { id: 'g19', name: 'Santa', ovr: 88, rarity: 'gold', image: getCardImage('Santa', 'gold', 88), value: 55000, superpowers: ['Word Bender'], stats: generateStats(88) },
-  { id: 'g20', name: 'Shahyn', ovr: 88, rarity: 'gold', image: getCardImage('Shahyn', 'gold', 88), value: 70000, superpowers: ['Show Maker'], stats: generateStats(88) },
-  { id: 'g21', name: 'Wegz', ovr: 90, rarity: 'gold', image: getCardImage('Wegz', 'gold', 90), value: 140000, superpowers: ['The Artist'], stats: generateStats(90) },
-  { id: 'g22', name: 'Young T', ovr: 83, rarity: 'gold', image: getCardImage('Young T', 'gold', 83), value: 2200, superpowers: ['Flow Switcher'], stats: generateStats(83) },
-  { id: 'g23', name: 'Zap', ovr: 80, rarity: 'gold', image: getCardImage('Zap', 'gold', 80), value: 1200, superpowers: ['StoryTeller'], stats: generateStats(80) },
+  { id: 'g19', name: 'Santa', ovr: 88, rarity: 'gold', image: getCardImage('Santa', 'gold', 88, ['Word Bender']), value: 55000, superpowers: ['Word Bender'], stats: generateStats(88) },
+  { id: 'g20', name: 'Shahyn', ovr: 88, rarity: 'gold', image: getCardImage('Shahyn', 'gold', 88, ['Show Maker']), value: 70000, superpowers: ['Show Maker'], stats: generateStats(88) },
+  { id: 'g21', name: 'Wegz', ovr: 90, rarity: 'gold', image: getCardImage('Wegz', 'gold', 90, ['The Artist']), value: 140000, superpowers: ['The Artist'], stats: generateStats(90) },
+  { id: 'g22', name: 'Young T', ovr: 83, rarity: 'gold', image: getCardImage('Young T', 'gold', 83, ['Flow Switcher']), value: 2200, superpowers: ['Flow Switcher'], stats: generateStats(83) },
+  { id: 'g23', name: 'Zap', ovr: 80, rarity: 'gold', image: getCardImage('Zap', 'gold', 80, ['StoryTeller']), value: 1200, superpowers: ['StoryTeller'], stats: generateStats(80) },
 
   // Icon
-  { id: 'i1', name: 'Adham', ovr: 93, rarity: 'icon', image: getCardImage('Adham', 'icon', 93), value: 218000, superpowers: ['Rhymes Crafter', 'Punchline Machine'], stats: generateStats(93) },
-  { id: 'i2', name: 'E-money', ovr: 92, rarity: 'icon', image: getCardImage('E-money', 'icon', 92), value: 133000, superpowers: ['Chopper', 'Flow Switcher'], stats: generateStats(92) },
-  { id: 'i3', name: 'Kordy', ovr: 92, rarity: 'icon', image: getCardImage('Kordy', 'icon', 92), value: 146000, superpowers: ['Show Maker'], stats: generateStats(92) },
-  { id: 'i4', name: 'Maleka', ovr: 91, rarity: 'icon', image: getCardImage('Maleka', 'icon', 91), value: 112000, superpowers: ['The Artist'], stats: generateStats(91) },
-  { id: 'i5', name: 'Mc Amin', ovr: 94, rarity: 'icon', image: getCardImage('Mc Amin', 'icon', 94), value: 240000, superpowers: ['Show Maker', 'Flow Switcher'], stats: generateStats(94) },
-  { id: 'i6', name: 'Mody Rap', ovr: 91, rarity: 'icon', image: getCardImage('Mody Rap', 'icon', 91), value: 89000, superpowers: ['StoryTeller'], stats: generateStats(91) },
-  { id: 'i7', name: 'Romel B', ovr: 90, rarity: 'icon', image: getCardImage('Romel B', 'icon', 90), value: 91000, superpowers: ['Chopper'], stats: generateStats(90) },
+  { id: 'i1', name: 'Adham', ovr: 93, rarity: 'icon', image: getCardImage('Adham', 'icon', 93, ['Rhymes Crafter', 'Punchline Machine']), value: 218000, superpowers: ['Rhymes Crafter', 'Punchline Machine'], stats: generateStats(93) },
+  { id: 'i2', name: 'E-money', ovr: 92, rarity: 'icon', image: getCardImage('E-money', 'icon', 92, ['Chopper', 'Flow Switcher']), value: 133000, superpowers: ['Chopper', 'Flow Switcher'], stats: generateStats(92) },
+  { id: 'i3', name: 'Kordy', ovr: 92, rarity: 'icon', image: getCardImage('Kordy', 'icon', 92, ['Show Maker']), value: 146000, superpowers: ['Show Maker'], stats: generateStats(92) },
+  { id: 'i4', name: 'Maleka', ovr: 91, rarity: 'icon', image: getCardImage('Maleka', 'icon', 91, ['The Artist']), value: 112000, superpowers: ['The Artist'], stats: generateStats(91) },
+  { id: 'i5', name: 'Mc Amin', ovr: 94, rarity: 'icon', image: getCardImage('Mc Amin', 'icon', 94, ['Show Maker', 'Flow Switcher']), value: 240000, superpowers: ['Show Maker', 'Flow Switcher'], stats: generateStats(94) },
+  { id: 'i6', name: 'Mody Rap', ovr: 91, rarity: 'icon', image: getCardImage('Mody Rap', 'icon', 91, ['StoryTeller']), value: 89000, superpowers: ['StoryTeller'], stats: generateStats(91) },
+  { id: 'i7', name: 'Romel B', ovr: 90, rarity: 'icon', image: getCardImage('Romel B', 'icon', 90, ['Chopper']), value: 91000, superpowers: ['Chopper'], stats: generateStats(90) },
 
   // ROTM
-  { id: 'r1', name: 'Abyusif', ovr: 92, rarity: 'rotm', image: getCardImage('Abyusif', 'rotm', 92), value: 300000, superpowers: ['Rhyme Crafter', 'Word Bender'], stats: generateStats(92) },
-  { id: 'r2', name: 'Afroto', ovr: 90, rarity: 'rotm', image: getCardImage('Afroto', 'rotm', 90), value: 210000, superpowers: ['StoryTeller'], stats: generateStats(90) },
-  { id: 'r3', name: 'Arsenik', ovr: 89, rarity: 'rotm', image: getCardImage('Arsenik', 'rotm', 89), value: 160000, superpowers: ['Words Bender'], stats: generateStats(89) },
-  { id: 'r4', name: 'Lege-Cy', ovr: 90, rarity: 'rotm', image: getCardImage('Lege-Cy', 'rotm', 90), value: 180000, superpowers: ['StoryTeller'], stats: generateStats(90) },
-  { id: 'r5', name: 'Marwan Mousa', ovr: 91, rarity: 'rotm', image: getCardImage('Marwan Mousa', 'rotm', 91), value: 234000, superpowers: ['StoryTeller', 'Word Bender'], stats: generateStats(91) },
-  { id: 'r6', name: 'Wegz', ovr: 91, rarity: 'rotm', image: getCardImage('Wegz', 'rotm', 91), value: 250000, superpowers: ['The Artist', 'Notes Master'], stats: generateStats(91) },
+  { id: 'r1', name: 'Abyusif', ovr: 92, rarity: 'rotm', image: getCardImage('Abyusif', 'rotm', 92, ['Rhyme Crafter', 'Word Bender']), value: 300000, superpowers: ['Rhyme Crafter', 'Word Bender'], stats: generateStats(92) },
+  { id: 'r2', name: 'Afroto', ovr: 90, rarity: 'rotm', image: getCardImage('Afroto', 'rotm', 90, ['StoryTeller']), value: 210000, superpowers: ['StoryTeller'], stats: generateStats(90) },
+  { id: 'r3', name: 'Arsenik', ovr: 89, rarity: 'rotm', image: getCardImage('Arsenik', 'rotm', 89, ['Words Bender']), value: 160000, superpowers: ['Words Bender'], stats: generateStats(89) },
+  { id: 'r4', name: 'Lege-Cy', ovr: 90, rarity: 'rotm', image: getCardImage('Lege-Cy', 'rotm', 90, ['StoryTeller']), value: 180000, superpowers: ['StoryTeller'], stats: generateStats(90) },
+  { id: 'r5', name: 'Marwan Mousa', ovr: 91, rarity: 'rotm', image: getCardImage('Marwan Mousa', 'rotm', 91, ['StoryTeller', 'Word Bender']), value: 234000, superpowers: ['StoryTeller', 'Word Bender'], stats: generateStats(91) },
+  { id: 'r6', name: 'Wegz', ovr: 91, rarity: 'rotm', image: getCardImage('Wegz', 'rotm', 91, ['The Artist', 'Notes Master']), value: 250000, superpowers: ['The Artist', 'Notes Master'], stats: generateStats(91) },
   
   // Legend
   {
-    id: 'l1', name: 'The GOAT', ovr: 98, rarity: 'legend', image: getCardImage('The GOAT', 'legend', 98),
+    id: 'l1', name: 'The GOAT', ovr: 98, rarity: 'legend', image: getCardImage('The GOAT', 'legend', 98, ['Career Killer']),
     stats: { lyrc: 99, flow: 99, sing: 98, live: 98, diss: 98, char: 99 },
     superpowers: ['Career Killer', 'The Artist', 'Words Bender', 'Flow Switcher'], value: 800000
   },
@@ -107,7 +118,7 @@ export const allCards: Card[] = [
     name: 'Abo El Anwar', 
     ovr: 87, 
     rarity: 'event',
-    image: getCardImage('Abo El Anwar', 'event', 87), 
+    image: getCardImage('Abo El Anwar', 'event', 87, ['Rhyme Crafter']), 
     value: 32000, 
     isPackable: false,
     superpowers: ['Rhyme Crafter'], 
@@ -118,7 +129,7 @@ export const allCards: Card[] = [
     name: 'Tommy Gun', 
     ovr: 84, 
     rarity: 'event',
-    image: getCardImage('Tommy Gun', 'event', 84), 
+    image: getCardImage('Tommy Gun', 'event', 84, ['Flow Switcher']), 
     value: 7800, 
     isPackable: false,
     superpowers: ['Flow Switcher'], 
@@ -131,7 +142,7 @@ export const allCards: Card[] = [
     name: 'Shehab',
     ovr: 87,
     rarity: 'gold',
-    image: getCardImage('Shehab', 'gold', 87),
+    image: getCardImage('Shehab', 'gold', 87, ['Note Master']),
     value: 44000,
     isPackable: false,
     superpowers: ['Note Master'],
@@ -166,7 +177,7 @@ export const allCards: Card[] = [
     name: 'Ra3',
     ovr: 85,
     rarity: 'gold',
-    image: getCardImage('Ra3', 'gold', 85),
+    image: getCardImage('Ra3', 'gold', 85, ['Rhyme Crafter']),
     value: 34000,
     isPackable: false,
     superpowers: ['Rhyme Crafter'],
@@ -375,13 +386,13 @@ export const formationLayouts: Record<FormationLayoutId, FormationStructure> = {
 };
 
 export const avatars: string[] = [
-    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar1',
-    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar2',
-    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar3',
-    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar4',
-    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar5',
-    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar6',
-    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar7',
-    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar8',
-    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar9',
+    'https://i.imghippo.com/files/TJIH8608wZk.png',
+    'https://i.imghippo.com/files/XrUB6208Bo.png',
+    'https://i.imghippo.com/files/xJZ6974gJo.png',
+    'https://i.imghippo.com/files/KhA8194TQM.png',
+    'https://i.imghippo.com/files/pri9634jY.png',
+    'https://i.imghippo.com/files/MMSE8115wr.png',
+    'https://i.imghippo.com/files/tvk2942qe.png',
+    'https://i.imghippo.com/files/NY2664HFI.png',
+    'https://i.imghippo.com/files/Xq2208pkM.png',
 ];

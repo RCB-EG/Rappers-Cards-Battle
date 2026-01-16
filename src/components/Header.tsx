@@ -21,7 +21,7 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode, isDevMode, onOpenSettings, onOpenHowToPlay, onOpenLogin, onOpenSignUp, onLogout, lang, setLang, t }) => {
     const formationValue = Object.values(gameState.formation).reduce((sum: number, card) => sum + ((card as Card)?.value || 0), 0);
     const displayName = currentUser ? currentUser.username : t('user_guest');
-    const avatarSrc = currentUser?.avatar || `https://api.dicebear.com/9.x/bottts/svg?seed=guest&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+    const avatarSrc = currentUser?.avatar || `https://api.dicebear.com/8.x/bottts/svg?seed=guest&backgroundColor=b6e3f4,c0aede,d1d4f9`;
 
 
     return (
@@ -49,7 +49,7 @@ const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode
 
             <div className="header-content flex flex-col items-center pt-24 md:pt-16">
                  <img 
-                    src="https://raw.githubusercontent.com/RCB-EG/Rappers-Cards-Battle/main/Game%20Assets/Logo.png" 
+                    src="https://github.com/RCB-EG/Rappers-Cards-Battle/blob/main/Game%20Assets/Logo.png?raw=true" 
                     alt="Rappers Battle"
                     className="header-title-img max-w-full w-[400px] h-auto drop-shadow-[0_0_10px_#FFD700] drop-shadow-[0_0_20px_#B8860B]"
                 />

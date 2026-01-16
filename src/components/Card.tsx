@@ -20,8 +20,8 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
   const getEmptyCardUrl = (rarity: string) => {
       let rarityLabel = rarity.charAt(0).toUpperCase() + rarity.slice(1);
       if (rarity === 'rotm') rarityLabel = 'ROTM';
-      if (rarity === 'event') rarityLabel = 'Evo'; // Assumption based on previous folder naming
-      return `https://raw.githubusercontent.com/RCB-EG/Rappers-Cards-Battle/main/Game%20Assets/${rarityLabel}%20Card%20Empty.png`;
+      if (rarity === 'event') rarityLabel = 'Evo'; 
+      return `https://github.com/RCB-EG/Rappers-Cards-Battle/blob/main/Game%20Assets/${rarityLabel}%20Card%20Empty.png?raw=true`;
   };
 
   // CSS Gradients for Rarity Backgrounds (Fallback)
