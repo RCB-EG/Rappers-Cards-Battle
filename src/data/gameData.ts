@@ -1,7 +1,7 @@
 import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective } from '../types';
 
 // --- GITHUB ASSET CONFIGURATION ---
-const GITHUB_BASE = "https://raw.githubusercontent.com/RCB-EG/RCBGameAssets/main/All%20Cards";
+const GITHUB_RAW_BASE = "https://raw.githubusercontent.com/RCB-EG/RCBGameAssets/6132e6e5269fe664c6bb03465c29604b1faacda4/All%20Cards/";
 
 // Helper to format rarity for filenames
 const getRepoRarityString = (rarity: string) => {
@@ -11,22 +11,20 @@ const getRepoRarityString = (rarity: string) => {
 };
 
 // Generates the specific URL for a card based on the repo format:
-// Filename: Name Rarity Overall [Superpower].png
+// Filename: Name Rarity (Overall) [Superpower1 Superpower2...].png
 const getCardImage = (name: string, rarity: string, ovr: number, superpowers: string[] = []) => {
     const rarityLabel = getRepoRarityString(rarity);
     
-    // Format: "Name Rarity Overall"
-    let filenameBase = `${name} ${rarityLabel} ${ovr}`;
+    // Format: "Name Rarity (Overall)"
+    let fileName = `${name} ${rarityLabel} (${ovr})`;
     
-    // If the card has superpowers, append the first one: "Name Rarity Overall Superpower"
+    // If the card has superpowers, append them joined by space
     if (superpowers && superpowers.length > 0) {
-        filenameBase += ` ${superpowers[0]}`;
+        fileName += ` ${superpowers.join(' ')}`;
     }
 
-    const filename = `${filenameBase}.png`;
-    
-    // encodeURIComponent handles spaces as %20 which is required for raw URLs
-    return `${GITHUB_BASE}/${encodeURIComponent(filename)}`;
+    // The user provided logic: GITHUB_RAW_BASE + encodeURIComponent(cardName) + ".png"
+    return `${GITHUB_RAW_BASE}${encodeURIComponent(fileName)}.png`;
 };
 
 const generateStats = (ovr: number): Stats => {
@@ -103,7 +101,7 @@ export const allCards: Card[] = [
   
   // Legend
   {
-    id: 'l1', name: 'The GOAT', ovr: 98, rarity: 'legend', image: getCardImage('The GOAT', 'legend', 98, ['Career Killer']),
+    id: 'l1', name: 'The GOAT', ovr: 98, rarity: 'legend', image: getCardImage('The GOAT', 'legend', 98, ['Career Killer', 'The Artist', 'Words Bender', 'Flow Switcher']),
     stats: { lyrc: 99, flow: 99, sing: 98, live: 98, diss: 98, char: 99 },
     superpowers: ['Career Killer', 'The Artist', 'Words Bender', 'Flow Switcher'], value: 800000
   },
