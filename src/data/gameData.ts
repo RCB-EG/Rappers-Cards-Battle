@@ -1,11 +1,10 @@
 import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective } from '../types';
 
 // --- GITHUB ASSET CONFIGURATION ---
-// Ensures we pull directly from the main branch of your repo
 const GITHUB_BASE = "https://raw.githubusercontent.com/RCB-EG/Rappers-Cards-Battle/main";
 
 // Helper to format rarity for folder/filenames based on your repo structure
-// Structure: Bronze, Silver, Gold, ROTM, Icon, Evo
+// Bronze, Silver, Gold, ROTM, Icon, Evo
 const getRepoRarityString = (rarity: string) => {
     if (rarity === 'rotm') return 'ROTM';
     if (rarity === 'event') return 'Evo'; // Maps internal 'event' type to your 'Evo' folder
@@ -13,13 +12,13 @@ const getRepoRarityString = (rarity: string) => {
 };
 
 // Generates the specific URL for a card
-// Target format: .../Gold/Abo El Anwar Gold (86).png
+// Format: https://.../Gold/Abo El Anwar Gold (86).png
 const getCardImage = (name: string, rarity: string, ovr: number) => {
     const rarityLabel = getRepoRarityString(rarity);
     const folder = rarityLabel; 
+    // Assuming filename uses the same label: "Name Label (OVR).png"
     const filename = `${name} ${rarityLabel} (${ovr}).png`;
     
-    // We use encodeURIComponent to ensure spaces in names (e.g., "Abo El Anwar") don't break the URL
     return `${GITHUB_BASE}/${encodeURIComponent(folder)}/${encodeURIComponent(filename)}`;
 };
 

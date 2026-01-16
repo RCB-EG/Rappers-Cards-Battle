@@ -20,12 +20,11 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
   const getEmptyCardUrl = (rarity: string) => {
       let rarityLabel = rarity.charAt(0).toUpperCase() + rarity.slice(1);
       if (rarity === 'rotm') rarityLabel = 'ROTM';
-      if (rarity === 'event') rarityLabel = 'Evo'; 
-      // Using GitHub Game Assets folder
+      if (rarity === 'event') rarityLabel = 'Evo'; // Assumption based on previous folder naming
       return `https://raw.githubusercontent.com/RCB-EG/Rappers-Cards-Battle/main/Game%20Assets/${rarityLabel}%20Card%20Empty.png`;
   };
 
-  // Fallback CSS Gradients for Rarity Backgrounds if images fail entirely
+  // CSS Gradients for Rarity Backgrounds (Fallback)
   const rarityBgClasses: Record<string, string> = {
     bronze: 'bg-gradient-to-br from-orange-900 to-amber-700 border-2 border-orange-900',
     silver: 'bg-gradient-to-br from-gray-400 to-gray-200 border-2 border-gray-400',
@@ -97,10 +96,7 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
       {/* Fallback Initials if image fails */}
       {imageError && (
          <div className="absolute inset-0 z-10 flex items-center justify-center">
-            <div className="flex flex-col items-center">
-                <span className="text-6xl font-header text-white/20 uppercase">{card.name.substring(0, 2)}</span>
-                <span className="text-sm font-main text-white/40">{card.name}</span>
-            </div>
+            <span className="text-6xl font-header text-white/20 uppercase">{card.name.substring(0, 2)}</span>
          </div>
       )}
     </div>
