@@ -1,9 +1,9 @@
 import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective } from '../types';
 
 // --- GITHUB ASSET CONFIGURATION ---
-const GITHUB_BASE = "https://github.com/RCB-EG/Rappers-Cards-Battle/blob/main";
+const GITHUB_BASE = "https://raw.githubusercontent.com/RCB-EG/RCBGameAssets/main/All%20Cards";
 
-// Helper to format rarity for folder/filenames based on your repo structure
+// Helper to format rarity for filenames
 const getRepoRarityString = (rarity: string) => {
     if (rarity === 'rotm') return 'ROTM';
     if (rarity === 'event') return 'Evo';
@@ -11,26 +11,22 @@ const getRepoRarityString = (rarity: string) => {
 };
 
 // Generates the specific URL for a card based on the repo format:
-// Folder: [Rarity] (e.g. Gold, Evo, ROTM)
-// Filename: Name Rarity (OVR) [Superpower].png
+// Filename: Name Rarity Overall [Superpower].png
 const getCardImage = (name: string, rarity: string, ovr: number, superpowers: string[] = []) => {
     const rarityLabel = getRepoRarityString(rarity);
-    const folder = rarityLabel; 
     
-    // Start building filename: "Abo El Anwar Gold (86)"
-    let filenameBase = `${name} ${rarityLabel} (${ovr})`;
+    // Format: "Name Rarity Overall"
+    let filenameBase = `${name} ${rarityLabel} ${ovr}`;
     
-    // If the card has superpowers, append the first one: "Abo El Anwar Gold (86) Superpower"
+    // If the card has superpowers, append the first one: "Name Rarity Overall Superpower"
     if (superpowers && superpowers.length > 0) {
         filenameBase += ` ${superpowers[0]}`;
     }
 
     const filename = `${filenameBase}.png`;
     
-    // Use encodeURI for the filename to ensure spaces turn into %20 but parentheses ( ) remain literal
-    // if that's how the browser/github expects them, or usually encodeURIComponent is safer for web.
-    // Given the previous success with blob links, we construct the full path.
-    return `${GITHUB_BASE}/${encodeURIComponent(folder)}/${encodeURIComponent(filename)}?raw=true`;
+    // encodeURIComponent handles spaces as %20 which is required for raw URLs
+    return `${GITHUB_BASE}/${encodeURIComponent(filename)}`;
 };
 
 const generateStats = (ovr: number): Stats => {
