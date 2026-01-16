@@ -846,7 +846,7 @@ const App: React.FC = () => {
         switch (currentView) {
             case 'store': return <Store onOpenPack={(packType) => handleOpenPack(packType, false)} gameState={gameState} isDevMode={isDevMode} t={t} />;
             case 'collection': return <Collection gameState={gameState} setGameState={updateGameState} setCardForOptions={setCardWithOptions} t={t} />;
-            case 'market': return <Market market={gameState.market} onBuyCard={handleBuyCard} currentUserId={gameState.userId} t={t} />;
+            case 'market': return <Market market={gameState.market} onBuyCard={handleBuyCard} currentUserId={gameState.userId} t={t} userCoins={gameState.coins} />;
             case 'battle': return <Battle t={t} />;
             case 'fbc': return <FBC gameState={gameState} onFbcSubmit={handleFbcSubmit} t={t} playSfx={playSfx} />;
             case 'evo': return <Evo gameState={gameState} onStartEvo={handleStartEvo} onClaimEvo={handleClaimEvo} t={t} playSfx={playSfx} />;

@@ -1,5 +1,28 @@
 import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective } from '../types';
 
+// --- GITHUB ASSET CONFIGURATION ---
+// Ensures we pull directly from the main branch of your repo
+const GITHUB_BASE = "https://raw.githubusercontent.com/RCB-EG/Rappers-Cards-Battle/main";
+
+// Helper to format rarity for folder/filenames based on your repo structure
+// Structure: Bronze, Silver, Gold, ROTM, Icon, Evo
+const getRepoRarityString = (rarity: string) => {
+    if (rarity === 'rotm') return 'ROTM';
+    if (rarity === 'event') return 'Evo'; // Maps internal 'event' type to your 'Evo' folder
+    return rarity.charAt(0).toUpperCase() + rarity.slice(1);
+};
+
+// Generates the specific URL for a card
+// Target format: .../Gold/Abo El Anwar Gold (86).png
+const getCardImage = (name: string, rarity: string, ovr: number) => {
+    const rarityLabel = getRepoRarityString(rarity);
+    const folder = rarityLabel; 
+    const filename = `${name} ${rarityLabel} (${ovr}).png`;
+    
+    // We use encodeURIComponent to ensure spaces in names (e.g., "Abo El Anwar") don't break the URL
+    return `${GITHUB_BASE}/${encodeURIComponent(folder)}/${encodeURIComponent(filename)}`;
+};
+
 const generateStats = (ovr: number): Stats => {
     const base = ovr > 70 ? ovr - 10 : ovr - 5;
     const deviation = 8;
@@ -17,64 +40,64 @@ const generateStats = (ovr: number): Stats => {
 // A collection of all possible cards in the game.
 export const allCards: Card[] = [
   // Bronze
-  { id: 'b1', name: 'Bebo', ovr: 62, rarity: 'bronze', image: 'https://i.imghippo.com/files/GJZ1767yhY.png', value: 200, superpowers: [], stats: generateStats(62) },
-  { id: 'b2', name: 'Casper', ovr: 60, rarity: 'bronze', image: 'https://i.imghippo.com/files/mVch9821OnQ.png', value: 200, superpowers: [], stats: generateStats(60) },
-  { id: 'b3', name: 'Dena Phantom', ovr: 69, rarity: 'bronze', image: 'https://i.imghippo.com/files/LEY2430zeo.png', value: 200, superpowers: [], stats: generateStats(69) },
-  { id: 'b4', name: 'Sagy', ovr: 66, rarity: 'bronze', image: 'https://i.imghippo.com/files/zuiU4805CSk.png', value: 450, superpowers: [], stats: generateStats(66) },
-  { id: 'b5', name: 'Xander Ghost', ovr: 69, rarity: 'bronze', image: 'https://i.imghippo.com/files/Shjt4610vb.png', value: 600, superpowers: [], stats: generateStats(69) },
-  { id: 'b6', name: 'Xena', ovr: 68, rarity: 'bronze', image: 'https://i.imghippo.com/files/Hyu6300uKc.png', value: 400, superpowers: [], stats: generateStats(68) },
+  { id: 'b1', name: 'Bebo', ovr: 62, rarity: 'bronze', image: getCardImage('Bebo', 'bronze', 62), value: 200, superpowers: [], stats: generateStats(62) },
+  { id: 'b2', name: 'Casper', ovr: 60, rarity: 'bronze', image: getCardImage('Casper', 'bronze', 60), value: 200, superpowers: [], stats: generateStats(60) },
+  { id: 'b3', name: 'Dena Phantom', ovr: 69, rarity: 'bronze', image: getCardImage('Dena Phantom', 'bronze', 69), value: 200, superpowers: [], stats: generateStats(69) },
+  { id: 'b4', name: 'Sagy', ovr: 66, rarity: 'bronze', image: getCardImage('Sagy', 'bronze', 66), value: 450, superpowers: [], stats: generateStats(66) },
+  { id: 'b5', name: 'Xander Ghost', ovr: 69, rarity: 'bronze', image: getCardImage('Xander Ghost', 'bronze', 69), value: 600, superpowers: [], stats: generateStats(69) },
+  { id: 'b6', name: 'Xena', ovr: 68, rarity: 'bronze', image: getCardImage('Xena', 'bronze', 68), value: 400, superpowers: [], stats: generateStats(68) },
   
   // Silver
-  { id: 's1', name: 'Flex', ovr: 78, rarity: 'silver', image: 'https://i.imghippo.com/files/pSrm7343Sg.png', value: 900, superpowers: [], stats: generateStats(78) },
-  { id: 's2', name: 'Lella Fadda', ovr: 79, rarity: 'silver', image: 'https://i.imghippo.com/files/cEG8980udU.png', value: 900, superpowers: [], stats: generateStats(79) },
-  { id: 's3', name: 'Lil Baba', ovr: 77, rarity: 'silver', image: 'https://i.imghippo.com/files/WpD5955mtw.png', value: 750, superpowers: [], stats: generateStats(77) },
-  { id: 's4', name: 'Perrie', ovr: 79, rarity: 'silver', image: 'https://i.imghippo.com/files/wzuu2721XxY.png', value: 650, superpowers: [], stats: generateStats(79) },
+  { id: 's1', name: 'Flex', ovr: 78, rarity: 'silver', image: getCardImage('Flex', 'silver', 78), value: 900, superpowers: [], stats: generateStats(78) },
+  { id: 's2', name: 'Lella Fadda', ovr: 79, rarity: 'silver', image: getCardImage('Lella Fadda', 'silver', 79), value: 900, superpowers: [], stats: generateStats(79) },
+  { id: 's3', name: 'Lil Baba', ovr: 77, rarity: 'silver', image: getCardImage('Lil Baba', 'silver', 77), value: 750, superpowers: [], stats: generateStats(77) },
+  { id: 's4', name: 'Perrie', ovr: 79, rarity: 'silver', image: getCardImage('Perrie', 'silver', 79), value: 650, superpowers: [], stats: generateStats(79) },
 
   // Gold
-  { id: 'g1', name: 'Abo El Anwar', ovr: 86, rarity: 'gold', image: 'https://i.imghippo.com/files/Ebuy1908kOY.png', value: 20000, superpowers: [], stats: generateStats(86) },
-  { id: 'g2', name: 'Abyusif', ovr: 91, rarity: 'gold', image: 'https://i.imghippo.com/files/DBHf2066EU.png', value: 200000, superpowers: ['Rhymes Crafter'], stats: generateStats(91) },
-  { id: 'g3', name: 'Afroto', ovr: 89, rarity: 'gold', image: 'https://i.imghippo.com/files/BbyR9672rvM.png', value: 92000, superpowers: ['Notes Master'], stats: generateStats(89) },
-  { id: 'g4', name: 'Arsenik', ovr: 88, rarity: 'gold', image: 'https://i.imghippo.com/files/JXcN7953hc.png', value: 57000, superpowers: ['Flow Switcher'], stats: generateStats(88) },
-  { id: 'g5', name: 'Batistuta', ovr: 86, rarity: 'gold', image: 'https://i.imghippo.com/files/uhl8456ss.png', value: 14000, superpowers: ['Notes Master'], stats: generateStats(86) },
-  { id: 'g6', name: 'DizzyTooSkinny', ovr: 86, rarity: 'gold', image: 'https://i.imghippo.com/files/Lwv1112TBA.png', value: 25000, superpowers: ['Notes Master'], stats: generateStats(86) },
-  { id: 'g7', name: 'El Joker', ovr: 89, rarity: 'gold', image: 'https://i.imghippo.com/files/WGr4155.png', value: 97000, superpowers: ['Storyteller'], stats: generateStats(89) },
-  { id: 'g8', name: 'Hala', ovr: 84, rarity: 'gold', image: 'https://i.imghippo.com/files/sd7940oMA.png', value: 3000, superpowers: ['Notes Master'], stats: generateStats(84) },
-  { id: 'g9', name: 'Hussein', ovr: 84, rarity: 'gold', image: 'https://i.imghippo.com/files/MGDy7972SbY.png', value: 4500, superpowers: [], stats: generateStats(84) },
-  { id: 'g10', name: 'Kareem Ossama', ovr: 84, rarity: 'gold', image: 'https://i.imghippo.com/files/Zl7716gyY.png', value: 4800, superpowers: [], stats: generateStats(84) },
-  { id: 'g11', name: 'Lege-Cy', ovr: 89, rarity: 'gold', image: 'https://i.imghippo.com/files/xNxa5803tzo.png', value: 85000, superpowers: ['Notes Master'], stats: generateStats(89) },
-  { id: 'g12', name: 'Mared Gold', ovr: 82, rarity: 'gold', image: 'https://i.imghippo.com/files/DBv4039AFE.png', value: 1000, superpowers: [], stats: generateStats(82) },
-  { id: 'g13', name: 'Marwan Moussa', ovr: 90, rarity: 'gold', image: 'https://i.imghippo.com/files/mGv9345dBc.png', value: 120000, superpowers: ['Storyteller'], stats: generateStats(90) },
-  { id: 'g14', name: 'Marwan Pablo', ovr: 89, rarity: 'gold', image: 'https://i.imghippo.com/files/HQJ1882co.png', value: 100000, superpowers: ['Show Maker'], stats: generateStats(89) },
-  { id: 'g15', name: 'Moscow', ovr: 85, rarity: 'gold', image: 'https://i.imghippo.com/files/VWNi6414Wc.png', value: 6000, superpowers: [], stats: generateStats(85) },
-  { id: 'g16', name: 'Mousv', ovr: 85, rarity: 'gold', image: 'https://i.imghippo.com/files/dRwv2557nXs.png', value: 9000, superpowers: [], stats: generateStats(85) },
-  { id: 'g17', name: 'Muhab', ovr: 84, rarity: 'gold', image: 'https://i.imghippo.com/files/pyk3945pSw.png', value: 5100, superpowers: [], stats: generateStats(84) },
-  { id: 'g18', name: 'Nobi', ovr: 83, rarity: 'gold', image: 'https://i.imghippo.com/files/fqV2283.png', value: 1900, superpowers: [], stats: generateStats(83) },
-  { id: 'g19', name: 'Santa', ovr: 88, rarity: 'gold', image: 'https://i.imghippo.com/files/ipek4854nD.png', value: 55000, superpowers: ['Word Bender'], stats: generateStats(88) },
-  { id: 'g20', name: 'Shahyn', ovr: 88, rarity: 'gold', image: 'https://i.imghippo.com/files/zyTP1331Cyk.png', value: 70000, superpowers: ['Show Maker'], stats: generateStats(88) },
-  { id: 'g21', name: 'Wegz', ovr: 90, rarity: 'gold', image: 'https://i.imghippo.com/files/dQzf1916msk.png', value: 140000, superpowers: ['The Artist'], stats: generateStats(90) },
-  { id: 'g22', name: 'Young T', ovr: 83, rarity: 'gold', image: 'https://i.imghippo.com/files/to1403qd.png', value: 2200, superpowers: ['Flow Switcher'], stats: generateStats(83) },
-  { id: 'g23', name: 'Zap', ovr: 80, rarity: 'gold', image: 'https://i.imghippo.com/files/vn2931jPA.png', value: 1200, superpowers: ['StoryTeller'], stats: generateStats(80) },
+  { id: 'g1', name: 'Abo El Anwar', ovr: 86, rarity: 'gold', image: getCardImage('Abo El Anwar', 'gold', 86), value: 20000, superpowers: [], stats: generateStats(86) },
+  { id: 'g2', name: 'Abyusif', ovr: 91, rarity: 'gold', image: getCardImage('Abyusif', 'gold', 91), value: 200000, superpowers: ['Rhymes Crafter'], stats: generateStats(91) },
+  { id: 'g3', name: 'Afroto', ovr: 89, rarity: 'gold', image: getCardImage('Afroto', 'gold', 89), value: 92000, superpowers: ['Notes Master'], stats: generateStats(89) },
+  { id: 'g4', name: 'Arsenik', ovr: 88, rarity: 'gold', image: getCardImage('Arsenik', 'gold', 88), value: 57000, superpowers: ['Flow Switcher'], stats: generateStats(88) },
+  { id: 'g5', name: 'Batistuta', ovr: 86, rarity: 'gold', image: getCardImage('Batistuta', 'gold', 86), value: 14000, superpowers: ['Notes Master'], stats: generateStats(86) },
+  { id: 'g6', name: 'DizzyTooSkinny', ovr: 86, rarity: 'gold', image: getCardImage('DizzyTooSkinny', 'gold', 86), value: 25000, superpowers: ['Notes Master'], stats: generateStats(86) },
+  { id: 'g7', name: 'El Joker', ovr: 89, rarity: 'gold', image: getCardImage('El Joker', 'gold', 89), value: 97000, superpowers: ['Storyteller'], stats: generateStats(89) },
+  { id: 'g8', name: 'Hala', ovr: 84, rarity: 'gold', image: getCardImage('Hala', 'gold', 84), value: 3000, superpowers: ['Notes Master'], stats: generateStats(84) },
+  { id: 'g9', name: 'Hussein', ovr: 84, rarity: 'gold', image: getCardImage('Hussein', 'gold', 84), value: 4500, superpowers: [], stats: generateStats(84) },
+  { id: 'g10', name: 'Kareem Ossama', ovr: 84, rarity: 'gold', image: getCardImage('Kareem Ossama', 'gold', 84), value: 4800, superpowers: [], stats: generateStats(84) },
+  { id: 'g11', name: 'Lege-Cy', ovr: 89, rarity: 'gold', image: getCardImage('Lege-Cy', 'gold', 89), value: 85000, superpowers: ['Notes Master'], stats: generateStats(89) },
+  { id: 'g12', name: 'Mared Gold', ovr: 82, rarity: 'gold', image: getCardImage('Mared Gold', 'gold', 82), value: 1000, superpowers: [], stats: generateStats(82) },
+  { id: 'g13', name: 'Marwan Moussa', ovr: 90, rarity: 'gold', image: getCardImage('Marwan Moussa', 'gold', 90), value: 120000, superpowers: ['Storyteller'], stats: generateStats(90) },
+  { id: 'g14', name: 'Marwan Pablo', ovr: 89, rarity: 'gold', image: getCardImage('Marwan Pablo', 'gold', 89), value: 100000, superpowers: ['Show Maker'], stats: generateStats(89) },
+  { id: 'g15', name: 'Moscow', ovr: 85, rarity: 'gold', image: getCardImage('Moscow', 'gold', 85), value: 6000, superpowers: [], stats: generateStats(85) },
+  { id: 'g16', name: 'Mousv', ovr: 85, rarity: 'gold', image: getCardImage('Mousv', 'gold', 85), value: 9000, superpowers: [], stats: generateStats(85) },
+  { id: 'g17', name: 'Muhab', ovr: 84, rarity: 'gold', image: getCardImage('Muhab', 'gold', 84), value: 5100, superpowers: [], stats: generateStats(84) },
+  { id: 'g18', name: 'Nobi', ovr: 83, rarity: 'gold', image: getCardImage('Nobi', 'gold', 83), value: 1900, superpowers: [], stats: generateStats(83) },
+  { id: 'g19', name: 'Santa', ovr: 88, rarity: 'gold', image: getCardImage('Santa', 'gold', 88), value: 55000, superpowers: ['Word Bender'], stats: generateStats(88) },
+  { id: 'g20', name: 'Shahyn', ovr: 88, rarity: 'gold', image: getCardImage('Shahyn', 'gold', 88), value: 70000, superpowers: ['Show Maker'], stats: generateStats(88) },
+  { id: 'g21', name: 'Wegz', ovr: 90, rarity: 'gold', image: getCardImage('Wegz', 'gold', 90), value: 140000, superpowers: ['The Artist'], stats: generateStats(90) },
+  { id: 'g22', name: 'Young T', ovr: 83, rarity: 'gold', image: getCardImage('Young T', 'gold', 83), value: 2200, superpowers: ['Flow Switcher'], stats: generateStats(83) },
+  { id: 'g23', name: 'Zap', ovr: 80, rarity: 'gold', image: getCardImage('Zap', 'gold', 80), value: 1200, superpowers: ['StoryTeller'], stats: generateStats(80) },
 
   // Icon
-  { id: 'i1', name: 'Adham', ovr: 93, rarity: 'icon', image: 'https://i.imghippo.com/files/LiUR1258JAY.png', value: 218000, superpowers: ['Rhymes Crafter', 'Punchline Machine'], stats: generateStats(93) },
-  { id: 'i2', name: 'E-money', ovr: 92, rarity: 'icon', image: 'https://i.imghippo.com/files/IUf5095X.png', value: 133000, superpowers: ['Chopper', 'Flow Switcher'], stats: generateStats(92) },
-  { id: 'i3', name: 'Kordy', ovr: 92, rarity: 'icon', image: 'https://i.imghippo.com/files/pbj5403oWU.png', value: 146000, superpowers: ['Show Maker'], stats: generateStats(92) },
-  { id: 'i4', name: 'Maleka', ovr: 91, rarity: 'icon', image: 'https://i.imghippo.com/files/tBh7317eHw.png', value: 112000, superpowers: ['The Artist'], stats: generateStats(91) },
-  { id: 'i5', name: 'Mc Amin', ovr: 94, rarity: 'icon', image: 'https://i.imghippo.com/files/CX3763rMw.png', value: 240000, superpowers: ['Show Maker', 'Flow Switcher'], stats: generateStats(94) },
-  { id: 'i6', name: 'Mody Rap', ovr: 91, rarity: 'icon', image: 'https://i.imghippo.com/files/XZgc4559n.png', value: 89000, superpowers: ['StoryTeller'], stats: generateStats(91) },
-  { id: 'i7', name: 'Romel B', ovr: 90, rarity: 'icon', image: 'https://i.imghippo.com/files/G4728haA.png', value: 91000, superpowers: ['Chopper'], stats: generateStats(90) },
+  { id: 'i1', name: 'Adham', ovr: 93, rarity: 'icon', image: getCardImage('Adham', 'icon', 93), value: 218000, superpowers: ['Rhymes Crafter', 'Punchline Machine'], stats: generateStats(93) },
+  { id: 'i2', name: 'E-money', ovr: 92, rarity: 'icon', image: getCardImage('E-money', 'icon', 92), value: 133000, superpowers: ['Chopper', 'Flow Switcher'], stats: generateStats(92) },
+  { id: 'i3', name: 'Kordy', ovr: 92, rarity: 'icon', image: getCardImage('Kordy', 'icon', 92), value: 146000, superpowers: ['Show Maker'], stats: generateStats(92) },
+  { id: 'i4', name: 'Maleka', ovr: 91, rarity: 'icon', image: getCardImage('Maleka', 'icon', 91), value: 112000, superpowers: ['The Artist'], stats: generateStats(91) },
+  { id: 'i5', name: 'Mc Amin', ovr: 94, rarity: 'icon', image: getCardImage('Mc Amin', 'icon', 94), value: 240000, superpowers: ['Show Maker', 'Flow Switcher'], stats: generateStats(94) },
+  { id: 'i6', name: 'Mody Rap', ovr: 91, rarity: 'icon', image: getCardImage('Mody Rap', 'icon', 91), value: 89000, superpowers: ['StoryTeller'], stats: generateStats(91) },
+  { id: 'i7', name: 'Romel B', ovr: 90, rarity: 'icon', image: getCardImage('Romel B', 'icon', 90), value: 91000, superpowers: ['Chopper'], stats: generateStats(90) },
 
   // ROTM
-  { id: 'r1', name: 'Abyusif', ovr: 92, rarity: 'rotm', image: 'https://i.imghippo.com/files/QGO2832Hw.png', value: 300000, superpowers: ['Rhyme Crafter', 'Word Bender'], stats: generateStats(92) },
-  { id: 'r2', name: 'Afroto', ovr: 90, rarity: 'rotm', image: 'https://i.imghippo.com/files/wyyJ2171NvE.png', value: 210000, superpowers: ['StoryTeller'], stats: generateStats(90) },
-  { id: 'r3', name: 'Arsenik', ovr: 89, rarity: 'rotm', image: 'https://i.imghippo.com/files/NNlV2642JHg.png', value: 160000, superpowers: ['Words Bender'], stats: generateStats(89) },
-  { id: 'r4', name: 'Lege-Cy', ovr: 90, rarity: 'rotm', image: 'https://i.imghippo.com/files/MnRi3278M.png', value: 180000, superpowers: ['StoryTeller'], stats: generateStats(90) },
-  { id: 'r5', name: 'Marwan Mousa', ovr: 91, rarity: 'rotm', image: 'https://i.imghippo.com/files/QFb6085DI.png', value: 234000, superpowers: ['StoryTeller', 'Word Bender'], stats: generateStats(91) },
-  { id: 'r6', name: 'Wegz', ovr: 91, rarity: 'rotm', image: 'https://i.imghippo.com/files/cci2034ZR.png', value: 250000, superpowers: ['The Artist', 'Notes Master'], stats: generateStats(91) },
+  { id: 'r1', name: 'Abyusif', ovr: 92, rarity: 'rotm', image: getCardImage('Abyusif', 'rotm', 92), value: 300000, superpowers: ['Rhyme Crafter', 'Word Bender'], stats: generateStats(92) },
+  { id: 'r2', name: 'Afroto', ovr: 90, rarity: 'rotm', image: getCardImage('Afroto', 'rotm', 90), value: 210000, superpowers: ['StoryTeller'], stats: generateStats(90) },
+  { id: 'r3', name: 'Arsenik', ovr: 89, rarity: 'rotm', image: getCardImage('Arsenik', 'rotm', 89), value: 160000, superpowers: ['Words Bender'], stats: generateStats(89) },
+  { id: 'r4', name: 'Lege-Cy', ovr: 90, rarity: 'rotm', image: getCardImage('Lege-Cy', 'rotm', 90), value: 180000, superpowers: ['StoryTeller'], stats: generateStats(90) },
+  { id: 'r5', name: 'Marwan Mousa', ovr: 91, rarity: 'rotm', image: getCardImage('Marwan Mousa', 'rotm', 91), value: 234000, superpowers: ['StoryTeller', 'Word Bender'], stats: generateStats(91) },
+  { id: 'r6', name: 'Wegz', ovr: 91, rarity: 'rotm', image: getCardImage('Wegz', 'rotm', 91), value: 250000, superpowers: ['The Artist', 'Notes Master'], stats: generateStats(91) },
   
   // Legend
   {
-    id: 'l1', name: 'The GOAT', ovr: 98, rarity: 'legend', image: 'https://api.dicebear.com/8.x/bottts/svg?seed=TheGOAT',
+    id: 'l1', name: 'The GOAT', ovr: 98, rarity: 'legend', image: getCardImage('The GOAT', 'legend', 98),
     stats: { lyrc: 99, flow: 99, sing: 98, live: 98, diss: 98, char: 99 },
     superpowers: ['Career Killer', 'The Artist', 'Words Bender', 'Flow Switcher'], value: 800000
   },
@@ -85,7 +108,7 @@ export const allCards: Card[] = [
     name: 'Abo El Anwar', 
     ovr: 87, 
     rarity: 'event',
-    image: 'https://i.imghippo.com/files/fZo8874.png', 
+    image: getCardImage('Abo El Anwar', 'event', 87), 
     value: 32000, 
     isPackable: false,
     superpowers: ['Rhyme Crafter'], 
@@ -96,7 +119,7 @@ export const allCards: Card[] = [
     name: 'Tommy Gun', 
     ovr: 84, 
     rarity: 'event',
-    image: 'https://i.imghippo.com/files/ohZa7371j.png', 
+    image: getCardImage('Tommy Gun', 'event', 84), 
     value: 7800, 
     isPackable: false,
     superpowers: ['Flow Switcher'], 
@@ -109,7 +132,7 @@ export const allCards: Card[] = [
     name: 'Shehab',
     ovr: 87,
     rarity: 'gold',
-    image: 'https://i.imghippo.com/files/of4978Axs.png',
+    image: getCardImage('Shehab', 'gold', 87),
     value: 44000,
     isPackable: false,
     superpowers: ['Note Master'],
@@ -120,7 +143,7 @@ export const allCards: Card[] = [
     name: 'Tommy Gun',
     ovr: 83,
     rarity: 'gold',
-    image: 'https://i.imghippo.com/files/vEc7611qrg.png',
+    image: getCardImage('Tommy Gun', 'gold', 83),
     value: 4500,
     isPackable: false,
     superpowers: [],
@@ -131,7 +154,7 @@ export const allCards: Card[] = [
     name: 'Shabjdeed',
     ovr: 85,
     rarity: 'gold',
-    image: 'https://i.imghippo.com/files/wgqS8075ng.png',
+    image: getCardImage('Shabjdeed', 'gold', 85),
     value: 39500,
     isPackable: false,
     superpowers: [],
@@ -144,7 +167,7 @@ export const allCards: Card[] = [
     name: 'Ra3',
     ovr: 85,
     rarity: 'gold',
-    image: 'https://i.imghippo.com/files/iH4359ueo.png',
+    image: getCardImage('Ra3', 'gold', 85),
     value: 34000,
     isPackable: false,
     superpowers: ['Rhyme Crafter'],
@@ -353,13 +376,13 @@ export const formationLayouts: Record<FormationLayoutId, FormationStructure> = {
 };
 
 export const avatars: string[] = [
-    'https://i.imghippo.com/files/TJIH8608wZk.png',
-    'https://i.imghippo.com/files/XrUB6208Bo.png',
-    'https://i.imghippo.com/files/xJZ6974gJo.png',
-    'https://i.imghippo.com/files/KhA8194TQM.png',
-    'https://i.imghippo.com/files/pri9634jY.png',
-    'https://i.imghippo.com/files/MMSE8115wr.png',
-    'https://i.imghippo.com/files/tvk2942qe.png',
-    'https://i.imghippo.com/files/NY2664HFI.png',
-    'https://i.imghippo.com/files/Xq2208pkM.png',
+    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar1',
+    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar2',
+    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar3',
+    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar4',
+    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar5',
+    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar6',
+    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar7',
+    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar8',
+    'https://api.dicebear.com/9.x/bottts/svg?seed=avatar9',
 ];

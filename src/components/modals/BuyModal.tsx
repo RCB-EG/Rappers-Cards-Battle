@@ -24,10 +24,13 @@ interface BuyModalProps {
   onClose: () => void;
   onBuy: (card: MarketCard) => void;
   t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
+  userCoins?: number;
 }
 
-const BuyModal: React.FC<BuyModalProps> = ({ cardToBuy, onClose, onBuy, t }) => {
+const BuyModal: React.FC<BuyModalProps> = ({ cardToBuy, onClose, onBuy, t, userCoins = 0 }) => {
   if (!cardToBuy) return null;
+
+  const canAfford = userCoins >= cardToBuy.price;
 
   return (
     <Modal isOpen={!!cardToBuy} onClose={onClose} title={t('modal_buy_card_title')} size="xl">
@@ -43,8 +46,20 @@ const BuyModal: React.FC<BuyModalProps> = ({ cardToBuy, onClose, onBuy, t }) => 
                     <h3 className="font-header text-3xl text-white mb-2">{cardToBuy.name}</h3>
                     <div className="flex items-center gap-2 text-lg mb-3">
                         <span className={`font-bold capitalize ${getRarityColorClass(cardToBuy.rarity)}`}>{cardToBuy.rarity}</span>
+                        <span className="text-gray-500">•</span>
+                        <span className="text-gray-300">OVR: <span className="text-white font-bold">{cardToBuy.ovr}</span></span>
                     </div>
                     
+                    {/* Stats Grid */}
+                    <div className="grid grid-cols-3 gap-2 my-4 bg-black/20 p-3 rounded-lg border border-gold-dark/20 text-center">
+                        <div className="flex flex-col"><span className="text-xs text-gray-400">LYRC</span><span className="text-gold-light font-bold">{cardToBuy.stats.lyrc}</span></div>
+                        <div className="flex flex-col"><span className="text-xs text-gray-400">FLOW</span><span className="text-gold-light font-bold">{cardToBuy.stats.flow}</span></div>
+                        <div className="flex flex-col"><span className="text-xs text-gray-400">SING</span><span className="text-gold-light font-bold">{cardToBuy.stats.sing}</span></div>
+                        <div className="flex flex-col"><span className="text-xs text-gray-400">LIVE</span><span className="text-gold-light font-bold">{cardToBuy.stats.live}</span></div>
+                        <div className="flex flex-col"><span className="text-xs text-gray-400">DISS</span><span className="text-gold-light font-bold">{cardToBuy.stats.diss}</span></div>
+                        <div className="flex flex-col"><span className="text-xs text-gray-400">CHAR</span><span className="text-gold-light font-bold">{cardToBuy.stats.char}</span></div>
+                    </div>
+
                     {/* Display Superpowers */}
                     {cardToBuy.superpowers.length > 0 && (
                       <div className="my-4">
@@ -64,9 +79,20 @@ const BuyModal: React.FC<BuyModalProps> = ({ cardToBuy, onClose, onBuy, t }) => 
                     <p className="text-white text-lg my-4 text-center">
                         {t('buy')} for <span className="text-gold-light font-bold text-xl">{cardToBuy.price} {t('coins')}</span>?
                     </p>
+                    
+                    {!canAfford && (
+                        <p className="text-red-500 text-center font-bold mb-2">Insufficient Funds</p>
+                    )}
 
-                    <div className="flex justify-center gap-4 mt-6">
-                        <Button variant="keep" onClick={() => onBuy(cardToBuy)}>{t('buy')}</Button>
+                    <div className="flex justify-center gap-4 mt-2">
+                        <Button 
+                            variant="keep" 
+                            onClick={() => onBuy(cardToBuy)} 
+                            disabled={!canAfford}
+                            className={!canAfford ? 'opacity-50 cursor-not-allowed filter grayscale' : ''}
+                        >
+                            {t('buy')}
+                        </Button>
                         <Button variant="sell" onClick={onClose}>{t('cancel')}</Button>
                     </div>
                 </div>

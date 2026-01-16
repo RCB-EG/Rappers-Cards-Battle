@@ -17,10 +17,10 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, gameState, isDevMode, t }) =>
     const { coins, freePacksOpenedToday, lastFreePackResetTime } = gameState;
 
     const packDetails = {
-        free: { src: 'https://i.postimg.cc/R0sYyFhL/Free.png', label: t('pack_free') },
-        builder: { src: 'https://i.postimg.cc/1z5Tv6mz/Builder.png', label: t('pack_builder') },
-        special: { src: 'https://i.postimg.cc/sxS0M4cT/Special.png', label: t('pack_special') },
-        legendary: { src: 'https://i.postimg.cc/63Fm6md7/Legendary.png', label: t('pack_legendary') }
+        free: { src: 'https://placehold.co/150x200/555/FFF?text=Free+Pack', label: t('pack_free') },
+        builder: { src: 'https://placehold.co/150x200/3b82f6/FFF?text=Builder+Pack', label: t('pack_builder') },
+        special: { src: 'https://placehold.co/150x200/8b5cf6/FFF?text=Special+Pack', label: t('pack_special') },
+        legendary: { src: 'https://placehold.co/150x200/f59e0b/FFF?text=Legendary+Pack', label: t('pack_legendary') }
     };
 
     const twelveHours = 12 * 60 * 60 * 1000;

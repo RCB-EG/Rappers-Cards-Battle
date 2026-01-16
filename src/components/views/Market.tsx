@@ -9,9 +9,10 @@ interface MarketProps {
   onBuyCard: (card: MarketCard) => void;
   currentUserId: string;
   t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
+  userCoins: number;
 }
 
-const Market: React.FC<MarketProps> = ({ market, onBuyCard, currentUserId, t }) => {
+const Market: React.FC<MarketProps> = ({ market, onBuyCard, currentUserId, t, userCoins }) => {
   const [cardToBuy, setCardToBuy] = useState<MarketCard | null>(null);
   const [sortBy, setSortBy] = useState('price-asc');
   const [rarityFilter, setRarityFilter] = useState('all');
@@ -86,7 +87,7 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, currentUserId, t }) 
         )}
       </div>
 
-      <BuyModal cardToBuy={cardToBuy} onClose={() => setCardToBuy(null)} onBuy={handleBuyConfirm} t={t} />
+      <BuyModal cardToBuy={cardToBuy} onClose={() => setCardToBuy(null)} onBuy={handleBuyConfirm} t={t} userCoins={userCoins} />
     </div>
   );
 };
