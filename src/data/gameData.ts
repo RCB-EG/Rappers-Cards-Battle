@@ -3,10 +3,11 @@ import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, S
 // --- GITHUB ASSET CONFIGURATION ---
 const GITHUB_RAW_BASE = "https://raw.githubusercontent.com/RCB-EG/RCBGameAssets/6132e6e5269fe664c6bb03465c29604b1faacda4/All%20Cards/";
 
-// Helper to format rarity for filenames
+// Helper to format rarity for filenames to match repo conventions
 const getRepoRarityString = (rarity: string) => {
     if (rarity === 'rotm') return 'ROTM';
     if (rarity === 'event') return 'Evo';
+    // Capitalize first letter for others (Bronze, Silver, Gold, Icon, Legend)
     return rarity.charAt(0).toUpperCase() + rarity.slice(1);
 };
 
@@ -15,15 +16,16 @@ const getRepoRarityString = (rarity: string) => {
 const getCardImage = (name: string, rarity: string, ovr: number, superpowers: string[] = []) => {
     const rarityLabel = getRepoRarityString(rarity);
     
-    // Format: "Name Rarity (Overall)"
+    // Format: "Name Rarity (Overall)" e.g., "Abo El Anwar Gold (86)"
     let fileName = `${name} ${rarityLabel} (${ovr})`;
     
     // If the card has superpowers, append them joined by space
+    // e.g., "Abyusif Gold (91) Rhymes Crafter"
     if (superpowers && superpowers.length > 0) {
         fileName += ` ${superpowers.join(' ')}`;
     }
 
-    // The user provided logic: GITHUB_RAW_BASE + encodeURIComponent(cardName) + ".png"
+    // Construct final URL
     return `${GITHUB_RAW_BASE}${encodeURIComponent(fileName)}.png`;
 };
 
