@@ -37,6 +37,8 @@ import SignUpModal from './components/modals/SignUpModal';
 
 const GUEST_SAVE_KEY = 'rappersGameState_guest';
 const CURRENT_VERSION = 1.2;
+const MARKET_STORAGE_KEY = 'rappersGlobalMarket';
+const EARNINGS_STORAGE_KEY = 'rappersPendingEarnings';
 
 // --- STATE UPDATE HELPER FUNCTIONS ---
 
@@ -80,6 +82,46 @@ const applyEvolutionTask = (
     newTasks[taskId] = (newTasks[taskId] || 0) + amount;
 
     return { ...activeEvolution, tasks: newTasks };
+};
+
+// --- GLOBAL MARKET HELPERS ---
+const getGlobalMarket = (): MarketCard[] => {
+    try {
+        const data = localStorage.getItem(MARKET_STORAGE_KEY);
+        return data ? JSON.parse(data) : [];
+    } catch {
+        return [];
+    }
+};
+
+const setGlobalMarket = (market: MarketCard[]) => {
+    localStorage.setItem(MARKET_STORAGE_KEY, JSON.stringify(market));
+};
+
+const addEarnings = (userId: string, amount: number) => {
+    try {
+        const data = localStorage.getItem(EARNINGS_STORAGE_KEY);
+        const earnings = data ? JSON.parse(data) : {};
+        earnings[userId] = (earnings[userId] || 0) + amount;
+        localStorage.setItem(EARNINGS_STORAGE_KEY, JSON.stringify(earnings));
+    } catch (e) {
+        console.error("Failed to save earnings", e);
+    }
+};
+
+const claimEarnings = (userId: string): number => {
+    try {
+        const data = localStorage.getItem(EARNINGS_STORAGE_KEY);
+        const earnings = data ? JSON.parse(data) : {};
+        const amount = earnings[userId] || 0;
+        if (amount > 0) {
+            earnings[userId] = 0;
+            localStorage.setItem(EARNINGS_STORAGE_KEY, JSON.stringify(earnings));
+        }
+        return amount;
+    } catch {
+        return 0;
+    }
 };
 
 const App: React.FC = () => {
@@ -136,6 +178,9 @@ const App: React.FC = () => {
         const savedStateJSON = localStorage.getItem(saveKey);
         let savedState = savedStateJSON ? JSON.parse(savedStateJSON) : null;
         
+        // Always sync market from global storage on load
+        const globalMarket = getGlobalMarket();
+
         if (savedState) {
             // --- DATA MIGRATIONS ---
             
@@ -152,6 +197,7 @@ const App: React.FC = () => {
             const firstObjectiveProgressValue = Object.values(savedState.objectiveProgress || {})[0] as any;
             if (firstObjectiveProgressValue && firstObjectiveProgressValue.tasks === undefined) {
                 const migratedProgress: GameState['objectiveProgress'] = {};
+                // Fix: Correctly type the old objectives for migration to prevent type errors.
                 const oldObjectives: ({ id: string; type: 'daily' | 'weekly'; descriptionKey: string; task: string; target: number; reward: Objective['reward']; })[] = [
                     { id: 'd1', type: 'daily', descriptionKey: 'obj_open_free_pack_task', task: 'open_free_packs', target: 1, reward: { type: 'coins', amount: 250 } },
                     { id: 'd2', type: 'daily', descriptionKey: 'obj_list_card_task', task: 'list_market_cards', target: 1, reward: { type: 'coins', amount: 500 } },
@@ -173,7 +219,7 @@ const App: React.FC = () => {
             // Fix 3: Version 1.2 Migration - Wipe Market and Fix Broken Images
             if (!savedState.version || savedState.version < 1.2) {
                 // Wipe Market completely to remove bot cards and broken listings
-                savedState.market = [];
+                savedState.market = []; // This will be overwritten by globalMarket anyway
 
                 // Helper to update card data from the latest source of truth (allCards)
                 const updateCardData = (oldCard: CardType): CardType | null => {
@@ -208,11 +254,12 @@ const App: React.FC = () => {
                 savedState.version = CURRENT_VERSION;
             }
             
-            setGameState({ ...initialState, ...savedState });
+            // Force market to be the global market
+            setGameState({ ...initialState, ...savedState, market: globalMarket });
         } else if (user) { // New user with no save, give them initial state
-            setGameState({ ...initialState, userId: user.username });
+            setGameState({ ...initialState, userId: user.username, market: globalMarket });
         } else { // New guest
-            setGameState({ ...initialState, userId: 'guest' });
+            setGameState({ ...initialState, userId: 'guest', market: globalMarket });
         }
     }, [getSaveKey]);
     
@@ -223,6 +270,38 @@ const App: React.FC = () => {
         setCurrentUser(user);
         loadGameState(user);
     }, [loadGameState]);
+
+    // --- MARKET SYNC & EARNINGS CHECK ---
+    useEffect(() => {
+        const interval = setInterval(() => {
+            // Sync Market
+            const globalMarket = getGlobalMarket();
+            // Only update if different length to avoid constant re-renders, simpler check
+            setGameState(prev => {
+                if (JSON.stringify(prev.market) !== JSON.stringify(globalMarket)) {
+                    return { ...prev, market: globalMarket };
+                }
+                return prev;
+            });
+
+            // Check Earnings
+            if (currentUser || gameState.userId !== 'guest') {
+                const userId = currentUser ? currentUser.username : gameState.userId;
+                const earned = claimEarnings(userId);
+                if (earned > 0) {
+                    playSfx('rewardClaimed');
+                    setGameState(prev => ({ ...prev, coins: prev.coins + earned }));
+                    setMessageModal({
+                        title: 'Market Sale!',
+                        message: `Your items sold on the market! You earned ${earned} coins.`
+                    });
+                }
+            }
+        }, 3000); // Check every 3 seconds
+
+        return () => clearInterval(interval);
+    }, [currentUser, gameState.userId, playSfx]);
+
 
     // Ensure objectives are initialized if missing in loaded state
     useEffect(() => {
@@ -242,6 +321,8 @@ const App: React.FC = () => {
     // Save state whenever it changes
     useEffect(() => {
         const saveKey = getSaveKey(currentUser);
+        // Don't save 'market' into user state deeply, or if we do, we overwrite it on load anyway.
+        // We'll save it for now as part of state, but loadGameState ignores user's market data in favor of global.
         localStorage.setItem(saveKey, JSON.stringify(gameState));
     }, [gameState, currentUser, getSaveKey]);
 
@@ -275,17 +356,24 @@ const App: React.FC = () => {
             setAuthError(t('email_taken'));
             return;
         }
+        
+        // Create the new account
         accounts.push(user);
         localStorage.setItem('rappersGameAccounts', JSON.stringify(accounts));
         
-        // The current guest progress becomes the new user's progress
-        localStorage.setItem(`rappersGameState_${user.username}`, JSON.stringify(gameState));
-        localStorage.removeItem(GUEST_SAVE_KEY); // Clean up old guest save
+        // Migrate current guest state to the new user ID
+        // Note: gameState.market comes from global, but formation/storage/coins are local
+        const newState = { ...gameState, userId: user.username };
+        localStorage.setItem(`rappersGameState_${user.username}`, JSON.stringify(newState));
+        
+        // Clear old guest save to keep things clean, or keep it as backup?
+        // Let's keep it to avoid issues if they log out immediately.
+        // localStorage.removeItem(GUEST_SAVE_KEY); 
         
         setCurrentUser(user);
         localStorage.setItem('rappersGameCurrentUser', JSON.stringify(user));
         
-        setGameState(prev => ({...prev, userId: user.username}));
+        setGameState(newState);
         
         setIsSignUpModalOpen(false);
         setAuthError(null);
@@ -296,8 +384,10 @@ const App: React.FC = () => {
         const accounts = accountsJSON ? JSON.parse(accountsJSON) : [];
         const foundUser = accounts.find((acc: User) => acc.username === user.username && acc.password === user.password);
         if (foundUser) {
-            // Save current guest state before switching
-            localStorage.setItem(GUEST_SAVE_KEY, JSON.stringify(gameState));
+            // Save current guest state before switching if needed
+            if (!currentUser) {
+                 localStorage.setItem(GUEST_SAVE_KEY, JSON.stringify(gameState));
+            }
             
             setCurrentUser(foundUser);
             localStorage.setItem('rappersGameCurrentUser', JSON.stringify(foundUser));
@@ -509,22 +599,47 @@ const App: React.FC = () => {
     };
     
     const handleBuyCard = (card: MarketCard) => {
-        if (gameState.coins >= card.price) {
+        // Refresh Global Market Data to avoid buying sold cards
+        const globalMarket = getGlobalMarket();
+        const freshCard = globalMarket.find(c => c.id === card.id);
+
+        if (!freshCard) {
+            setMessageModal({ title: 'Card Sold', message: 'Sorry, this card has already been bought by another player.' });
+            // Sync local market
+            setGameState(prev => ({ ...prev, market: globalMarket }));
+            return;
+        }
+
+        if (gameState.coins >= freshCard.price) {
+            // Remove from global market
+            const newGlobalMarket = globalMarket.filter(c => c.id !== freshCard.id);
+            setGlobalMarket(newGlobalMarket);
+
+            // Add earnings to seller
+            addEarnings(freshCard.sellerId, freshCard.price);
+
+            // Update Buyer State
             updateGameState({
-                coins: gameState.coins - card.price,
-                storage: [...gameState.storage, card],
-                // Fix: Add explicit type to `filter` callback to prevent type inference issues.
-                market: gameState.market.filter((c: MarketCard) => c.id !== card.id),
+                coins: gameState.coins - freshCard.price,
+                storage: [...gameState.storage, freshCard],
+                market: newGlobalMarket,
             });
             playSfx('purchase');
-            setMessageModal({ title: 'Purchase Successful', message: `You bought ${card.name} for ${card.price} coins.`, card });
+            setMessageModal({ title: 'Purchase Successful', message: `You bought ${freshCard.name} for ${freshCard.price} coins.`, card: freshCard });
         } else {
-            setMessageModal({ title: 'Not Enough Coins', message: `You need ${card.price} coins to buy this card.` });
+            setMessageModal({ title: 'Not Enough Coins', message: `You need ${freshCard.price} coins to buy this card.` });
         }
     };
 
     const handleListCard = (card: CardType, price: number) => {
+        // IMPORTANT: Use a unique ID for the market listing to avoid collision if they have multiples
+        // But for now, we use card ID.
+        
+        // Add to Global Market
         const newMarketCard: MarketCard = { ...card, price, sellerId: gameState.userId };
+        const globalMarket = getGlobalMarket();
+        const newGlobalMarket = [...globalMarket, newMarketCard];
+        setGlobalMarket(newGlobalMarket);
     
         setGameState(prev => {
             const { formation, storage } = prev;
@@ -544,7 +659,7 @@ const App: React.FC = () => {
                 ...prev,
                 formation: newFormation,
                 storage: newStorage,
-                market: [...prev.market, newMarketCard],
+                market: newGlobalMarket, // Update local view of market immediately
                 objectiveProgress: applyObjectiveProgress(prev.objectiveProgress, 'list_market_cards', 1),
                 activeEvolution: applyEvolutionTask(prev.activeEvolution, 'list_cards_market', 1)
             };
