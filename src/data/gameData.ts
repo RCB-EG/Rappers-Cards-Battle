@@ -23,6 +23,11 @@ export const allCards: Card[] = [
   { id: 'b4', name: 'Sagy', ovr: 66, rarity: 'bronze', image: 'https://i.imghippo.com/files/zuiU4805CSk.png', value: 450, superpowers: [], stats: generateStats(66) },
   { id: 'b5', name: 'Xander Ghost', ovr: 69, rarity: 'bronze', image: 'https://i.imghippo.com/files/Shjt4610vb.png', value: 600, superpowers: [], stats: generateStats(69) },
   { id: 'b6', name: 'Xena', ovr: 68, rarity: 'bronze', image: 'https://i.imghippo.com/files/Hyu6300uKc.png', value: 400, superpowers: [], stats: generateStats(68) },
+  { id: 'b7', name: 'K-Vibe', ovr: 64, rarity: 'bronze', image: 'https://i.imghippo.com/files/DVpE2692VE.png', value: 200, superpowers: [], stats: generateStats(64) },
+  { id: 'b8', name: 'Luna', ovr: 67, rarity: 'bronze', image: 'https://i.imghippo.com/files/ldX1061w.png', value: 200, superpowers: [], stats: generateStats(67) },
+  { id: 'b9', name: 'Big Tone', ovr: 61, rarity: 'bronze', image: 'https://i.imghippo.com/files/EeS5964yds.png', value: 200, superpowers: [], stats: generateStats(61) },
+  { id: 'b10', name: 'Jinx', ovr: 65, rarity: 'bronze', image: 'https://i.imghippo.com/files/rvAS1142oaU.png', value: 200, superpowers: [], stats: generateStats(65) },
+  { id: 'b11', name: 'Rhyme-Z', ovr: 63, rarity: 'bronze', image: 'https://i.imghippo.com/files/cac1675CjI.png', value: 200, superpowers: [], stats: generateStats(63) },
   
   // Silver
   { id: 's1', name: 'Flex', ovr: 78, rarity: 'silver', image: 'https://i.imghippo.com/files/pSrm7343Sg.png', value: 900, superpowers: [], stats: generateStats(78) },
@@ -54,6 +59,13 @@ export const allCards: Card[] = [
   { id: 'g21', name: 'Wegz', ovr: 90, rarity: 'gold', image: 'https://i.imghippo.com/files/dQzf1916msk.png', value: 140000, superpowers: ['The Artist'], stats: generateStats(90) },
   { id: 'g22', name: 'Young T', ovr: 83, rarity: 'gold', image: 'https://i.imghippo.com/files/to1403qd.png', value: 2200, superpowers: ['Flow Switcher'], stats: generateStats(83) },
   { id: 'g23', name: 'Zap', ovr: 80, rarity: 'gold', image: 'https://i.imghippo.com/files/vn2931jPA.png', value: 1200, superpowers: ['StoryTeller'], stats: generateStats(80) },
+  { id: 'g24', name: '3ab3az', ovr: 82, rarity: 'gold', image: 'https://i.imghippo.com/files/eJ1694fs.png', value: 2200, superpowers: [], stats: generateStats(82) },
+  { id: 'g25', name: 'Wingii', ovr: 85, rarity: 'gold', image: 'https://i.imghippo.com/files/XQNr9910mZQ.png', value: 3000, superpowers: [], stats: generateStats(85) },
+  { id: 'g26', name: 'Dzel Uzi', ovr: 84, rarity: 'gold', image: 'https://i.imghippo.com/files/wuX2954AzQ.png', value: 6000, superpowers: ['Rhymes Crafter'], stats: generateStats(84) },
+  { id: 'g27', name: 'Raptor', ovr: 84, rarity: 'gold', image: 'https://i.imghippo.com/files/PVz1129nI.png', value: 5100, superpowers: ['Flow Switcher'], stats: generateStats(84) },
+  { id: 'g28', name: 'Vortex', ovr: 90, rarity: 'gold', image: 'https://i.imghippo.com/files/oTSj9471wE.png', value: 85000, superpowers: ['Words Bender'], stats: generateStats(90) },
+  { id: 'g29', name: 'Wezza', ovr: 83, rarity: 'gold', image: 'https://i.imghippo.com/files/uc7996BjE.png', value: 3800, superpowers: [], stats: generateStats(83) },
+  { id: 'g30', name: 'Yonyo', ovr: 82, rarity: 'gold', image: 'https://i.imghippo.com/files/EpIE4189weI.png', value: 1950, superpowers: [], stats: generateStats(82) },
 
   // Icon
   { id: 'i1', name: 'Adham', ovr: 93, rarity: 'icon', image: 'https://i.imghippo.com/files/LiUR1258JAY.png', value: 218000, superpowers: ['Rhymes Crafter', 'Punchline Machine'], stats: generateStats(93) },
