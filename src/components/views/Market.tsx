@@ -16,7 +16,7 @@ interface MarketProps {
 
 const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, currentUserId, t, userCoins }) => {
   const [cardToBuy, setCardToBuy] = useState<MarketCard | null>(null);
-  const [sortBy, setSortBy] = useState('price-asc');
+  const [sortBy, setSortBy] = useState('newest');
   const [rarityFilter, setRarityFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
 

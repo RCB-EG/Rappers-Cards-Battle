@@ -187,11 +187,8 @@ const App: React.FC = () => {
                             }));
                         }
                     } else {
-                        // Create initial document for new user
-                        const newUserState = { ...initialState, userId: user.uid };
-                        const { market, ...stateToSave } = newUserState;
-                        setDoc(userDocRef, stateToSave);
-                        setGameState(newUserState);
+                        // Document doesn't exist yet (handled in SignUp)
+                        // Or if created manually in console, init it.
                     }
                 });
 
@@ -219,9 +216,8 @@ const App: React.FC = () => {
             setGameState(prev => ({ ...prev, market: marketCards }));
         }, (error) => {
             console.error("Market listener error:", error);
-            // Fallback for missing index if needed
+            // Fallback if index is missing (initially)
             if (error.code === 'failed-precondition') {
-                 console.log("Falling back to unordered query");
                  const fallbackQ = query(collection(db, 'market'), limit(100));
                  onSnapshot(fallbackQ, (snap) => {
                     const cards: MarketCard[] = [];
@@ -239,7 +235,6 @@ const App: React.FC = () => {
         if (auth.currentUser) {
             try {
                 const userDocRef = doc(db, 'users', auth.currentUser.uid);
-                // Exclude market from user state save, it's global
                 const { market, ...stateToSave } = newState; 
                 await setDoc(userDocRef, stateToSave, { merge: true });
             } catch (e) {
@@ -248,7 +243,6 @@ const App: React.FC = () => {
         }
     }, []);
 
-    // Helper to update state AND save to Firebase
     const updateGameState = (updates: Partial<GameState>) => {
         setGameState(prevState => {
             const newState = { ...prevState, ...updates };
@@ -285,10 +279,12 @@ const App: React.FC = () => {
                 photoURL: user.avatar
             });
             
-            // Create initial DB entry
-            const newUserState = { ...initialState, userId: userCredential.user.uid };
-            const { market, ...stateToSave } = newUserState;
-            await setDoc(doc(db, 'users', userCredential.user.uid), stateToSave);
+            // Create initial DB entry using CURRENT GUEST STATE to preserve progress
+            // We exclude the 'market' array as that is global, not per-user
+            const { market, ...currentLocalState } = gameState;
+            const newUserState = { ...currentLocalState, userId: userCredential.user.uid };
+            
+            await setDoc(doc(db, 'users', userCredential.user.uid), newUserState);
             
             setIsSignUpModalOpen(false);
             setAuthError(null);
@@ -386,7 +382,7 @@ const App: React.FC = () => {
         playSfx('packBuildup');
         const pack = packs[packType];
         
-        // ... (Card generation logic remains the same) ...
+        // ... (Card generation logic) ...
         let foundCard: CardType | null = null;
         let attempts = 0;
         while (!foundCard && attempts < 20) {
@@ -415,10 +411,8 @@ const App: React.FC = () => {
             foundCard = bronzeCards.length > 0 ? bronzeCards[Math.floor(Math.random() * bronzeCards.length)] : allCards[0];
         }
         const newCard = foundCard as CardType;
-        // Assign a unique ID instance for this specific card
         newCard.id = `${newCard.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
 
-        // Logic Calculation
         if (!isReward && pack.cost > gameState.coins && !isDevMode) {
             setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins to open this pack.` });
             return;
@@ -462,7 +456,6 @@ const App: React.FC = () => {
 
         if (settings.animationsOn) {
             setPackCard(newCard);
-            // Save state updates (coins deducted, etc) immediately, but card is added after animation
             updateGameState(stateUpdates);
         } else {
             const isDuplicate = gameState.storage.some(card => card.name === newCard.name);
@@ -501,12 +494,13 @@ const App: React.FC = () => {
     // --- FIRESTORE TRANSACTION: BUY CARD ---
     const handleBuyCard = async (card: MarketCard) => {
         if (!auth.currentUser || !card.marketId) {
-            setMessageModal({ title: 'Error', message: 'You must be logged in to buy cards.' });
+            setMessageModal({ title: 'Account Required', message: 'You must be logged in to buy cards.' });
             return;
         }
 
-        if (gameState.coins < card.price) {
-            setMessageModal({ title: 'Not Enough Coins', message: `You need ${card.price} coins to buy this card.` });
+        const price = Number(card.price);
+        if (gameState.coins < price) {
+            setMessageModal({ title: 'Not Enough Coins', message: `You need ${price} coins to buy this card.` });
             return;
         }
 
@@ -521,11 +515,13 @@ const App: React.FC = () => {
                 if (!buyerDoc.exists()) throw "User profile not found.";
                 
                 const buyerData = buyerDoc.data() as GameState;
-                const currentCoins = buyerData.coins || 0;
+                const currentCoins = Number(buyerData.coins || 0);
                 
-                if (currentCoins < card.price) throw "Insufficient funds.";
+                if (currentCoins < price) {
+                    throw `Insufficient funds. Server says you have ${currentCoins}, but card costs ${price}.`;
+                }
 
-                const newCoins = currentCoins - card.price;
+                const newCoins = currentCoins - price;
                 const newStorage = [...(buyerData.storage || []), card];
                 transaction.update(buyerRef, { coins: newCoins, storage: newStorage });
 
@@ -536,14 +532,14 @@ const App: React.FC = () => {
                     const sellerDoc = await transaction.get(sellerRef);
                     if (sellerDoc.exists()) {
                         const sellerData = sellerDoc.data() as GameState;
-                        const currentPending = sellerData.pendingEarnings || 0;
-                        transaction.update(sellerRef, { pendingEarnings: currentPending + card.price });
+                        const currentPending = Number(sellerData.pendingEarnings || 0);
+                        transaction.update(sellerRef, { pendingEarnings: currentPending + price });
                     }
                 }
             });
 
             playSfx('purchase');
-            setMessageModal({ title: 'Purchase Successful', message: `You bought ${card.name} for ${card.price} coins.`, card });
+            setMessageModal({ title: 'Purchase Successful', message: `You bought ${card.name} for ${price} coins.`, card });
 
         } catch (e: any) {
             console.error("Buy error:", e);
@@ -585,12 +581,14 @@ const App: React.FC = () => {
 
     // --- FIRESTORE: LIST CARD ---
     const handleListCard = async (card: CardType, price: number) => {
-        if (!auth.currentUser) return;
+        if (!auth.currentUser) {
+            setMessageModal({ title: 'Account Required', message: 'You must Sign Up or Log In to list items on the live market.' });
+            return;
+        }
 
-        // Add createdAt for sorting
         const newMarketCard: MarketCard = { 
             ...card, 
-            price, 
+            price: Number(price), // Ensure price is a number
             sellerId: auth.currentUser.uid,
             createdAt: Date.now()
         };
