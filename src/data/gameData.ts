@@ -335,7 +335,7 @@ interface FormationStructure {
     defenders: Position[];
     goalkeeper: Position[];
   };
-  allPositions: string[];
+  allPositions: string[]; 
 }
 
 export const formationLayouts: Record<FormationLayoutId, FormationStructure> = {
