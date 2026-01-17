@@ -29,7 +29,8 @@ import {
     runTransaction,
     query,
     orderBy,
-    limit
+    limit,
+    where
 } from 'firebase/firestore';
 
 // Components
@@ -171,37 +172,18 @@ const App: React.FC = () => {
 
                     if (docSnap.exists()) {
                         const data = docSnap.data() as GameState;
-                        
-                        // Check for offline earnings (Cards sold while away)
-                        if (data.pendingEarnings && data.pendingEarnings > 0) {
-                            const earned = data.pendingEarnings;
-                            playSfx('rewardClaimed');
-                            setMessageModal({
-                                title: 'Market Sale!',
-                                message: `While you were away, your cards sold for ${earned} coins!`
-                            });
-                            // Reset pending earnings immediately on Firestore to avoid double alert
-                            updateGameState({ 
-                                coins: (data.coins || 0) + earned,
-                                pendingEarnings: 0
-                            });
-                        } else {
-                            // Update local state, merging with existing to prevent overwriting 'market' which comes from another listener
-                            setGameState(prev => ({ 
-                                ...prev, 
-                                ...data,
-                                market: prev.market 
-                            }));
-                        }
+                        // Update local state, merging with existing to prevent overwriting 'market' which comes from another listener
+                        setGameState(prev => ({ 
+                            ...prev, 
+                            ...data,
+                            market: prev.market 
+                        }));
                     } else {
                         // Document doesn't exist.
                         // ONLY create a default one if we are NOT signing up.
-                        // This handles cases where a user might be authenticated but missing a doc (e.g. manual deletion).
-                        // Note: We don't overwrite if isSigningUp is true.
                         if (!isSigningUp.current) {
                              const newUserState = { ...initialState, userId: user.uid };
                              const { market, ...stateToSave } = newUserState;
-                             // Use setDoc with merge to be safe, though unexpected.
                              setDoc(userDocRef, stateToSave, { merge: true });
                              setGameState(newUserState);
                         }
@@ -212,11 +194,6 @@ const App: React.FC = () => {
             } else {
                 // User is signed out, use Guest State
                 setCurrentUser(null);
-                // Do not reset state here if we are just switching auth, 
-                // but usually signout means reset.
-                // We'll keep it simple: reset to initial state (guest).
-                // Note: The previous guest state is lost on logout unless we saved it elsewhere, 
-                // but usually logging out implies "I am done with this user".
                 setGameState(initialState);
             }
         });
@@ -224,9 +201,61 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, [playSfx]);
 
-    // 2. Market Listener (Real-time Global Market)
+    // 2. Sales Listener (Incoming Earnings)
     useEffect(() => {
-        // Query last 100 listings, ordered by newest
+        if (!auth.currentUser) return;
+        
+        const q = query(collection(db, 'sales'), where('sellerId', '==', auth.currentUser.uid));
+        const unsubscribe = onSnapshot(q, async (snapshot) => {
+            if (snapshot.empty) return;
+
+            // We found new sales!
+            let totalEarned = 0;
+            const salesToDelete: string[] = [];
+            
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                totalEarned += (Number(data.amount) || 0);
+                salesToDelete.push(doc.id);
+            });
+
+            if (totalEarned > 0) {
+                try {
+                    // Claim these sales in a transaction to prevent duplicates
+                    await runTransaction(db, async (transaction) => {
+                        const userRef = doc(db, 'users', auth.currentUser!.uid);
+                        const userDoc = await transaction.get(userRef);
+                        if (!userDoc.exists()) return;
+
+                        const currentCoins = Number(userDoc.data().coins) || 0;
+                        
+                        // Delete the sales records so they aren't processed again
+                        salesToDelete.forEach(id => {
+                            transaction.delete(doc(db, 'sales', id));
+                        });
+                        
+                        // Update user balance
+                        transaction.update(userRef, { coins: currentCoins + totalEarned });
+                    });
+
+                    // Notify User
+                    playSfx('rewardClaimed');
+                    setMessageModal({
+                        title: 'Market Sale!',
+                        message: `You sold cards for ${totalEarned} coins!`
+                    });
+
+                } catch (e) {
+                    console.error("Error claiming sales:", e);
+                }
+            }
+        });
+
+        return () => unsubscribe();
+    }, [currentUser, playSfx]); // Depend on currentUser to reset listener on login/logout
+
+    // 3. Market Listener (Real-time Global Market)
+    useEffect(() => {
         const q = query(collection(db, 'market'), orderBy('createdAt', 'desc'), limit(100)); 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const marketCards: MarketCard[] = [];
@@ -237,7 +266,6 @@ const App: React.FC = () => {
             setGameState(prev => ({ ...prev, market: marketCards }));
         }, (error) => {
             console.error("Market listener error:", error);
-            // Fallback if index is missing (initially)
             if (error.code === 'failed-precondition') {
                  const fallbackQ = query(collection(db, 'market'), limit(100));
                  onSnapshot(fallbackQ, (snap) => {
@@ -251,7 +279,7 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
-    // 3. Helper to save state to Firebase
+    // 4. Helper to save state to Firebase
     const saveToFirebase = useCallback(async (newState: GameState) => {
         if (auth.currentUser && !isSigningUp.current) {
             try {
@@ -302,15 +330,11 @@ const App: React.FC = () => {
                 photoURL: user.avatar
             });
             
-            // Create initial DB entry using CURRENT GUEST STATE to preserve progress
-            // We exclude the 'market' array as that is global, not per-user
+            // Create initial DB entry using CURRENT GUEST STATE
             const { market, ...currentLocalState } = gameState;
             const newUserState = { ...currentLocalState, userId: userCredential.user.uid };
             
-            // Explicitly write the document. This is the source of truth.
             await setDoc(doc(db, 'users', userCredential.user.uid), newUserState);
-            
-            // Update local state to reflect new user ID immediately
             setGameState(prev => ({ ...prev, userId: userCredential.user.uid }));
 
             setIsSignUpModalOpen(false);
@@ -536,20 +560,13 @@ const App: React.FC = () => {
             await runTransaction(db, async (transaction) => {
                 const marketRef = doc(db, 'market', card.marketId!);
                 const buyerRef = doc(db, 'users', auth.currentUser!.uid);
-                let sellerRef = null;
-
+                
                 // 1. ALL READS FIRST
                 const marketDoc = await transaction.get(marketRef);
                 if (!marketDoc.exists()) throw "Card has already been sold.";
 
                 const buyerDoc = await transaction.get(buyerRef);
                 if (!buyerDoc.exists()) throw "Your user profile is missing from the server. Please try logging out and back in.";
-
-                let sellerDoc = null;
-                if (card.sellerId && card.sellerId !== 'guest') {
-                    sellerRef = doc(db, 'users', card.sellerId);
-                    sellerDoc = await transaction.get(sellerRef);
-                }
 
                 // 2. LOGIC CHECKS
                 const buyerData = buyerDoc.data() as GameState;
@@ -562,13 +579,24 @@ const App: React.FC = () => {
                 const newStorage = [...(buyerData.storage || []), card];
 
                 // 3. ALL WRITES LAST
+                
+                // Update Buyer
                 transaction.update(buyerRef, { coins: newCoins, storage: newStorage });
+                
+                // Remove Listing from Market
                 transaction.delete(marketRef);
 
-                if (sellerRef && sellerDoc && sellerDoc.exists()) {
-                    const sellerData = sellerDoc.data() as GameState;
-                    const currentPending = Number(sellerData.pendingEarnings || 0);
-                    transaction.update(sellerRef, { pendingEarnings: currentPending + price });
+                // Create Sale Record for Seller (to claim earnings later)
+                // We create a new doc in 'sales' collection instead of writing to seller's user doc
+                if (card.sellerId && card.sellerId !== 'guest') {
+                    const newSaleRef = doc(collection(db, 'sales'));
+                    transaction.set(newSaleRef, {
+                        sellerId: card.sellerId,
+                        amount: price,
+                        cardName: card.name,
+                        buyerId: auth.currentUser!.uid,
+                        timestamp: Date.now()
+                    });
                 }
             });
 
