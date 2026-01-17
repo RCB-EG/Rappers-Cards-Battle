@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective } from './types';
 import { initialState } from './data/initialState';
 import { allCards, packs, fbcData, evoData, formationLayouts, objectivesData } from './data/gameData';
@@ -113,6 +113,9 @@ const App: React.FC = () => {
     const [isDevMode, setIsDevMode] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
+    // Track signup process to prevent race conditions
+    const isSigningUp = useRef(false);
+
     // Settings & Language
     const [settings, updateSettings] = useSettings();
     const [lang, setLang] = useState<'en' | 'ar'>('en');
@@ -162,6 +165,10 @@ const App: React.FC = () => {
                 // Set up real-time listener for user's game state
                 const userDocRef = doc(db, 'users', user.uid);
                 const unsubUserData = onSnapshot(userDocRef, (docSnap) => {
+                    // CRITICAL: Check if we are currently in the middle of a signup.
+                    // If we are, do NOT touch state or create docs here, let handleSignUp finish its job.
+                    if (isSigningUp.current) return;
+
                     if (docSnap.exists()) {
                         const data = docSnap.data() as GameState;
                         
@@ -187,8 +194,17 @@ const App: React.FC = () => {
                             }));
                         }
                     } else {
-                        // Document doesn't exist yet (handled in SignUp)
-                        // Or if created manually in console, init it.
+                        // Document doesn't exist.
+                        // ONLY create a default one if we are NOT signing up.
+                        // This handles cases where a user might be authenticated but missing a doc (e.g. manual deletion).
+                        // Note: We don't overwrite if isSigningUp is true.
+                        if (!isSigningUp.current) {
+                             const newUserState = { ...initialState, userId: user.uid };
+                             const { market, ...stateToSave } = newUserState;
+                             // Use setDoc with merge to be safe, though unexpected.
+                             setDoc(userDocRef, stateToSave, { merge: true });
+                             setGameState(newUserState);
+                        }
                     }
                 });
 
@@ -196,6 +212,11 @@ const App: React.FC = () => {
             } else {
                 // User is signed out, use Guest State
                 setCurrentUser(null);
+                // Do not reset state here if we are just switching auth, 
+                // but usually signout means reset.
+                // We'll keep it simple: reset to initial state (guest).
+                // Note: The previous guest state is lost on logout unless we saved it elsewhere, 
+                // but usually logging out implies "I am done with this user".
                 setGameState(initialState);
             }
         });
@@ -232,7 +253,7 @@ const App: React.FC = () => {
 
     // 3. Helper to save state to Firebase
     const saveToFirebase = useCallback(async (newState: GameState) => {
-        if (auth.currentUser) {
+        if (auth.currentUser && !isSigningUp.current) {
             try {
                 const userDocRef = doc(db, 'users', auth.currentUser.uid);
                 const { market, ...stateToSave } = newState; 
@@ -272,6 +293,8 @@ const App: React.FC = () => {
     const handleSignUp = async (user: User) => {
         if (!user.email || !user.password) return;
         setIsLoading(true);
+        isSigningUp.current = true; // LOCK listeners
+
         try {
             const userCredential = await createUserWithEmailAndPassword(auth, user.email, user.password);
             await updateProfile(userCredential.user, {
@@ -284,13 +307,18 @@ const App: React.FC = () => {
             const { market, ...currentLocalState } = gameState;
             const newUserState = { ...currentLocalState, userId: userCredential.user.uid };
             
+            // Explicitly write the document. This is the source of truth.
             await setDoc(doc(db, 'users', userCredential.user.uid), newUserState);
             
+            // Update local state to reflect new user ID immediately
+            setGameState(prev => ({ ...prev, userId: userCredential.user.uid }));
+
             setIsSignUpModalOpen(false);
             setAuthError(null);
         } catch (error: any) {
             setAuthError(error.message || "Failed to sign up");
         } finally {
+            isSigningUp.current = false; // UNLOCK listeners
             setIsLoading(false);
         }
     };
@@ -512,10 +540,19 @@ const App: React.FC = () => {
 
                 const buyerRef = doc(db, 'users', auth.currentUser!.uid);
                 const buyerDoc = await transaction.get(buyerRef);
-                if (!buyerDoc.exists()) throw "User profile not found.";
+                
+                // Fallback: If user doc is missing, try to restore or error out gracefully
+                if (!buyerDoc.exists()) {
+                    throw "Your user profile is missing from the server. Please try logging out and back in.";
+                }
                 
                 const buyerData = buyerDoc.data() as GameState;
-                const currentCoins = Number(buyerData.coins || 0);
+                const currentCoins = Number(buyerData.coins);
+                
+                // Defensive check: If coins is somehow NaN or undefined, treat as 0
+                if (isNaN(currentCoins)) {
+                     throw "Error reading your coin balance. Please refresh.";
+                }
                 
                 if (currentCoins < price) {
                     throw `Insufficient funds. Server says you have ${currentCoins}, but card costs ${price}.`;
