@@ -201,7 +201,7 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, [playSfx]);
 
-    // 2. Sales Listener (Incoming Earnings)
+    // 2. Sales Listener (Incoming Earnings & Cleanup)
     useEffect(() => {
         if (!auth.currentUser) return;
         
@@ -209,19 +209,17 @@ const App: React.FC = () => {
         const unsubscribe = onSnapshot(q, async (snapshot) => {
             if (snapshot.empty) return;
 
-            // We found new sales!
+            const salesToProcess: any[] = [];
             let totalEarned = 0;
-            const salesToDelete: string[] = [];
             
             snapshot.forEach(doc => {
-                const data = doc.data();
-                totalEarned += (Number(data.amount) || 0);
-                salesToDelete.push(doc.id);
+                salesToProcess.push({ id: doc.id, ...doc.data() });
+                totalEarned += (Number(doc.data().amount) || 0);
             });
 
-            if (totalEarned > 0) {
+            if (salesToProcess.length > 0) {
                 try {
-                    // Claim these sales in a transaction to prevent duplicates
+                    // Claim these sales in a transaction to prevent duplicates and clean up market
                     await runTransaction(db, async (transaction) => {
                         const userRef = doc(db, 'users', auth.currentUser!.uid);
                         const userDoc = await transaction.get(userRef);
@@ -229,12 +227,22 @@ const App: React.FC = () => {
 
                         const currentCoins = Number(userDoc.data().coins) || 0;
                         
-                        // Delete the sales records so they aren't processed again
-                        salesToDelete.forEach(id => {
-                            transaction.delete(doc(db, 'sales', id));
-                        });
+                        for (const sale of salesToProcess) {
+                            // 1. Delete the Sale Record so we don't process it again
+                            transaction.delete(doc(db, 'sales', sale.id));
+                            
+                            // 2. Delete the Market Listing (Seller Cleanup)
+                            // Since the Seller owns this doc, they have permission to delete it.
+                            if (sale.marketId) {
+                                const marketRef = doc(db, 'market', sale.marketId);
+                                const marketDoc = await transaction.get(marketRef);
+                                if (marketDoc.exists()) {
+                                    transaction.delete(marketRef);
+                                }
+                            }
+                        }
                         
-                        // Update user balance
+                        // 3. Update user balance
                         transaction.update(userRef, { coins: currentCoins + totalEarned });
                     });
 
@@ -562,6 +570,8 @@ const App: React.FC = () => {
                 const buyerRef = doc(db, 'users', auth.currentUser!.uid);
                 
                 // 1. ALL READS FIRST
+                // We assume market item exists based on UI, but good to check. 
+                // We CANNOT delete it if we are not the owner, so we just check it.
                 const marketDoc = await transaction.get(marketRef);
                 if (!marketDoc.exists()) throw "Card has already been sold.";
 
@@ -583,11 +593,10 @@ const App: React.FC = () => {
                 // Update Buyer
                 transaction.update(buyerRef, { coins: newCoins, storage: newStorage });
                 
-                // Remove Listing from Market
-                transaction.delete(marketRef);
+                // CRITICAL FIX: Do NOT delete marketRef here. Buyer permission denied.
+                // transaction.delete(marketRef); <--- REMOVED
 
-                // Create Sale Record for Seller (to claim earnings later)
-                // We create a new doc in 'sales' collection instead of writing to seller's user doc
+                // Create Sale Record for Seller (to claim earnings later AND delete the listing)
                 if (card.sellerId && card.sellerId !== 'guest') {
                     const newSaleRef = doc(collection(db, 'sales'));
                     transaction.set(newSaleRef, {
@@ -595,6 +604,7 @@ const App: React.FC = () => {
                         amount: price,
                         cardName: card.name,
                         buyerId: auth.currentUser!.uid,
+                        marketId: card.marketId, // Pass ID so seller can delete it
                         timestamp: Date.now()
                     });
                 }
