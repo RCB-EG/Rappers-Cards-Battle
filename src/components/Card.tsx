@@ -17,22 +17,14 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
     setImageError(false);
   }, [card.image]);
 
-  const getEmptyCardUrl = (rarity: string) => {
-      let rarityLabel = rarity.charAt(0).toUpperCase() + rarity.slice(1);
-      if (rarity === 'rotm') rarityLabel = 'ROTM';
-      if (rarity === 'event') rarityLabel = 'Evo'; 
-      return `https://github.com/RCB-EG/Rappers-Cards-Battle/blob/main/Game%20Assets/${rarityLabel}%20Card%20Empty.png?raw=true`;
-  };
-
-  // CSS Gradients for Rarity Backgrounds (Fallback)
-  const rarityBgClasses: Record<string, string> = {
-    bronze: 'bg-gradient-to-br from-orange-900 to-amber-700 border-2 border-orange-900',
-    silver: 'bg-gradient-to-br from-gray-400 to-gray-200 border-2 border-gray-400',
-    gold: 'bg-gradient-to-br from-yellow-600 to-yellow-300 border-2 border-yellow-600',
-    rotm: 'bg-gradient-to-br from-purple-800 to-pink-500 border-2 border-pink-500',
-    icon: 'bg-gradient-to-br from-blue-800 to-cyan-400 border-2 border-cyan-400',
-    legend: 'bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 border-2 border-purple-400',
-    event: 'bg-gradient-to-br from-teal-800 to-emerald-400 border-2 border-emerald-400'
+  const rarityBgUrls: Record<string, string> = {
+    bronze: 'https://i.imghippo.com/files/TmM6820WtQ.png',
+    silver: 'https://i.imghippo.com/files/zC9861peQ.png',
+    gold: 'https://i.imghippo.com/files/tUt8745JBc.png',
+    rotm: 'https://i.imghippo.com/files/UGRy5126YM.png',
+    icon: 'https://i.imghippo.com/files/PjIu1716584980.png',
+    legend: 'https://i.imghippo.com/files/jdCC2070F.png',
+    event: 'https://i.imghippo.com/files/jdCC2070F.png'
   };
 
   const specialRarityClass = card.rarity === 'legend' ? 'is-legendary' : card.rarity === 'event' ? 'is-event' : '';
@@ -60,7 +52,7 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
     msUserSelect: 'none', // IE/Edge
   };
 
-  const bgClass = rarityBgClasses[card.rarity] || 'bg-gray-800';
+  const bgUrl = rarityBgUrls[card.rarity] || rarityBgUrls['gold'];
 
   return (
     <div
@@ -71,15 +63,9 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
       onContextMenu={(e) => e.preventDefault()}
       {...props}
     >
-      {/* Base layer: GitHub Image Background (preferred) or Gradient (fallback) */}
-      <div className={`absolute inset-0 z-0 bg-cover bg-center`} style={{backgroundImage: `url('${getEmptyCardUrl(card.rarity)}')`}} >
-         {/* Fallback gradient if image fails to load/is transparent - this sits behind the bg image */}
-         <div className={`absolute inset-0 -z-10 ${bgClass}`} />
-      </div>
+      {/* Base layer: ImgHippo Image Background */}
+      <div className={`absolute inset-0 z-0 bg-cover bg-center`} style={{backgroundImage: `url('${bgUrl}')`}} />
       
-      {/* Decorative Pattern overlay (Only visible if image background fails or has transparency) */}
-      <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] z-0 pointer-events-none" />
-
       {/* Detail layer: Character Image */}
       {/* Only show image if no error. */}
       {!imageError && (
