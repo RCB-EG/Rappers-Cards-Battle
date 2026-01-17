@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { MarketCard } from '../../types';
 import Card from '../Card';
@@ -7,12 +8,13 @@ import { TranslationKey } from '../../utils/translations';
 interface MarketProps {
   market: MarketCard[];
   onBuyCard: (card: MarketCard) => void;
+  onCancelListing: (card: MarketCard) => void;
   currentUserId: string;
   t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
   userCoins: number;
 }
 
-const Market: React.FC<MarketProps> = ({ market, onBuyCard, currentUserId, t, userCoins }) => {
+const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, currentUserId, t, userCoins }) => {
   const [cardToBuy, setCardToBuy] = useState<MarketCard | null>(null);
   const [sortBy, setSortBy] = useState('price-asc');
   const [rarityFilter, setRarityFilter] = useState('all');
@@ -27,14 +29,20 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, currentUserId, t, us
       switch (sortBy) {
         case 'price-desc': return b.price - a.price;
         case 'price-asc': return a.price - b.price;
+        case 'newest': return (b.createdAt || 0) - (a.createdAt || 0);
+        case 'oldest': return (a.createdAt || 0) - (b.createdAt || 0);
         default: return 0;
       }
     });
     return filtered;
   }, [market, sortBy, rarityFilter, searchTerm]);
 
-  const handleBuyConfirm = (card: MarketCard) => {
-    onBuyCard(card);
+  const handleAction = (card: MarketCard) => {
+    if (card.sellerId === currentUserId) {
+        onCancelListing(card);
+    } else {
+        onBuyCard(card);
+    }
     setCardToBuy(null);
   };
 
@@ -65,8 +73,10 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, currentUserId, t, us
         </div>
         <div className="filter-group flex gap-2 items-center">
           <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-2 rounded-md">
+            <option value="newest">Newest Listed</option>
             <option value="price-asc">{t('sort_price_asc')}</option>
             <option value="price-desc">{t('sort_price_desc')}</option>
+            <option value="oldest">Oldest Listed</option>
           </select>
         </div>
       </div>
@@ -74,20 +84,32 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, currentUserId, t, us
       {/* Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-6 justify-items-center p-4 rounded-lg min-h-[300px] bg-black/30 border border-gold-dark/30">
         {sortedAndFilteredMarket.length > 0 ? (
-          sortedAndFilteredMarket.map(card => (
-            <div key={card.id} className="cursor-pointer relative group" onClick={() => setCardToBuy(card)}>
-              <Card card={card} origin="market" />
-              <div className="absolute bottom-2 left-0 right-0 bg-black/70 text-center py-1 rounded-b-md transition-opacity duration-300 opacity-100 group-hover:opacity-0">
-                  <span className="text-gold-light font-bold">{card.price} {t('coins')}</span>
-              </div>
-            </div>
-          ))
+          sortedAndFilteredMarket.map(card => {
+            const isOwner = card.sellerId === currentUserId;
+            return (
+                <div key={card.id} className="cursor-pointer relative group" onClick={() => setCardToBuy(card)}>
+                <Card card={card} origin="market" />
+                <div className={`absolute bottom-2 left-0 right-0 py-1 rounded-b-md transition-opacity duration-300 opacity-100 group-hover:opacity-0 text-center ${isOwner ? 'bg-blue-600/80' : 'bg-black/70'}`}>
+                    <span className="text-gold-light font-bold">
+                        {isOwner ? 'YOURS' : `${card.price} ${t('coins')}`}
+                    </span>
+                </div>
+                </div>
+            );
+          })
         ) : (
           <p className="col-span-full text-center text-gray-400 text-xl py-10">The market is empty.</p>
         )}
       </div>
 
-      <BuyModal cardToBuy={cardToBuy} onClose={() => setCardToBuy(null)} onBuy={handleBuyConfirm} t={t} userCoins={userCoins} />
+      <BuyModal 
+        cardToBuy={cardToBuy} 
+        onClose={() => setCardToBuy(null)} 
+        onBuy={handleAction} 
+        t={t} 
+        userCoins={userCoins} 
+        isOwner={cardToBuy?.sellerId === currentUserId}
+      />
     </div>
   );
 };

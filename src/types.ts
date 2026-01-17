@@ -34,7 +34,7 @@ export interface MarketCard extends Card {
   price: number;
   sellerId: string;
   marketId?: string; // Firestore Document ID
-  isSystem?: boolean;
+  createdAt?: number; // Timestamp for sorting
 }
 
 export interface PackData {

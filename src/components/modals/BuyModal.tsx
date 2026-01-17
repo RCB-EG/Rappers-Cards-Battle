@@ -1,3 +1,4 @@
+
 import React from 'react';
 import Modal from './Modal';
 import Button from '../Button';
@@ -25,15 +26,16 @@ interface BuyModalProps {
   onBuy: (card: MarketCard) => void;
   t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
   userCoins?: number;
+  isOwner?: boolean;
 }
 
-const BuyModal: React.FC<BuyModalProps> = ({ cardToBuy, onClose, onBuy, t, userCoins = 0 }) => {
+const BuyModal: React.FC<BuyModalProps> = ({ cardToBuy, onClose, onBuy, t, userCoins = 0, isOwner = false }) => {
   if (!cardToBuy) return null;
 
   const canAfford = userCoins >= cardToBuy.price;
 
   return (
-    <Modal isOpen={!!cardToBuy} onClose={onClose} title={t('modal_buy_card_title')} size="xl">
+    <Modal isOpen={!!cardToBuy} onClose={onClose} title={isOwner ? "Cancel Listing" : t('modal_buy_card_title')} size="xl">
         <div className="modal-grid grid grid-cols-1 md:grid-cols-2 gap-8 my-4">
             <div className="flex justify-center items-center py-4">
                  <div className="modal-card-preview transform scale-125">
@@ -76,24 +78,30 @@ const BuyModal: React.FC<BuyModalProps> = ({ cardToBuy, onClose, onBuy, t, userC
                 </div>
 
                 <div>
-                    <p className="text-white text-lg my-4 text-center">
-                        {t('buy')} for <span className="text-gold-light font-bold text-xl">{cardToBuy.price} {t('coins')}</span>?
-                    </p>
+                    {isOwner ? (
+                        <p className="text-white text-lg my-4 text-center">
+                            Remove <span className="text-gold-light font-bold">{cardToBuy.name}</span> from the market?
+                        </p>
+                    ) : (
+                        <p className="text-white text-lg my-4 text-center">
+                            {t('buy')} for <span className="text-gold-light font-bold text-xl">{cardToBuy.price} {t('coins')}</span>?
+                        </p>
+                    )}
                     
-                    {!canAfford && (
+                    {!isOwner && !canAfford && (
                         <p className="text-red-500 text-center font-bold mb-2">Insufficient Funds</p>
                     )}
 
                     <div className="flex justify-center gap-4 mt-2">
                         <Button 
-                            variant="keep" 
+                            variant={isOwner ? "sell" : "keep"} 
                             onClick={() => onBuy(cardToBuy)} 
-                            disabled={!canAfford}
-                            className={!canAfford ? 'opacity-50 cursor-not-allowed filter grayscale' : ''}
+                            disabled={!isOwner && !canAfford}
+                            className={!isOwner && !canAfford ? 'opacity-50 cursor-not-allowed filter grayscale' : ''}
                         >
-                            {t('buy')}
+                            {isOwner ? "Confirm Cancel" : t('buy')}
                         </Button>
-                        <Button variant="sell" onClick={onClose}>{t('cancel')}</Button>
+                        <Button variant="default" onClick={onClose}>{t('cancel')}</Button>
                     </div>
                 </div>
             </div>

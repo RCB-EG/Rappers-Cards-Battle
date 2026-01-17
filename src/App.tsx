@@ -174,7 +174,6 @@ const App: React.FC = () => {
                                 message: `While you were away, your cards sold for ${earned} coins!`
                             });
                             // Reset pending earnings immediately on Firestore to avoid double alert
-                            // Use updateGameState to perform the reset logic
                             updateGameState({ 
                                 coins: (data.coins || 0) + earned,
                                 pendingEarnings: 0
@@ -184,14 +183,12 @@ const App: React.FC = () => {
                             setGameState(prev => ({ 
                                 ...prev, 
                                 ...data,
-                                // Important: Ensure market is not overwritten by user data (user data shouldn't have market array anyway)
                                 market: prev.market 
                             }));
                         }
                     } else {
                         // Create initial document for new user
                         const newUserState = { ...initialState, userId: user.uid };
-                        // We don't save the 'market' array to the user doc
                         const { market, ...stateToSave } = newUserState;
                         setDoc(userDocRef, stateToSave);
                         setGameState(newUserState);
@@ -211,8 +208,8 @@ const App: React.FC = () => {
 
     // 2. Market Listener (Real-time Global Market)
     useEffect(() => {
-        // Query last 100 listings to prevent overload
-        const q = query(collection(db, 'market'), limit(100)); 
+        // Query last 100 listings, ordered by newest
+        const q = query(collection(db, 'market'), orderBy('createdAt', 'desc'), limit(100)); 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const marketCards: MarketCard[] = [];
             snapshot.forEach((doc) => {
@@ -220,6 +217,18 @@ const App: React.FC = () => {
                 marketCards.push({ ...data, marketId: doc.id });
             });
             setGameState(prev => ({ ...prev, market: marketCards }));
+        }, (error) => {
+            console.error("Market listener error:", error);
+            // Fallback for missing index if needed
+            if (error.code === 'failed-precondition') {
+                 console.log("Falling back to unordered query");
+                 const fallbackQ = query(collection(db, 'market'), limit(100));
+                 onSnapshot(fallbackQ, (snap) => {
+                    const cards: MarketCard[] = [];
+                    snap.forEach((d) => cards.push({ ...d.data() as MarketCard, marketId: d.id }));
+                    setGameState(p => ({ ...p, market: cards }));
+                 });
+            }
         });
 
         return () => unsubscribe();
@@ -291,7 +300,6 @@ const App: React.FC = () => {
     };
 
     const handleLogin = async (user: User) => {
-        // user.username field from modal is used as email
         if (!user.username || !user.password) return; 
         
         setIsLoading(true);
@@ -504,14 +512,10 @@ const App: React.FC = () => {
 
         try {
             await runTransaction(db, async (transaction) => {
-                // 1. Check if Market Card still exists
                 const marketRef = doc(db, 'market', card.marketId!);
                 const marketDoc = await transaction.get(marketRef);
-                if (!marketDoc.exists()) {
-                    throw "Card has already been sold.";
-                }
+                if (!marketDoc.exists()) throw "Card has already been sold.";
 
-                // 2. Get Buyer State (Current User)
                 const buyerRef = doc(db, 'users', auth.currentUser!.uid);
                 const buyerDoc = await transaction.get(buyerRef);
                 if (!buyerDoc.exists()) throw "User profile not found.";
@@ -521,19 +525,14 @@ const App: React.FC = () => {
                 
                 if (currentCoins < card.price) throw "Insufficient funds.";
 
-                // 3. Perform Exchange
-                // Deduct coins from buyer
                 const newCoins = currentCoins - card.price;
                 const newStorage = [...(buyerData.storage || []), card];
                 transaction.update(buyerRef, { coins: newCoins, storage: newStorage });
 
-                // Delete from Market
                 transaction.delete(marketRef);
 
-                // Add coins to Seller (Pending Earnings)
                 if (card.sellerId && card.sellerId !== 'guest') {
                     const sellerRef = doc(db, 'users', card.sellerId);
-                    // Read seller doc to get current pendingEarnings
                     const sellerDoc = await transaction.get(sellerRef);
                     if (sellerDoc.exists()) {
                         const sellerData = sellerDoc.data() as GameState;
@@ -545,7 +544,6 @@ const App: React.FC = () => {
 
             playSfx('purchase');
             setMessageModal({ title: 'Purchase Successful', message: `You bought ${card.name} for ${card.price} coins.`, card });
-            // Local state will update automatically via onSnapshot listener
 
         } catch (e: any) {
             console.error("Buy error:", e);
@@ -554,11 +552,48 @@ const App: React.FC = () => {
         }
     };
 
+    // --- FIRESTORE TRANSACTION: CANCEL LISTING ---
+    const handleCancelListing = async (card: MarketCard) => {
+        if (!auth.currentUser || !card.marketId) return;
+
+        try {
+            await runTransaction(db, async (transaction) => {
+                const marketRef = doc(db, 'market', card.marketId!);
+                const marketDoc = await transaction.get(marketRef);
+                
+                if (!marketDoc.exists()) throw "Listing not found.";
+                if (marketDoc.data().sellerId !== auth.currentUser!.uid) throw "You can only cancel your own listings.";
+
+                const userRef = doc(db, 'users', auth.currentUser!.uid);
+                const userDoc = await transaction.get(userRef);
+                if (!userDoc.exists()) throw "User profile not found.";
+
+                const userData = userDoc.data() as GameState;
+                const newStorage = [...(userData.storage || []), card];
+
+                transaction.delete(marketRef);
+                transaction.update(userRef, { storage: newStorage });
+            });
+
+            setMessageModal({ title: 'Listing Cancelled', message: `${card.name} has been returned to your storage.` });
+
+        } catch (e: any) {
+            console.error("Cancel error:", e);
+            setMessageModal({ title: 'Error', message: e.message || "Failed to cancel listing." });
+        }
+    };
+
     // --- FIRESTORE: LIST CARD ---
     const handleListCard = async (card: CardType, price: number) => {
         if (!auth.currentUser) return;
 
-        const newMarketCard: MarketCard = { ...card, price, sellerId: auth.currentUser.uid };
+        // Add createdAt for sorting
+        const newMarketCard: MarketCard = { 
+            ...card, 
+            price, 
+            sellerId: auth.currentUser.uid,
+            createdAt: Date.now()
+        };
         
         // Optimistically remove from local state
         const { formation, storage } = gameState;
@@ -572,7 +607,6 @@ const App: React.FC = () => {
             newStorage = storage.filter((c: CardType) => c.id !== card.id);
         }
 
-        // 1. Update User State (Remove Card)
         updateGameState({
             formation: newFormation,
             storage: newStorage,
@@ -580,7 +614,6 @@ const App: React.FC = () => {
             activeEvolution: applyEvolutionTask(gameState.activeEvolution, 'list_cards_market', 1)
         });
 
-        // 2. Add to Global Market Collection
         try {
             await addDoc(collection(db, 'market'), newMarketCard);
             setCardToList(null);
@@ -845,7 +878,7 @@ const App: React.FC = () => {
         switch (currentView) {
             case 'store': return <Store onOpenPack={(packType) => handleOpenPack(packType, false)} gameState={gameState} isDevMode={isDevMode} t={t} />;
             case 'collection': return <Collection gameState={gameState} setGameState={updateGameState} setCardForOptions={setCardWithOptions} t={t} />;
-            case 'market': return <Market market={gameState.market} onBuyCard={handleBuyCard} currentUserId={gameState.userId} t={t} userCoins={gameState.coins} />;
+            case 'market': return <Market market={gameState.market} onBuyCard={handleBuyCard} onCancelListing={handleCancelListing} currentUserId={gameState.userId} t={t} userCoins={gameState.coins} />;
             case 'battle': return <Battle t={t} />;
             case 'fbc': return <FBC gameState={gameState} onFbcSubmit={handleFbcSubmit} t={t} playSfx={playSfx} />;
             case 'evo': return <Evo gameState={gameState} onStartEvo={handleStartEvo} onClaimEvo={handleClaimEvo} t={t} playSfx={playSfx} />;
