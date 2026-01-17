@@ -9,8 +9,9 @@ formationLayouts['4-4-2'].allPositions.forEach(posId => {
 
 export const initialState: GameState = {
   version: 1.2,
-  userId: `user-${Math.random().toString(36).substr(2, 9)}`,
+  userId: `guest`,
   coins: 10000,
+  pendingEarnings: 0,
   formation: initialFormation,
   formationLayout: '4-4-2',
   storage: [],

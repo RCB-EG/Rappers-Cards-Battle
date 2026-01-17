@@ -33,6 +33,7 @@ export interface Card {
 export interface MarketCard extends Card {
   price: number;
   sellerId: string;
+  marketId?: string; // Firestore Document ID
   isSystem?: boolean;
 }
 
@@ -120,10 +121,11 @@ export interface GameState {
   version?: number;
   userId: string;
   coins: number;
+  pendingEarnings: number; // For offline market sales
   formation: Record<string, Card | null>;
   formationLayout: FormationLayoutId;
   storage: Card[];
-  market: MarketCard[];
+  market: MarketCard[]; // Local view of market
   completedFbcIds: string[];
   completedEvoIds: string[];
   activeEvolution: {
