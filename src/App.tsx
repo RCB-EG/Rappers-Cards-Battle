@@ -156,31 +156,24 @@ const App: React.FC = () => {
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
             if (user) {
-                // User is signed in
                 setCurrentUser({
                     username: user.displayName || 'Player',
                     email: user.email || '',
                     avatar: user.photoURL || undefined
                 });
 
-                // Set up real-time listener for user's game state
                 const userDocRef = doc(db, 'users', user.uid);
                 const unsubUserData = onSnapshot(userDocRef, (docSnap) => {
-                    // CRITICAL: Check if we are currently in the middle of a signup.
-                    // If we are, do NOT touch state or create docs here, let handleSignUp finish its job.
                     if (isSigningUp.current) return;
 
                     if (docSnap.exists()) {
                         const data = docSnap.data() as GameState;
-                        // Update local state, merging with existing to prevent overwriting 'market' which comes from another listener
                         setGameState(prev => ({ 
                             ...prev, 
                             ...data,
                             market: prev.market 
                         }));
                     } else {
-                        // Document doesn't exist.
-                        // ONLY create a default one if we are NOT signing up.
                         if (!isSigningUp.current) {
                              const newUserState = { ...initialState, userId: user.uid };
                              const { market, ...stateToSave } = newUserState;
@@ -192,7 +185,6 @@ const App: React.FC = () => {
 
                 return () => unsubUserData();
             } else {
-                // User is signed out, use Guest State
                 setCurrentUser(null);
                 setGameState(initialState);
             }
@@ -219,7 +211,6 @@ const App: React.FC = () => {
 
             if (salesToProcess.length > 0) {
                 try {
-                    // Claim these sales in a transaction to prevent duplicates and clean up market
                     await runTransaction(db, async (transaction) => {
                         const userRef = doc(db, 'users', auth.currentUser!.uid);
                         const userDoc = await transaction.get(userRef);
@@ -228,11 +219,10 @@ const App: React.FC = () => {
                         const currentCoins = Number(userDoc.data().coins) || 0;
                         
                         for (const sale of salesToProcess) {
-                            // 1. Delete the Sale Record so we don't process it again
+                            // 1. Delete Sale Record
                             transaction.delete(doc(db, 'sales', sale.id));
                             
-                            // 2. Delete the Market Listing (Seller Cleanup)
-                            // Since the Seller owns this doc, they have permission to delete it.
+                            // 2. Delete Market Listing (Seller Cleanup)
                             if (sale.marketId) {
                                 const marketRef = doc(db, 'market', sale.marketId);
                                 const marketDoc = await transaction.get(marketRef);
@@ -242,11 +232,10 @@ const App: React.FC = () => {
                             }
                         }
                         
-                        // 3. Update user balance
+                        // 3. Update Seller Balance
                         transaction.update(userRef, { coins: currentCoins + totalEarned });
                     });
 
-                    // Notify User
                     playSfx('rewardClaimed');
                     setMessageModal({
                         title: 'Market Sale!',
@@ -260,9 +249,9 @@ const App: React.FC = () => {
         });
 
         return () => unsubscribe();
-    }, [currentUser, playSfx]); // Depend on currentUser to reset listener on login/logout
+    }, [currentUser, playSfx]); 
 
-    // 3. Market Listener (Real-time Global Market)
+    // 3. Market Listener
     useEffect(() => {
         const q = query(collection(db, 'market'), orderBy('createdAt', 'desc'), limit(100)); 
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -273,7 +262,6 @@ const App: React.FC = () => {
             });
             setGameState(prev => ({ ...prev, market: marketCards }));
         }, (error) => {
-            console.error("Market listener error:", error);
             if (error.code === 'failed-precondition') {
                  const fallbackQ = query(collection(db, 'market'), limit(100));
                  onSnapshot(fallbackQ, (snap) => {
@@ -287,7 +275,6 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
-    // 4. Helper to save state to Firebase
     const saveToFirebase = useCallback(async (newState: GameState) => {
         if (auth.currentUser && !isSigningUp.current) {
             try {
@@ -308,10 +295,8 @@ const App: React.FC = () => {
         });
     };
 
-    // --- OTHER EFFECTS ---
     useEffect(() => { document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr'; }, [lang]);
     
-    // Music
     useEffect(() => {
         const bgMusic = document.getElementById('bg-music') as HTMLAudioElement;
         const introMusic = document.getElementById('intro-music') as HTMLAudioElement;
@@ -324,12 +309,10 @@ const App: React.FC = () => {
     }, [settings.musicOn, settings.musicVolume, appState]);
 
 
-    // --- AUTH ACTIONS ---
-
     const handleSignUp = async (user: User) => {
         if (!user.email || !user.password) return;
         setIsLoading(true);
-        isSigningUp.current = true; // LOCK listeners
+        isSigningUp.current = true; 
 
         try {
             const userCredential = await createUserWithEmailAndPassword(auth, user.email, user.password);
@@ -338,7 +321,6 @@ const App: React.FC = () => {
                 photoURL: user.avatar
             });
             
-            // Create initial DB entry using CURRENT GUEST STATE
             const { market, ...currentLocalState } = gameState;
             const newUserState = { ...currentLocalState, userId: userCredential.user.uid };
             
@@ -350,7 +332,7 @@ const App: React.FC = () => {
         } catch (error: any) {
             setAuthError(error.message || "Failed to sign up");
         } finally {
-            isSigningUp.current = false; // UNLOCK listeners
+            isSigningUp.current = false; 
             setIsLoading(false);
         }
     };
@@ -381,9 +363,6 @@ const App: React.FC = () => {
 
     const handleToggleDevMode = () => { setIsDevMode(prev => !prev); };
 
-    // --- GAMEPLAY LOGIC ---
-
-    // Effect for state-based evolution tasks
     useEffect(() => {
         const { activeEvolution } = gameState;
         if (!activeEvolution) return;
@@ -420,7 +399,6 @@ const App: React.FC = () => {
         }
     }, [gameState.formation]);
 
-    // Effect for objectives
     useEffect(() => {
         const goldCardsInFormation = Object.values(gameState.formation).filter((c): c is CardType => !!c && (c as CardType).rarity === 'gold').length;
         const requiredGoldCards = 11;
@@ -442,7 +420,6 @@ const App: React.FC = () => {
         playSfx('packBuildup');
         const pack = packs[packType];
         
-        // ... (Card generation logic) ...
         let foundCard: CardType | null = null;
         let attempts = 0;
         while (!foundCard && attempts < 20) {
@@ -570,9 +547,9 @@ const App: React.FC = () => {
                 const buyerRef = doc(db, 'users', auth.currentUser!.uid);
                 
                 // 1. ALL READS FIRST
-                // We assume market item exists based on UI, but good to check. 
-                // We CANNOT delete it if we are not the owner, so we just check it.
                 const marketDoc = await transaction.get(marketRef);
+                // Note: We don't throw if missing immediately, but if it is missing, we can't buy it.
+                // However, transaction might fail if we don't handle it.
                 if (!marketDoc.exists()) throw "Card has already been sold.";
 
                 const buyerDoc = await transaction.get(buyerRef);
@@ -589,14 +566,11 @@ const App: React.FC = () => {
                 const newStorage = [...(buyerData.storage || []), card];
 
                 // 3. ALL WRITES LAST
-                
-                // Update Buyer
                 transaction.update(buyerRef, { coins: newCoins, storage: newStorage });
                 
-                // CRITICAL FIX: Do NOT delete marketRef here. Buyer permission denied.
-                // transaction.delete(marketRef); <--- REMOVED
+                // NOTE: We do NOT delete marketRef here to avoid permission errors (buyer cannot delete seller's doc).
+                // Instead, we create a sale record, and the Seller's client will delete the market doc upon receipt.
 
-                // Create Sale Record for Seller (to claim earnings later AND delete the listing)
                 if (card.sellerId && card.sellerId !== 'guest') {
                     const newSaleRef = doc(collection(db, 'sales'));
                     transaction.set(newSaleRef, {
@@ -604,9 +578,15 @@ const App: React.FC = () => {
                         amount: price,
                         cardName: card.name,
                         buyerId: auth.currentUser!.uid,
-                        marketId: card.marketId, // Pass ID so seller can delete it
+                        marketId: card.marketId, 
                         timestamp: Date.now()
                     });
+                } else if (card.sellerId === 'guest' || !card.sellerId) {
+                    // If buying from a "guest" or bot, we can try to delete the listing if rules allow public delete
+                    // OR we just accept it stays (infinite stock for guests).
+                    // For now, let's try to delete it. If it fails, the user at least gets the card (above update).
+                    // Actually, if we try to delete and fail, the whole transaction rolls back.
+                    // Safer to NOT delete guest listings in this architecture unless we own them.
                 }
             });
 

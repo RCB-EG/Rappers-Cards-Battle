@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { GameState, Card, CurrentUser } from '../types';
 import Button from './Button';
@@ -49,7 +50,7 @@ const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode
 
             <div className="header-content flex flex-col items-center pt-24 md:pt-16">
                  <img 
-                    src="https://github.com/RCB-EG/Rappers-Cards-Battle/blob/main/Game%20Assets/Logo.png?raw=true" 
+                    src="https://i.imghippo.com/files/osQP7559xUw.png" 
                     alt="Rappers Battle"
                     className="header-title-img max-w-full w-[400px] h-auto drop-shadow-[0_0_10px_#FFD700] drop-shadow-[0_0_20px_#B8860B]"
                 />
