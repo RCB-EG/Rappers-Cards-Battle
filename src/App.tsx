@@ -535,43 +535,40 @@ const App: React.FC = () => {
         try {
             await runTransaction(db, async (transaction) => {
                 const marketRef = doc(db, 'market', card.marketId!);
+                const buyerRef = doc(db, 'users', auth.currentUser!.uid);
+                let sellerRef = null;
+
+                // 1. ALL READS FIRST
                 const marketDoc = await transaction.get(marketRef);
                 if (!marketDoc.exists()) throw "Card has already been sold.";
 
-                const buyerRef = doc(db, 'users', auth.currentUser!.uid);
                 const buyerDoc = await transaction.get(buyerRef);
-                
-                // Fallback: If user doc is missing, try to restore or error out gracefully
-                if (!buyerDoc.exists()) {
-                    throw "Your user profile is missing from the server. Please try logging out and back in.";
+                if (!buyerDoc.exists()) throw "Your user profile is missing from the server. Please try logging out and back in.";
+
+                let sellerDoc = null;
+                if (card.sellerId && card.sellerId !== 'guest') {
+                    sellerRef = doc(db, 'users', card.sellerId);
+                    sellerDoc = await transaction.get(sellerRef);
                 }
-                
+
+                // 2. LOGIC CHECKS
                 const buyerData = buyerDoc.data() as GameState;
                 const currentCoins = Number(buyerData.coins);
                 
-                // Defensive check: If coins is somehow NaN or undefined, treat as 0
-                if (isNaN(currentCoins)) {
-                     throw "Error reading your coin balance. Please refresh.";
-                }
-                
-                if (currentCoins < price) {
-                    throw `Insufficient funds. Server says you have ${currentCoins}, but card costs ${price}.`;
-                }
+                if (isNaN(currentCoins)) throw "Error reading your coin balance. Please refresh.";
+                if (currentCoins < price) throw `Insufficient funds. Server says you have ${currentCoins}, but card costs ${price}.`;
 
                 const newCoins = currentCoins - price;
                 const newStorage = [...(buyerData.storage || []), card];
-                transaction.update(buyerRef, { coins: newCoins, storage: newStorage });
 
+                // 3. ALL WRITES LAST
+                transaction.update(buyerRef, { coins: newCoins, storage: newStorage });
                 transaction.delete(marketRef);
 
-                if (card.sellerId && card.sellerId !== 'guest') {
-                    const sellerRef = doc(db, 'users', card.sellerId);
-                    const sellerDoc = await transaction.get(sellerRef);
-                    if (sellerDoc.exists()) {
-                        const sellerData = sellerDoc.data() as GameState;
-                        const currentPending = Number(sellerData.pendingEarnings || 0);
-                        transaction.update(sellerRef, { pendingEarnings: currentPending + price });
-                    }
+                if (sellerRef && sellerDoc && sellerDoc.exists()) {
+                    const sellerData = sellerDoc.data() as GameState;
+                    const currentPending = Number(sellerData.pendingEarnings || 0);
+                    transaction.update(sellerRef, { pendingEarnings: currentPending + price });
                 }
             });
 
@@ -592,18 +589,21 @@ const App: React.FC = () => {
         try {
             await runTransaction(db, async (transaction) => {
                 const marketRef = doc(db, 'market', card.marketId!);
+                const userRef = doc(db, 'users', auth.currentUser!.uid);
+
+                // 1. READS
                 const marketDoc = await transaction.get(marketRef);
-                
                 if (!marketDoc.exists()) throw "Listing not found.";
                 if (marketDoc.data().sellerId !== auth.currentUser!.uid) throw "You can only cancel your own listings.";
 
-                const userRef = doc(db, 'users', auth.currentUser!.uid);
                 const userDoc = await transaction.get(userRef);
                 if (!userDoc.exists()) throw "User profile not found.";
 
+                // 2. LOGIC
                 const userData = userDoc.data() as GameState;
                 const newStorage = [...(userData.storage || []), card];
 
+                // 3. WRITES
                 transaction.delete(marketRef);
                 transaction.update(userRef, { storage: newStorage });
             });
