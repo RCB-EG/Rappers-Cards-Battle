@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective } from './types';
 import { initialState } from './data/initialState';
 import { allCards, packs, fbcData, evoData, formationLayouts, objectivesData } from './data/gameData';
@@ -107,10 +107,6 @@ const App: React.FC = () => {
     const [duplicateToSell, setDuplicateToSell] = useState<CardType | null>(null);
     const [isDailyRewardModalOpen, setIsDailyRewardModalOpen] = useState(false);
     
-    // Refs for Market Simulation
-    const gameStateRef = useRef(gameState);
-    useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
-    
     const t = useCallback((key: TranslationKey, replacements?: Record<string, string | number>): string => {
         let translation = translations[lang][key] || translations['en'][key];
         if (replacements) {
@@ -126,73 +122,6 @@ const App: React.FC = () => {
             playSound(sfx[soundKey], settings.sfxVolume);
         }
     }, [settings.sfxOn, settings.sfxVolume]);
-
-    // --- MARKET SIMULATION (BOTS) ---
-    useEffect(() => {
-        const listingInterval = setInterval(() => {
-            setGameState(prev => {
-                // Keep market alive but not overflowing
-                if (prev.market.length > 50) {
-                    // Remove old system cards
-                    const keptMarket = prev.market.filter((c, i) => !c.isSystem || i > 0);
-                    return { ...prev, market: keptMarket };
-                }
-
-                const randomCard = allCards[Math.floor(Math.random() * allCards.length)];
-                // 30% chance to list a random card
-                if (Math.random() > 0.7 && randomCard) {
-                     const randomPrice = Math.round(randomCard.value * (0.9 + Math.random() * 0.6)); // 0.9x to 1.5x value
-                     const newMarketCard: MarketCard = {
-                        ...randomCard,
-                        id: `market-bot-${Date.now()}-${Math.random()}`,
-                        price: randomPrice,
-                        sellerId: 'system',
-                        isSystem: true
-                    };
-                    return { ...prev, market: [...prev.market, newMarketCard] };
-                }
-                return prev;
-            });
-        }, 8000); // Check every 8 seconds
-
-        const buyingInterval = setInterval(() => {
-             const currentState = gameStateRef.current;
-             const userListings = currentState.market.filter(c => c.sellerId === currentState.userId);
-             
-             if (userListings.length > 0) {
-                 userListings.forEach(card => {
-                     // Bot buys if price is reasonable (< 2x value) and random chance
-                     if (card.price < card.value * 2 && Math.random() < 0.2) {
-                         setGameState(prev => {
-                             // Double check card is still there
-                             if (!prev.market.find(c => c.id === card.id)) return prev;
-                             
-                             const newMarket = prev.market.filter(c => c.id !== card.id);
-                             // Trigger notification outside of this update or just accept the coins
-                             // We'll update coins here
-                             return {
-                                 ...prev,
-                                 market: newMarket,
-                                 coins: prev.coins + card.price
-                             };
-                         });
-                         // Notify user
-                         setMessageModal({
-                             title: 'Card Sold!',
-                             message: `Your ${card.name} was bought for ${card.price} coins!`,
-                             card: card
-                         });
-                         playSfx('rewardClaimed');
-                     }
-                 });
-             }
-        }, 12000); // Bots check market every 12 seconds
-
-        return () => {
-            clearInterval(listingInterval);
-            clearInterval(buyingInterval);
-        };
-    }, [playSfx]);
 
     // --- AUTH & DATA PERSISTENCE ---
 
