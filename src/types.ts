@@ -1,3 +1,4 @@
+
 // Fix: Define and export all shared types for the application.
 
 export type Rarity = 'bronze' | 'silver' | 'gold' | 'icon' | 'rotm' | 'legend' | 'event';
@@ -116,6 +117,7 @@ export interface Settings {
 }
 
 export interface GameState {
+  version?: number;
   userId: string;
   coins: number;
   formation: Record<string, Card | null>;

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective } from './types';
 import { initialState } from './data/initialState';
@@ -35,6 +36,7 @@ import LoginModal from './components/modals/LoginModal';
 import SignUpModal from './components/modals/SignUpModal';
 
 const GUEST_SAVE_KEY = 'rappersGameState_guest';
+const CURRENT_VERSION = 1.2;
 
 // --- STATE UPDATE HELPER FUNCTIONS ---
 
@@ -135,16 +137,18 @@ const App: React.FC = () => {
         let savedState = savedStateJSON ? JSON.parse(savedStateJSON) : null;
         
         if (savedState) {
-            // Data Migrations
+            // --- DATA MIGRATIONS ---
+            
+            // Fix 1: Migrate formation structure if needed (old array vs new object)
             if (Array.isArray(savedState.formation)) {
                 const migratedLayout: FormationLayoutId = '4-4-2';
                 const newFormation: Record<string, CardType | null> = {};
                 formationLayouts[migratedLayout].allPositions.forEach(posId => { newFormation[posId] = null; });
                 savedState = { ...initialState, ...savedState, formation: newFormation, formationLayout: migratedLayout, storage: [...savedState.storage, ...savedState.formation] };
             }
-            // Ensure objectiveProgress is valid
-            if (!savedState.objectiveProgress) savedState.objectiveProgress = {};
 
+            // Fix 2: Migrate objectives structure if needed
+            if (!savedState.objectiveProgress) savedState.objectiveProgress = {};
             const firstObjectiveProgressValue = Object.values(savedState.objectiveProgress || {})[0] as any;
             if (firstObjectiveProgressValue && firstObjectiveProgressValue.tasks === undefined) {
                 const migratedProgress: GameState['objectiveProgress'] = {};
@@ -164,6 +168,44 @@ const App: React.FC = () => {
                     }
                 });
                 savedState.objectiveProgress = migratedProgress;
+            }
+
+            // Fix 3: Version 1.2 Migration - Wipe Market and Fix Broken Images
+            if (!savedState.version || savedState.version < 1.2) {
+                // Wipe Market completely to remove bot cards and broken listings
+                savedState.market = [];
+
+                // Helper to update card data from the latest source of truth (allCards)
+                const updateCardData = (oldCard: CardType): CardType | null => {
+                    const template = allCards.find(c => c.id === oldCard.id);
+                    // If the card exists in our database, replace it with the fresh data (new image, corrected stats)
+                    if (template) {
+                        return { ...template };
+                    }
+                    // If card ID no longer exists, remove it
+                    return null; 
+                };
+
+                // Update Storage
+                savedState.storage = savedState.storage
+                    .map(updateCardData)
+                    .filter((c: CardType | null): c is CardType => c !== null);
+
+                // Update Formation
+                const newFormation: Record<string, CardType | null> = {};
+                for (const pos in savedState.formation) {
+                    const card = savedState.formation[pos];
+                    if (card) {
+                        const updated = updateCardData(card);
+                        newFormation[pos] = updated; 
+                    } else {
+                        newFormation[pos] = null;
+                    }
+                }
+                savedState.formation = newFormation;
+
+                // Update Version
+                savedState.version = CURRENT_VERSION;
             }
             
             setGameState({ ...initialState, ...savedState });

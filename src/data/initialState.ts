@@ -1,3 +1,4 @@
+
 import { GameState } from '../types';
 import { formationLayouts } from './gameData';
 
@@ -7,6 +8,7 @@ formationLayouts['4-4-2'].allPositions.forEach(posId => {
 });
 
 export const initialState: GameState = {
+  version: 1.2,
   userId: `user-${Math.random().toString(36).substr(2, 9)}`,
   coins: 10000,
   formation: initialFormation,
