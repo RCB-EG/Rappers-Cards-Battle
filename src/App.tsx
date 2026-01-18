@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective } from './types';
 import { initialState } from './data/initialState';
-import { allCards, packs, fbcData, evoData, formationLayouts, objectivesData } from './data/gameData';
+import { allCards, packs, fbcData, evoData, formationLayouts, objectivesData, avatars } from './data/gameData';
 import { translations, TranslationKey } from './utils/translations';
 import { useSettings } from './hooks/useSettings';
 import { calculateQuickSellValue } from './utils/cardUtils';
@@ -60,6 +60,29 @@ import DailyRewardModal from './components/modals/DailyRewardModal';
 import LoginModal from './components/modals/LoginModal';
 import SignUpModal from './components/modals/SignUpModal';
 
+// --- ASSET PRELOADING LIST ---
+const ASSETS_TO_PRELOAD = [
+    // UI
+    'https://i.imghippo.com/files/osQP7559xUw.png', // Logo
+    'https://i.imghippo.com/files/Exm8210UFo.png', // Background
+    // Rarity BGs
+    'https://i.imghippo.com/files/TmM6820WtQ.png', // Bronze
+    'https://i.imghippo.com/files/zC9861peQ.png', // Silver
+    'https://i.imghippo.com/files/tUt8745JBc.png', // Gold
+    'https://i.imghippo.com/files/UGRy5126YM.png', // ROTM
+    'https://i.imghippo.com/files/PjIu1716584980.png', // Icon
+    'https://i.imghippo.com/files/jdCC2070F.png', // Legend/Event
+    // Packs
+    'https://i.postimg.cc/R0sYyFhL/Free.png',
+    'https://i.postimg.cc/1z5Tv6mz/Builder.png',
+    'https://i.postimg.cc/sxS0M4cT/Special.png',
+    'https://i.postimg.cc/63Fm6md7/Legendary.png',
+    // Avatars
+    ...avatars,
+    // All Cards
+    ...allCards.map(c => c.image)
+];
+
 // --- HELPER FUNCTIONS ---
 
 const applyObjectiveProgress = (
@@ -106,7 +129,8 @@ const applyEvolutionTask = (
 
 const App: React.FC = () => {
     // App Flow State
-    const [appState, setAppState] = useState<'welcome' | 'intro' | 'game'>('welcome');
+    const [appState, setAppState] = useState<'loading' | 'welcome' | 'intro' | 'game'>('loading');
+    const [loadingProgress, setLoadingProgress] = useState(0);
     
     // Game & Auth State
     const [gameState, setGameState] = useState<GameState>(initialState);
@@ -154,6 +178,35 @@ const App: React.FC = () => {
             playSound(sfx[soundKey], settings.sfxVolume);
         }
     }, [settings.sfxOn, settings.sfxVolume]);
+
+    // --- ASSET PRELOADING ---
+    useEffect(() => {
+        let loadedCount = 0;
+        const totalAssets = ASSETS_TO_PRELOAD.length;
+        
+        const preloadImage = (src: string) => {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.src = src;
+                img.onload = resolve;
+                img.onerror = resolve; // Continue even if one fails
+            });
+        };
+
+        const loadAllAssets = async () => {
+            const promises = ASSETS_TO_PRELOAD.map(async (src) => {
+                await preloadImage(src);
+                loadedCount++;
+                setLoadingProgress(Math.round((loadedCount / totalAssets) * 100));
+            });
+
+            await Promise.all(promises);
+            // Small delay to smooth transition
+            setTimeout(() => setAppState('welcome'), 500);
+        };
+
+        loadAllAssets();
+    }, []);
 
     // --- FIREBASE INTEGRATION ---
 
@@ -425,12 +478,14 @@ const App: React.FC = () => {
         playSfx('packBuildup');
         const pack = packs[packType];
         const newCards: CardType[] = [];
+        const pickedTemplateIds = new Set<string>(); // Track template IDs to ensure unique cards in this pack
         
-        // Generate 3 Cards
+        // Generate 3 Unique Cards
         for (let i = 0; i < 3; i++) {
             let foundCard: CardType | null = null;
             let attempts = 0;
-            while (!foundCard && attempts < 20) {
+            
+            while (!foundCard && attempts < 50) {
                 const random = Math.random() * 100;
                 let cumulative = 0;
                 let chosenRarity: keyof typeof pack.rarityChances | undefined;
@@ -445,18 +500,28 @@ const App: React.FC = () => {
                     const rarities = Object.keys(pack.rarityChances) as (keyof typeof pack.rarityChances)[];
                     chosenRarity = rarities[rarities.length - 1];
                 }
+                
                 const possibleCards = allCards.filter(c => c.rarity === chosenRarity && c.isPackable !== false);
+                
                 if (possibleCards.length > 0) {
-                    foundCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
+                    const candidate = possibleCards[Math.floor(Math.random() * possibleCards.length)];
+                    // Check if we already picked this specific card template for this pack
+                    if (!pickedTemplateIds.has(candidate.id)) {
+                        foundCard = candidate;
+                        pickedTemplateIds.add(candidate.id);
+                    }
                 }
                 attempts++;
             }
+            
+            // Fallback if unique card not found (rare)
             if (!foundCard) {
                 const bronzeCards = allCards.filter(c => c.rarity === 'bronze' && c.isPackable !== false);
                 foundCard = bronzeCards.length > 0 ? bronzeCards[Math.floor(Math.random() * bronzeCards.length)] : allCards[0];
             }
+            
             const newCard = { ...foundCard } as CardType;
-            // Ensure unique ID for every card generated
+            // Ensure unique ID for every card instance
             newCard.id = `${newCard.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}-${i}`;
             newCards.push(newCard);
         }
@@ -974,6 +1039,24 @@ const App: React.FC = () => {
     return (
         <div className={`App font-main bg-dark-gray min-h-screen text-white ${lang === 'ar' ? 'font-ar' : ''}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
             
+            {/* Loading Screen */}
+            {appState === 'loading' && (
+                <div className="fixed inset-0 z-[300] bg-black flex flex-col items-center justify-center p-4">
+                    <img 
+                        src="https://i.imghippo.com/files/osQP7559xUw.png" 
+                        alt="Loading..."
+                        className="w-[200px] mb-8 animate-pulse"
+                    />
+                    <div className="w-full max-w-md bg-gray-800 rounded-full h-4 overflow-hidden border border-gold-dark/50">
+                        <div 
+                            className="bg-gold-light h-full transition-all duration-300 ease-out"
+                            style={{ width: `${loadingProgress}%` }}
+                        />
+                    </div>
+                    <p className="mt-4 text-gray-400 font-header text-xl tracking-wider">Loading Assets... {loadingProgress}%</p>
+                </div>
+            )}
+
             {appState === 'welcome' && <WelcomeScreen onStart={() => setAppState('intro')} />}
             {appState === 'intro' && <IntroVideo onSkip={() => setAppState('game')} />}
             
@@ -1006,7 +1089,7 @@ const App: React.FC = () => {
                 </>
             )}
 
-            {/* Global Loader */}
+            {/* Global Loader (Async Actions) */}
             {isLoading && (
                 <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center">
                     <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-gold-light"></div>

@@ -1,7 +1,7 @@
 
 import { initializeApp } from "firebase/app";
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -18,4 +18,9 @@ const app = initializeApp(firebaseConfig);
 
 // Export Auth and Firestore services to be used in App.tsx
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// Use initializeFirestore with experimentalForceLongPolling to prevent
+// "Could not reach Cloud Firestore backend" errors in environments with WebSocket restrictions.
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+});
