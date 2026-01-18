@@ -52,6 +52,7 @@ import SettingsModal from './components/modals/SettingsModal';
 import HowToPlayModal from './components/modals/HowToPlayModal';
 import MessageModal from './components/modals/MessageModal';
 import PackAnimationModal from './components/modals/PackAnimationModal';
+import PackResultsModal from './components/modals/PackResultsModal';
 import CardOptionsModal from './components/modals/CardOptionsModal';
 import MarketModal from './components/modals/MarketModal';
 import DuplicateSellModal from './components/modals/DuplicateSellModal';
@@ -128,7 +129,11 @@ const App: React.FC = () => {
     const [isSignUpModalOpen, setIsSignUpModalOpen] = useState(false);
     const [authError, setAuthError] = useState<string | null>(null);
     const [messageModal, setMessageModal] = useState<{ title: string; message: string; card?: CardType } | null>(null);
-    const [packCard, setPackCard] = useState<CardType | null>(null);
+    
+    // Pack Opening State
+    const [packCard, setPackCard] = useState<CardType | null>(null); // The "Hero" card for animation
+    const [pendingPackCards, setPendingPackCards] = useState<CardType[]>([]); // Cards waiting for user action
+    
     const [cardWithOptions, setCardWithOptions] = useState<{ card: CardType; origin: 'formation' | 'storage' } | null>(null);
     const [cardToList, setCardToList] = useState<CardType | null>(null);
     const [duplicateToSell, setDuplicateToSell] = useState<CardType | null>(null);
@@ -419,36 +424,46 @@ const App: React.FC = () => {
     const handleOpenPack = useCallback((packType: PackType, isReward = false, bypassLimit = false) => {
         playSfx('packBuildup');
         const pack = packs[packType];
+        const newCards: CardType[] = [];
         
-        let foundCard: CardType | null = null;
-        let attempts = 0;
-        while (!foundCard && attempts < 20) {
-            const random = Math.random() * 100;
-            let cumulative = 0;
-            let chosenRarity: keyof typeof pack.rarityChances | undefined;
-            for (const rarity in pack.rarityChances) {
-                cumulative += pack.rarityChances[rarity as keyof typeof pack.rarityChances]!;
-                if (random < cumulative) {
-                    chosenRarity = rarity as keyof typeof pack.rarityChances;
-                    break;
+        // Generate 3 Cards
+        for (let i = 0; i < 3; i++) {
+            let foundCard: CardType | null = null;
+            let attempts = 0;
+            while (!foundCard && attempts < 20) {
+                const random = Math.random() * 100;
+                let cumulative = 0;
+                let chosenRarity: keyof typeof pack.rarityChances | undefined;
+                for (const rarity in pack.rarityChances) {
+                    cumulative += pack.rarityChances[rarity as keyof typeof pack.rarityChances]!;
+                    if (random < cumulative) {
+                        chosenRarity = rarity as keyof typeof pack.rarityChances;
+                        break;
+                    }
                 }
+                if (!chosenRarity) {
+                    const rarities = Object.keys(pack.rarityChances) as (keyof typeof pack.rarityChances)[];
+                    chosenRarity = rarities[rarities.length - 1];
+                }
+                const possibleCards = allCards.filter(c => c.rarity === chosenRarity && c.isPackable !== false);
+                if (possibleCards.length > 0) {
+                    foundCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
+                }
+                attempts++;
             }
-            if (!chosenRarity) {
-                const rarities = Object.keys(pack.rarityChances) as (keyof typeof pack.rarityChances)[];
-                chosenRarity = rarities[rarities.length - 1];
+            if (!foundCard) {
+                const bronzeCards = allCards.filter(c => c.rarity === 'bronze' && c.isPackable !== false);
+                foundCard = bronzeCards.length > 0 ? bronzeCards[Math.floor(Math.random() * bronzeCards.length)] : allCards[0];
             }
-            const possibleCards = allCards.filter(c => c.rarity === chosenRarity && c.isPackable !== false);
-            if (possibleCards.length > 0) {
-                foundCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
-            }
-            attempts++;
+            const newCard = { ...foundCard } as CardType;
+            // Ensure unique ID for every card generated
+            newCard.id = `${newCard.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}-${i}`;
+            newCards.push(newCard);
         }
-        if (!foundCard) {
-            const bronzeCards = allCards.filter(c => c.rarity === 'bronze' && c.isPackable !== false);
-            foundCard = bronzeCards.length > 0 ? bronzeCards[Math.floor(Math.random() * bronzeCards.length)] : allCards[0];
-        }
-        const newCard = foundCard as CardType;
-        newCard.id = `${newCard.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
+        // Sort by Rating Descending to find the "Hero" card for animation
+        newCards.sort((a, b) => b.ovr - a.ovr);
+        const bestCard = newCards[0];
 
         if (!isReward && pack.cost > gameState.coins && !isDevMode) {
             setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins to open this pack.` });
@@ -492,33 +507,37 @@ const App: React.FC = () => {
         }
 
         if (settings.animationsOn) {
-            setPackCard(newCard);
+            setPackCard(bestCard);
+            setPendingPackCards(newCards);
             updateGameState(stateUpdates);
         } else {
-            const isDuplicate = gameState.storage.some(card => card.name === newCard.name);
-            if (isDuplicate) {
-                setDuplicateToSell(newCard);
-                updateGameState(stateUpdates);
-            } else {
-                stateUpdates.storage = [...gameState.storage, newCard];
-                updateGameState(stateUpdates);
-                setMessageModal({ title: 'New Card!', message: `You packed ${newCard.name}!`, card: newCard });
-            }
+            // No animation: Show results immediately
+            setPendingPackCards(newCards);
+            updateGameState(stateUpdates);
         }
     }, [gameState, isDevMode, settings.animationsOn, playSfx]);
 
 
-    const handlePackAnimationEnd = (card: CardType) => {
+    const handlePackAnimationEnd = () => {
+        // Clear animation card, which reveals the PackResultsModal because pendingPackCards is set
         setPackCard(null);
-        const isDuplicate = gameState.storage.some(c => c.name === card.name);
-        if (isDuplicate) {
-            setDuplicateToSell(card);
-        } else {
-            updateGameState({ storage: [...gameState.storage, card] });
-            setMessageModal({ title: `You got ${card.name}!`, message: `A new ${card.rarity} card has been added to your storage.`, card });
-        }
     };
     
+    // --- PACK RESULTS HANDLERS ---
+    
+    const handleKeepPackCard = (card: CardType) => {
+        setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
+        updateGameState({ storage: [...gameState.storage, card] });
+        playSfx('success');
+    };
+
+    const handleQuickSellPackCard = (card: CardType) => {
+        const value = calculateQuickSellValue(card);
+        setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
+        updateGameState({ coins: gameState.coins + value });
+        playSfx('rewardClaimed');
+    };
+
     const handleQuickSellDuplicate = () => {
         if (duplicateToSell) {
           const quickSellValue = calculateQuickSellValue(duplicateToSell);
@@ -649,23 +668,35 @@ const App: React.FC = () => {
         };
         
         // Optimistically remove from local state
-        const { formation, storage } = gameState;
-        const formationPos = Object.keys(formation).find(pos => formation[pos]?.id === card.id);
-        let newFormation = { ...formation };
-        let newStorage = [...storage];
-
-        if (formationPos) {
-            newFormation[formationPos] = null;
+        // Check if listing from PACK RESULTS or STORAGE
+        const isFromPack = pendingPackCards.some(c => c.id === card.id);
+        
+        if (isFromPack) {
+            setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
+            updateGameState({
+                objectiveProgress: applyObjectiveProgress(gameState.objectiveProgress, 'list_market_cards', 1),
+                activeEvolution: applyEvolutionTask(gameState.activeEvolution, 'list_cards_market', 1)
+            });
         } else {
-            newStorage = storage.filter((c: CardType) => c.id !== card.id);
-        }
+            // Remove from Storage/Formation logic
+            const { formation, storage } = gameState;
+            const formationPos = Object.keys(formation).find(pos => formation[pos]?.id === card.id);
+            let newFormation = { ...formation };
+            let newStorage = [...storage];
 
-        updateGameState({
-            formation: newFormation,
-            storage: newStorage,
-            objectiveProgress: applyObjectiveProgress(gameState.objectiveProgress, 'list_market_cards', 1),
-            activeEvolution: applyEvolutionTask(gameState.activeEvolution, 'list_cards_market', 1)
-        });
+            if (formationPos) {
+                newFormation[formationPos] = null;
+            } else {
+                newStorage = storage.filter((c: CardType) => c.id !== card.id);
+            }
+
+            updateGameState({
+                formation: newFormation,
+                storage: newStorage,
+                objectiveProgress: applyObjectiveProgress(gameState.objectiveProgress, 'list_market_cards', 1),
+                activeEvolution: applyEvolutionTask(gameState.activeEvolution, 'list_cards_market', 1)
+            });
+        }
 
         try {
             await addDoc(collection(db, 'market'), newMarketCard);
@@ -991,6 +1022,16 @@ const App: React.FC = () => {
             {messageModal && <MessageModal isOpen={!!messageModal} onClose={() => setMessageModal(null)} title={messageModal.title} message={messageModal.message} card={messageModal.card} />}
             {packCard && settings.animationsOn && <PackAnimationModal card={packCard} onAnimationEnd={handlePackAnimationEnd} playSfx={playSfx} />}
             
+            {/* New Pack Results Modal */}
+            <PackResultsModal 
+                cards={pendingPackCards} 
+                onKeep={handleKeepPackCard} 
+                onSell={handleQuickSellPackCard} 
+                onList={(card) => setCardToList(card)}
+                storage={gameState.storage}
+                t={t}
+            />
+
             <CardOptionsModal 
                 cardWithOptions={cardWithOptions} 
                 onClose={() => setCardWithOptions(null)} 

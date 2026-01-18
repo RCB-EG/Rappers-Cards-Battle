@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Modal from './Modal';
 import Button from '../Button';
@@ -18,6 +19,8 @@ const MarketModal: React.FC<MarketModalProps> = ({ cardToList, onClose, onList, 
   useEffect(() => {
     if (cardToList) {
       setPrice(cardToList.value); // Default price to card value
+    } else {
+      setPrice(100); // Reset when closed
     }
   }, [cardToList]);
 
