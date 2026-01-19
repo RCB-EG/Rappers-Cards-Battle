@@ -44,6 +44,58 @@
         background: #FFD700;
       }
 
+      /* --- ANIMATED BACKGROUNDS & PARTICLES --- */
+      
+      /* Fire / Ember Rise Animation */
+      @keyframes fire-rise {
+          0% { transform: translateY(110vh) scale(0.5) rotate(0deg); opacity: 0; }
+          20% { opacity: 1; }
+          80% { opacity: 0.8; }
+          100% { transform: translateY(-10vh) scale(1.2) rotate(360deg); opacity: 0; }
+      }
+      .animate-fire-rise {
+          animation: fire-rise linear infinite;
+      }
+
+      /* Spark / Float Animation (Silver) */
+      @keyframes spark-float {
+          0% { transform: translateY(110vh) translateX(0); opacity: 0; }
+          50% { opacity: 1; transform: translateY(50vh) translateX(20px); }
+          100% { transform: translateY(-10vh) translateX(-20px); opacity: 0; }
+      }
+      .animate-spark-float {
+          animation: spark-float linear infinite;
+      }
+
+      /* Pulse Glow (Gold) */
+      @keyframes glow-pulse {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 0.6; }
+      }
+      .animate-glow-pulse {
+          animation: glow-pulse 4s ease-in-out infinite;
+      }
+
+      /* Glitch Effect (Legend) */
+      @keyframes glitch-bg-anim {
+          0% { transform: translate(0); filter: hue-rotate(0deg); }
+          20% { transform: translate(-2px, 2px); filter: hue-rotate(90deg); }
+          40% { transform: translate(-2px, -2px); filter: hue-rotate(180deg); }
+          60% { transform: translate(2px, 2px); filter: hue-rotate(270deg); }
+          80% { transform: translate(2px, -2px); filter: hue-rotate(0deg); }
+          100% { transform: translate(0); filter: hue-rotate(0deg); }
+      }
+      .animate-glitch-bg {
+          animation: glitch-bg-anim 0.2s steps(2) infinite;
+          opacity: 0.15;
+          mix-blend-mode: color-dodge;
+      }
+      
+      @keyframes chromatic-aberration {
+          0% { text-shadow: 2px 0 #ff0000, -2px 0 #00ffff; }
+          100% { text-shadow: -2px 0 #ff0000, 2px 0 #00ffff; }
+      }
+
       /* --- EPIC PACK ANIMATION STYLES --- */
       #pack-animation-modal {
           perspective: 2000px;

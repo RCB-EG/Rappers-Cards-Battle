@@ -870,7 +870,7 @@ const App: React.FC = () => {
 
     return (
         <div className="app-container min-h-screen bg-gradient-to-br from-gray-900 to-black text-white font-main overflow-x-hidden pb-10">
-            <Particles />
+            <Particles rank={gameState.rank} />
             
             {showIntro && <IntroVideo onSkip={() => setShowIntro(false)} />}
             {showWelcome && !showIntro && <WelcomeScreen onStart={() => { setShowWelcome(false); setShowIntro(true); playSfx('buttonClick'); }} />}
