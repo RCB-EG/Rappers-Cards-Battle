@@ -1,15 +1,14 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
     GameState, 
-    Card as CardType, 
-    PackType, 
+    Card as GameCard, 
+    PackType,
+    PackData, 
     MarketCard, 
     User, 
-    Settings, 
     GameView, 
     ObjectiveProgress, 
-    Evolution,
     PlayerPickConfig,
     Rank
 } from './types';
@@ -18,6 +17,7 @@ import { packs, allCards, objectivesData, evoData, fbcData, playerPickConfigs, r
 import { sfx } from './data/sounds';
 import { translations, TranslationKey } from './utils/translations';
 import { playSound, updateMainMusic } from './utils/sound';
+import { preloadCriticalAssets } from './utils/assets';
 import { useSettings } from './hooks/useSettings';
 import { auth, db } from './firebaseConfig';
 import { 
@@ -38,7 +38,8 @@ import {
     query, 
     orderBy, 
     limit, 
-    deleteDoc 
+    deleteDoc,
+    runTransaction
 } from 'firebase/firestore';
 
 import Header from './components/Header';
@@ -59,12 +60,9 @@ import SettingsModal from './components/modals/SettingsModal';
 import HowToPlayModal from './components/modals/HowToPlayModal';
 import MessageModal from './components/modals/MessageModal';
 import CardOptionsModal from './components/modals/CardOptionsModal';
-import DealModal from './components/modals/DealModal';
 import PackAnimationModal from './components/modals/PackAnimationModal';
-import BuyModal from './components/modals/BuyModal';
 import MarketModal from './components/modals/MarketModal';
 import DuplicateSellModal from './components/modals/DuplicateSellModal';
-import DailyRewardModal from './components/modals/DailyRewardModal';
 import PackResultsModal from './components/modals/PackResultsModal';
 import PlayerPickModal from './components/modals/PlayerPickModal';
 import RankUpModal from './components/modals/RankUpModal';
@@ -82,6 +80,7 @@ const App: React.FC = () => {
     const [lang, setLang] = useState<'en' | 'ar'>('en');
 
     // UI State
+    const [isLoadingAssets, setIsLoadingAssets] = useState(true);
     const [showWelcome, setShowWelcome] = useState(true);
     const [showIntro, setShowIntro] = useState(false);
     const [modals, setModals] = useState({
@@ -93,18 +92,25 @@ const App: React.FC = () => {
     });
     
     // Detailed Modal State
-    const [messageModal, setMessageModal] = useState<{title: string, message: string, card?: CardType} | null>(null);
-    const [cardOptions, setCardOptions] = useState<{card: CardType, origin: 'formation' | 'storage'} | null>(null);
-    const [cardToList, setCardToList] = useState<CardType | null>(null);
-    const [packCard, setPackCard] = useState<CardType | null>(null); // For Animation
-    const [pendingPackCards, setPendingPackCards] = useState<CardType[]>([]); // For Results
-    const [duplicateCard, setDuplicateCard] = useState<CardType | null>(null);
-    const [deal, setDeal] = useState<any>(null); // Placeholder for deal logic
+    const [messageModal, setMessageModal] = useState<{title: string, message: string, card?: GameCard} | null>(null);
+    const [cardOptions, setCardOptions] = useState<{card: GameCard, origin: 'formation' | 'storage'} | null>(null);
+    const [cardToList, setCardToList] = useState<GameCard | null>(null);
+    const [packCard, setPackCard] = useState<GameCard | null>(null); 
+    const [pendingPackCards, setPendingPackCards] = useState<GameCard[]>([]); 
+    const [duplicateCard, setDuplicateCard] = useState<GameCard | null>(null);
     const [rankUpModalData, setRankUpModalData] = useState<{ newRank: Rank, rewards: { coins: number, packs: PackType[], picks: string[] } } | null>(null);
     const [rewardModal, setRewardModal] = useState<{ isOpen: boolean, reward: RewardData | null, title?: string }>({ isOpen: false, reward: null });
 
-    // --- Helpers ---
-    
+    // --- Asset Preloading ---
+    useEffect(() => {
+        const loadAssets = async () => {
+            // await preloadCriticalAssets(); // Disabled as per user request for "bit by bit" loading
+            setIsLoadingAssets(false);
+        };
+        loadAssets();
+    }, []);
+
+    // --- Translation Helper ---
     const t = useCallback((key: TranslationKey, replacements?: Record<string, string | number>) => {
         let text = translations[lang][key] || key;
         if (replacements) {
@@ -121,31 +127,144 @@ const App: React.FC = () => {
         }
     }, [settings.sfxOn, settings.sfxVolume]);
 
-    // Manage Background Music
+    // Music Manager
     useEffect(() => {
-        if (!showWelcome && !showIntro) {
+        if (!isLoadingAssets && !showWelcome && !showIntro) {
             updateMainMusic(settings.musicVolume, settings.musicOn);
         } else {
-            // Ensure main music is paused during intro
             const mainBg = document.getElementById('bg-music') as HTMLAudioElement;
             if (mainBg) mainBg.pause();
         }
-    }, [settings.musicVolume, settings.musicOn, showWelcome, showIntro]);
+    }, [settings.musicVolume, settings.musicOn, showWelcome, showIntro, isLoadingAssets]);
 
-    // Handle initial game start (User clicks "Play" on Welcome Screen)
+    // --- FIREBASE SYNC LOGIC ---
+
+    // 1. Auth Listener
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            setFirebaseUser(user);
+            if (user) {
+                // Fetch user data once on login
+                try {
+                    const userRef = doc(db, 'users', user.uid);
+                    const docSnap = await getDoc(userRef);
+                    
+                    if (docSnap.exists()) {
+                        const userData = docSnap.data();
+                        setCurrentUser(userData.userProfile as User);
+                        // Merge remote data with initial state to handle any new fields in updates
+                        // Important: Preserve local market state if any, though usually market loads separately
+                        setGameState(prev => ({ 
+                            ...initialState, 
+                            ...userData, 
+                            userId: user.uid, 
+                            market: prev.market 
+                        }));
+                    } else {
+                        // Create new user profile
+                        const newProfile: User = { username: user.email?.split('@')[0] || 'User', email: user.email || '' };
+                        setCurrentUser(newProfile);
+                        const newState = { ...initialState, userId: user.uid, userProfile: newProfile };
+                        // Filter out 'market' before saving just in case
+                        const { market, ...stateToSave } = newState;
+                        await setDoc(userRef, stateToSave);
+                        setGameState(prev => ({ ...newState, market: prev.market }));
+                    }
+                } catch (error) {
+                    console.error("Error fetching user data:", error);
+                }
+            } else {
+                // Guest Mode
+                setCurrentUser(null);
+                const savedGuest = localStorage.getItem('guestGameState');
+                if (savedGuest) {
+                    try {
+                        const parsed = JSON.parse(savedGuest);
+                        setGameState(prev => ({ ...initialState, ...parsed, market: prev.market }));
+                    } catch {
+                        setGameState(initialState);
+                    }
+                } else {
+                    setGameState(initialState);
+                }
+            }
+        });
+        return () => unsubscribe();
+    }, []);
+
+    // 2. Data Saver
+    // This function saves the state to Firestore or LocalStorage
+    const saveGameData = useCallback(async (stateToSave: Partial<GameState>) => {
+        if (!auth.currentUser) {
+            // Guest: Save to LocalStorage (merging with existing)
+            try {
+                const current = JSON.parse(localStorage.getItem('guestGameState') || '{}');
+                const merged = { ...current, ...stateToSave };
+                localStorage.setItem('guestGameState', JSON.stringify(merged));
+            } catch (e) { console.error("LS Error", e); }
+            return;
+        }
+
+        // Online: Save to Firestore
+        try {
+            const userRef = doc(db, 'users', auth.currentUser.uid);
+            // Sanitize: Remove 'market' (it's global), remove undefineds
+            const { market, ...cleanState } = stateToSave as GameState; 
+            const sanitized = JSON.parse(JSON.stringify(cleanState)); // Simple way to strip undefined
+            
+            await updateDoc(userRef, sanitized);
+        } catch (error) {
+            console.error("Error saving game data:", error);
+        }
+    }, []);
+
+    // 3. State Update Wrapper
+    // Updates local React state immediately (Optimistic UI) and triggers background save
+    const updateGameState = useCallback((updates: Partial<GameState>) => {
+        setGameState(prev => {
+            const newState = { ...prev, ...updates };
+            // Fire and forget save. Passing 'updates' is usually enough if we trust merge,
+            // but passing 'newState' (without market) ensures consistency.
+            // However, to reduce bandwidth, we can just save the updated fields if we are careful.
+            // For robustness "from scratch", let's save the critical parts of newState.
+            
+            // We defer the save slightly to let the render cycle finish? No need.
+            saveGameData(updates); 
+            
+            return newState;
+        });
+    }, [saveGameData]);
+
+    // 4. Market Listener (Global Data)
+    useEffect(() => {
+        const q = query(collection(db, 'market'), orderBy('createdAt', 'desc'), limit(50));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const marketData: MarketCard[] = [];
+            snapshot.forEach((doc) => {
+                marketData.push({ ...doc.data() as MarketCard, marketId: doc.id });
+            });
+            // Update ONLY the market field locally, do NOT trigger a user save
+            setGameState(prev => ({ ...prev, market: marketData }));
+        }, (error) => {
+            console.error("Market sync error:", error);
+        });
+        return () => unsubscribe();
+    }, []);
+
+
+    // --- Game Logic ---
+
     const handleStartGame = () => {
         setShowWelcome(false);
         setShowIntro(true);
         playSfx('buttonClick');
     };
 
-    // Handle intro finish (Skip or End)
     const handleFinishIntro = () => {
         setShowIntro(false);
-        // Music effect hook will detect state change and start music
     };
 
-    // Apply objective progress
+    // Helper: Apply Objective Progress
     const applyObjectiveProgress = useCallback((
         currentProgress: Record<string, ObjectiveProgress>, 
         taskId: string, 
@@ -165,7 +284,7 @@ const App: React.FC = () => {
         return newProgress;
     }, []);
 
-    // Apply evolution task progress
+    // Helper: Apply Evo Progress
     const applyEvolutionTask = useCallback((
         activeEvo: GameState['activeEvolution'],
         taskId: string,
@@ -191,76 +310,21 @@ const App: React.FC = () => {
         return activeEvo;
     }, []);
 
-    // Update Game State Wrapper
-    const updateGameState = useCallback((updates: Partial<GameState>) => {
-        setGameState(prev => {
-            const newState = { ...prev, ...updates };
-            if (currentUser && firebaseUser) {
-                 const userRef = doc(db, 'users', firebaseUser.uid);
-                 // Sanitize updates to remove undefined values which crash Firestore
-                 const cleanUpdates = JSON.parse(JSON.stringify(updates));
-                 updateDoc(userRef, cleanUpdates).catch(console.error);
-            } else {
-                 localStorage.setItem('guestGameState', JSON.stringify(newState));
-            }
-            return newState;
-        });
-    }, [currentUser, firebaseUser]);
-
-
-    // --- Auth & Sync Effects ---
-
+    // --- Objectives: Track Formation Changes ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            setFirebaseUser(user);
-            if (user) {
-                const userRef = doc(db, 'users', user.uid);
-                const docSnap = await getDoc(userRef);
-                
-                if (docSnap.exists()) {
-                    const userData = docSnap.data();
-                    setCurrentUser(userData.userProfile as User);
-                    // Merge remote state with safe defaults
-                    setGameState(prev => ({ ...initialState, ...userData, userId: user.uid, market: prev.market }));
-                } else {
-                    // New user setup
-                    const newProfile: User = { username: user.email?.split('@')[0] || 'User', email: user.email || '' };
-                    setCurrentUser(newProfile);
-                    const newState = { ...initialState, userId: user.uid, userProfile: newProfile };
-                    await setDoc(userRef, newState);
-                    setGameState(prev => ({ ...newState, market: prev.market }));
-                }
-            } else {
-                setCurrentUser(null);
-                const savedGuest = localStorage.getItem('guestGameState');
-                if (savedGuest) {
-                    try {
-                        setGameState({ ...initialState, ...JSON.parse(savedGuest) });
-                    } catch {
-                        setGameState(initialState);
-                    }
-                } else {
-                    setGameState(initialState);
-                }
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        const goldCount = Object.values(gameState.formation).filter((c: GameCard | null) => c && c.rarity === 'gold').length;
+        const objId = 'milestone_a_step_ahead';
+        const taskId = 'formation_11_gold';
+        
+        const currentProgress = gameState.objectiveProgress[objId]?.tasks[taskId] || 0;
+        
+        if (goldCount >= 11 && currentProgress < 1) {
+             const newObjectiveProgress = applyObjectiveProgress(gameState.objectiveProgress, taskId, 1);
+             updateGameState({ objectiveProgress: newObjectiveProgress });
+        }
+    }, [gameState.formation, gameState.objectiveProgress, applyObjectiveProgress, updateGameState]);
 
-    // Sync Market
-    useEffect(() => {
-        const q = query(collection(db, 'market'), orderBy('createdAt', 'desc'), limit(50));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const marketData: MarketCard[] = [];
-            snapshot.forEach((doc) => {
-                marketData.push({ ...doc.data() as MarketCard, marketId: doc.id });
-            });
-            setGameState(prev => ({ ...prev, market: marketData }));
-        });
-        return () => unsubscribe();
-    }, []);
-
-    // --- Daily Reset & Login Objective ---
+    // --- Daily Reset Logic ---
     useEffect(() => {
         const checkDailyObjectives = () => {
             const now = Date.now();
@@ -270,32 +334,22 @@ const App: React.FC = () => {
             let currentCompletedFbcs = [...gameState.completedFbcIds];
             let stateChanged = false;
 
-            // 1. Check Reset
             if (!lastReset || (now - lastReset > oneDay)) {
-                // Clear daily objectives
                 objectivesData.filter(o => o.type === 'daily').forEach(o => {
-                    if (currentProgress[o.id]) {
-                        delete currentProgress[o.id];
-                    }
+                    if (currentProgress[o.id]) delete currentProgress[o.id];
                 });
-                
-                // Clear daily FBCs
                 const dailyFbcIds = fbcData.filter(f => f.repeatable === 'daily').map(f => f.id);
                 currentCompletedFbcs = currentCompletedFbcs.filter(id => !dailyFbcIds.includes(id));
-
                 lastReset = now;
                 stateChanged = true;
             }
 
-            // 2. Mark Login Objective
             const loginObjId = 'd_login'; 
             const taskId = 'daily_login_task';
             const loginProgress = currentProgress[loginObjId]?.tasks[taskId] || 0;
 
             if (loginProgress < 1) {
-                if (!currentProgress[loginObjId]) {
-                    currentProgress[loginObjId] = { tasks: {}, claimed: false };
-                }
+                if (!currentProgress[loginObjId]) currentProgress[loginObjId] = { tasks: {}, claimed: false };
                 currentProgress[loginObjId].tasks[taskId] = 1;
                 stateChanged = true;
             }
@@ -308,45 +362,152 @@ const App: React.FC = () => {
                 });
             }
         };
-
         checkDailyObjectives();
     }, [gameState.lastDailyReset, gameState.objectiveProgress, gameState.completedFbcIds, updateGameState]);
 
-    // --- Objectives: Track Formation Changes (Ra3 Objective) ---
-    useEffect(() => {
-        const goldCount = Object.values(gameState.formation).filter(c => c && c.rarity === 'gold').length;
-        const objId = 'milestone_a_step_ahead';
-        const taskId = 'formation_11_gold';
-        
-        // Get current status to avoid infinite loops
-        const currentProgress = gameState.objectiveProgress[objId]?.tasks[taskId] || 0;
-        
-        // If condition met and not yet recorded as complete (target is 1)
-        if (goldCount >= 11 && currentProgress < 1) {
-             const newObjectiveProgress = applyObjectiveProgress(gameState.objectiveProgress, taskId, 1);
-             // Only update if it actually changes something
-             updateGameState({ objectiveProgress: newObjectiveProgress });
+
+    // --- Actions ---
+
+    const handleBuyCard = async (marketCard: MarketCard) => {
+        if (gameState.coins < marketCard.price) {
+             setMessageModal({ title: 'Insufficient Funds', message: 'You do not have enough coins.' });
+             return;
         }
-    }, [gameState.formation, gameState.objectiveProgress, applyObjectiveProgress, updateGameState]);
+        
+        // Anti-Duplicate Check
+        const alreadyInStorage = gameState.storage.some((c: GameCard) => c.name === marketCard.name);
+        const alreadyInFormation = (Object.values(gameState.formation) as (GameCard | null)[]).some(c => c?.name === marketCard.name);
+        
+        if (alreadyInStorage || alreadyInFormation) {
+             setMessageModal({ title: 'Duplicate Found', message: `You already own ${marketCard.name}.` });
+             return;
+        }
 
+        if (!auth.currentUser) {
+            setMessageModal({ title: 'Guest Mode', message: 'Market purchases require an account.' });
+            return;
+        }
 
-    // --- Logic & Handlers ---
+        // TRANSACTION: Atomically remove from market AND update user
+        try {
+            await runTransaction(db, async (transaction) => {
+                const cardRef = doc(db, 'market', marketCard.marketId!);
+                const cardDoc = await transaction.get(cardRef);
+                
+                if (!cardDoc.exists()) {
+                    throw "Card no longer exists!";
+                }
+
+                // 1. Remove from Market
+                transaction.delete(cardRef);
+
+                // 2. Read User Doc
+                const userRef = doc(db, 'users', auth.currentUser!.uid);
+                const userDoc = await transaction.get(userRef);
+                if (!userDoc.exists()) throw "User not found";
+
+                const userData = userDoc.data() as GameState;
+                if (userData.coins < marketCard.price) throw "Insufficient funds (server check)";
+
+                // 3. Update User Doc
+                const { marketId, sellerId, price, createdAt, ...cardData } = marketCard;
+                const newCard = { ...cardData, id: `${cardData.id}-${Date.now()}` };
+                
+                // We must use arrayUnion/increment ideally, but reading and writing the whole object in a transaction is safe too for this scale
+                const newStorage = [...userData.storage, newCard];
+                const newCoins = userData.coins - price;
+
+                transaction.update(userRef, {
+                    storage: newStorage,
+                    coins: newCoins
+                });
+
+                // Update Local State Optimistically (Transaction successful if we get here?) 
+                // Actually transaction runs on server. We should update local state AFTER await.
+            });
+
+            // If transaction succeeds:
+            playSfx('purchase');
+            // Manual local update to match DB
+            const { marketId, sellerId, price, createdAt, ...cardData } = marketCard;
+            const newCard = { ...cardData, id: `${cardData.id}-${Date.now()}` };
+            
+            setGameState(prev => ({
+                ...prev,
+                coins: prev.coins - price,
+                storage: [...prev.storage, newCard]
+            }));
+            setMessageModal({ title: 'Success', message: `You bought ${marketCard.name}!` });
+
+        } catch (e) {
+            console.error("Buy Transaction Failed:", e);
+            setMessageModal({ title: 'Error', message: 'Purchase failed. Someone else might have bought it.' });
+        }
+    };
+
+    const handleListCard = async (card: GameCard, price: number) => {
+        if (!firebaseUser) {
+            setMessageModal({ title: 'Login Required', message: 'You must be logged in to use the market.' });
+            return;
+        }
+        
+        try {
+            await addDoc(collection(db, 'market'), {
+                ...card,
+                price,
+                sellerId: firebaseUser.uid,
+                createdAt: Date.now()
+            });
+
+            const newStorage = gameState.storage.filter(c => c.id !== card.id);
+            const newFormation = { ...gameState.formation };
+            Object.keys(newFormation).forEach(key => {
+                if (newFormation[key]?.id === card.id) {
+                    newFormation[key] = null;
+                }
+            });
+
+            const newObjectives = applyObjectiveProgress(gameState.objectiveProgress, 'list_market_cards', 1);
+            const newEvo = applyEvolutionTask(gameState.activeEvolution, 'list_cards_market', 1);
+            
+            updateGameState({ 
+                storage: newStorage,
+                formation: newFormation,
+                objectiveProgress: newObjectives,
+                activeEvolution: newEvo
+            });
+            setCardToList(null);
+            setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
+
+        } catch (e) {
+            console.error("Listing error:", e);
+            setMessageModal({ title: 'Error', message: 'Failed to list card.' });
+        }
+    };
+
+    const handleCancelListing = async (marketCard: MarketCard) => {
+         try {
+             const cardRef = doc(db, 'market', marketCard.marketId!);
+             await deleteDoc(cardRef);
+             const { marketId, sellerId, price, createdAt, ...cardData } = marketCard;
+             updateGameState({ storage: [...gameState.storage, cardData] });
+         } catch(e) {
+             console.error("Cancel listing error:", e);
+         }
+    };
 
     const handleOpenPack = useCallback((packType: PackType, options: { isReward?: boolean, bypassLimit?: boolean, fromInventory?: boolean, currency?: 'coins' | 'bp' } = {}) => {
         const { isReward = false, bypassLimit = false, fromInventory = false, currency = 'coins' } = options;
-        playSfx('packBuildup');
-        const pack = packs[packType];
         
-        // --- Weighting Logic ---
-        const getCardWeight = (card: CardType) => {
+        const getCardWeight = (card: GameCard) => {
             if (card.rarity === 'gold') return card.ovr < 87 ? 100 : 3; 
             if (card.rarity === 'rotm') return card.ovr <= 90 ? 50 : 1;
             if (card.rarity === 'icon') return card.ovr <= 91 ? 50 : 1;
             return 20;
         };
 
-        const selectWeightedCard = (candidates: CardType[]): CardType => {
-            const totalWeight = candidates.reduce((sum, c) => sum + getCardWeight(c), 0);
+        const selectWeightedCard = (candidates: GameCard[]): GameCard => {
+            const totalWeight = candidates.reduce((sum, c: GameCard) => sum + getCardWeight(c), 0);
             let random = Math.random() * totalWeight;
             for (const card of candidates) {
                 random -= getCardWeight(card);
@@ -355,11 +516,12 @@ const App: React.FC = () => {
             return candidates[0];
         };
         
-        const newCards: CardType[] = [];
+        const pack: PackData = packs[packType];
+        const newCards: GameCard[] = [];
         const pickedTemplateIds = new Set<string>();
 
         for (let i = 0; i < 3; i++) {
-            let foundCard: CardType | null = null;
+            let foundCard: GameCard | null = null;
             let attempts = 0;
             while (!foundCard && attempts < 50) {
                 const random = Math.random() * 100;
@@ -390,7 +552,7 @@ const App: React.FC = () => {
                 const bronzeCards = allCards.filter(c => c.rarity === 'bronze');
                 foundCard = bronzeCards.length > 0 ? selectWeightedCard(bronzeCards) : allCards[0];
             }
-            const newCard = { ...foundCard } as CardType;
+            const newCard = { ...foundCard } as GameCard;
             newCard.id = `${newCard.id}-${Date.now()}-${Math.floor(Math.random() * 100000)}-${i}`;
             newCards.push(newCard);
         }
@@ -398,21 +560,19 @@ const App: React.FC = () => {
         newCards.sort((a, b) => b.ovr - a.ovr);
         const bestCard = newCards[0];
 
-        // Cost check if not a reward and not from inventory
         if (!isReward && !fromInventory && !isDevMode) {
             if (currency === 'coins' && pack.cost > gameState.coins) {
-                setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins to open this pack.` });
+                setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins.` });
                 return;
             }
             if (currency === 'bp' && pack.bpCost > (gameState.battlePoints || 0)) {
-                setMessageModal({ title: 'Not Enough BP', message: `You need ${pack.bpCost} Battle Points to open this pack.` });
+                setMessageModal({ title: 'Not Enough BP', message: `You need ${pack.bpCost} Battle Points.` });
                 return;
             }
         }
         
         let stateUpdates: Partial<GameState> = {};
         
-        // Handling Free Pack Limits
         if (packType === 'free' && !bypassLimit && !fromInventory) {
             const twelveHours = 12 * 60 * 60 * 1000;
             const now = Date.now();
@@ -423,7 +583,7 @@ const App: React.FC = () => {
             } else if (!lastFreePackResetTime) lastFreePackResetTime = now;
             
             if (freePacksOpenedToday >= 3 && !isDevMode) {
-                setMessageModal({ title: 'Limit Reached', message: 'You have opened all your free packs for now. Come back later!' });
+                setMessageModal({ title: 'Limit Reached', message: 'Come back later!' });
                 return;
             }
             stateUpdates.freePacksOpenedToday = freePacksOpenedToday + 1;
@@ -431,14 +591,12 @@ const App: React.FC = () => {
             stateUpdates.objectiveProgress = applyObjectiveProgress(gameState.objectiveProgress, 'open_free_packs', 1);
 
         } else if (!isReward && !fromInventory) {
-            // Deduct Currency
             if (currency === 'coins') {
                 stateUpdates.coins = gameState.coins - pack.cost;
             } else {
                 stateUpdates.battlePoints = (gameState.battlePoints || 0) - pack.bpCost;
             }
             
-            // Apply Objectives logic for purchased packs
             let currentObjectiveProgress = gameState.objectiveProgress;
             let currentActiveEvolution = gameState.activeEvolution;
 
@@ -452,7 +610,6 @@ const App: React.FC = () => {
             stateUpdates.activeEvolution = currentActiveEvolution;
         }
 
-        // Inventory Removal
         if (fromInventory) {
             const packIndex = gameState.ownedPacks.indexOf(packType);
             if (packIndex > -1) {
@@ -461,6 +618,8 @@ const App: React.FC = () => {
                 stateUpdates.ownedPacks = newOwned;
             }
         }
+
+        playSfx('packBuildup');
 
         if (settings.animationsOn) {
             setPackCard(bestCard);
@@ -473,7 +632,6 @@ const App: React.FC = () => {
     }, [gameState, isDevMode, settings.animationsOn, playSfx, applyObjectiveProgress, applyEvolutionTask, updateGameState]);
 
     const handleOpenPlayerPick = (config: PlayerPickConfig) => {
-        // Find pick in inventory and remove one instance
         const pickIndex = gameState.ownedPlayerPicks.findIndex(p => p.id === config.id);
         if (pickIndex > -1) {
             const newOwned = [...gameState.ownedPlayerPicks];
@@ -485,10 +643,9 @@ const App: React.FC = () => {
         }
     };
 
-    const handleKeepCard = (card: CardType) => {
-        // Strict duplicate checking by card Name
-        const alreadyInStorage = gameState.storage.some(c => c.name === card.name);
-        const alreadyInFormation = Object.values(gameState.formation).some(c => c?.name === card.name);
+    const handleKeepCard = (card: GameCard) => {
+        const alreadyInStorage = gameState.storage.some((c: GameCard) => c.name === card.name);
+        const alreadyInFormation = (Object.values(gameState.formation) as (GameCard | null)[]).some(c => c?.name === card.name);
         
         if (alreadyInStorage || alreadyInFormation) {
             setDuplicateCard(card);
@@ -500,7 +657,7 @@ const App: React.FC = () => {
         setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
     };
 
-    const handleQuickSell = (card: CardType) => {
+    const handleQuickSell = (card: GameCard) => {
         playSfx('purchase');
         const value = calculateQuickSellValue(card);
         const updates: Partial<GameState> = { coins: gameState.coins + value };
@@ -510,20 +667,16 @@ const App: React.FC = () => {
         }
 
         let removed = false;
-
-        // 1. Pending Packs
         if (pendingPackCards.find(c => c.id === card.id)) {
             setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
             removed = true;
         } 
         
-        // 2. Storage
         if (!removed && gameState.storage.find(c => c.id === card.id)) {
             updates.storage = gameState.storage.filter(c => c.id !== card.id);
             removed = true;
         }
 
-        // 3. Formation
         if (!removed) {
              const newFormation = { ...gameState.formation };
              let foundInFormation = false;
@@ -539,92 +692,12 @@ const App: React.FC = () => {
              }
         }
 
-        if (duplicateCard?.id === card.id) {
-            setDuplicateCard(null);
-        }
-        
+        if (duplicateCard?.id === card.id) setDuplicateCard(null);
         updateGameState(updates);
-        
         if (cardOptions?.card.id === card.id) setCardOptions(null);
     };
 
-    const handleListCard = (card: CardType, price: number) => {
-        if (!firebaseUser) {
-            setMessageModal({ title: 'Login Required', message: 'You must be logged in to use the market.' });
-            return;
-        }
-        
-        addDoc(collection(db, 'market'), {
-            ...card,
-            price,
-            sellerId: firebaseUser.uid,
-            createdAt: Date.now()
-        }).then(() => {
-            const newStorage = gameState.storage.filter(c => c.id !== card.id);
-            
-            // Remove from formation logic
-            const newFormation = { ...gameState.formation };
-            Object.keys(newFormation).forEach(key => {
-                if (newFormation[key]?.id === card.id) {
-                    newFormation[key] = null;
-                }
-            });
-
-            const newObjectives = applyObjectiveProgress(gameState.objectiveProgress, 'list_market_cards', 1);
-            const newEvo = applyEvolutionTask(gameState.activeEvolution, 'list_cards_market', 1);
-            
-            updateGameState({ 
-                storage: newStorage,
-                formation: newFormation,
-                objectiveProgress: newObjectives,
-                activeEvolution: newEvo
-            });
-            setCardToList(null);
-            if (pendingPackCards.find(c => c.id === card.id)) {
-                setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
-            }
-        });
-    };
-
-    const handleBuyCard = (marketCard: MarketCard) => {
-        if (gameState.coins < marketCard.price) {
-             setMessageModal({ title: 'Insufficient Funds', message: 'You do not have enough coins.' });
-             return;
-        }
-        
-        // Optimistic check for duplicates before buying
-        const alreadyInStorage = gameState.storage.some(c => c.name === marketCard.name);
-        const alreadyInFormation = Object.values(gameState.formation).some(c => c?.name === marketCard.name);
-        
-        if (alreadyInStorage || alreadyInFormation) {
-             setMessageModal({ title: 'Duplicate Found', message: `You already own ${marketCard.name}.` });
-             return;
-        }
-        
-        const cardRef = doc(db, 'market', marketCard.marketId!);
-        deleteDoc(cardRef).then(() => {
-             playSfx('purchase');
-             const { marketId, sellerId, price, createdAt, ...cardData } = marketCard;
-             const newCard = { ...cardData, id: `${cardData.id}-${Date.now()}` };
-             updateGameState({
-                 coins: gameState.coins - marketCard.price,
-                 storage: [...gameState.storage, newCard]
-             });
-             setMessageModal({ title: 'Success', message: `You bought ${marketCard.name}!` });
-        }).catch(() => {
-             setMessageModal({ title: 'Error', message: 'This card is no longer available.' });
-        });
-    };
-
-    const handleCancelListing = (marketCard: MarketCard) => {
-         const cardRef = doc(db, 'market', marketCard.marketId!);
-         deleteDoc(cardRef).then(() => {
-             const { marketId, sellerId, price, createdAt, ...cardData } = marketCard;
-             updateGameState({ storage: [...gameState.storage, cardData] });
-         });
-    };
-
-    const handleAddToFormation = (card: CardType) => {
+    const handleAddToFormation = (card: GameCard) => {
         const emptyPos = Object.keys(gameState.formation).find(pos => gameState.formation[pos] === null);
         if (emptyPos) {
             const newFormation = { ...gameState.formation, [emptyPos]: card };
@@ -640,73 +713,48 @@ const App: React.FC = () => {
         }
     };
     
-    // XP, Rank, and Rewards Logic
-    const handleBattleResult = (amount: number, isWin: boolean, mode: 'ranked' | 'challenge', squad: CardType[]) => {
+    const handleBattleResult = (amount: number, isWin: boolean, mode: 'ranked' | 'challenge', squad: GameCard[]) => {
         const updates: Partial<GameState> = {};
-        
-        // 1. Update BP & XP
         const xpGain = isWin ? 150 : 25;
         updates.battlePoints = (gameState.battlePoints || 0) + amount;
         updates.xp = (gameState.xp || 0) + xpGain;
 
-        // Update Objectives for Battles
         let newObjProgress = applyObjectiveProgress(gameState.objectiveProgress, 'play_any_battle', 1);
         if (mode === 'challenge') {
             newObjProgress = applyObjectiveProgress(newObjProgress, 'play_challenge_battle', 1);
-            if (isWin) {
-                newObjProgress = applyObjectiveProgress(newObjProgress, 'win_challenge_battle', 1);
-            }
+            if (isWin) newObjProgress = applyObjectiveProgress(newObjProgress, 'win_challenge_battle', 1);
         } else if (mode === 'ranked' && isWin) {
-            // New logic: Win 5 Ranked Games for Milestone
             newObjProgress = applyObjectiveProgress(newObjProgress, 'win_ranked_games', 1);
         }
         updates.objectiveProgress = newObjProgress;
 
-        // New logic: Evo Task - Play with Abo El Anwar
-        if (squad.some(c => c.name === 'Abo El Anwar' && c.rarity === 'gold')) {
+        if (squad.some((c: GameCard) => c.name === 'Abo El Anwar' && c.rarity === 'gold')) {
             updates.activeEvolution = applyEvolutionTask(gameState.activeEvolution, 'play_battle_abo', 1);
         }
 
-        // 2. Rank Progression (Only for Ranked Mode & Win)
         if (isWin && mode === 'ranked') {
             const currentRank = gameState.rank || 'Bronze';
             const rankConfig = rankSystem[currentRank];
-            
-            // Increment wins for current rank
             let newRankWins = (gameState.rankWins || 0) + 1;
             
-            // Check Promotion/Reward Logic
-            let promoted = false;
-            let nextRank: Rank = currentRank;
-            
-            // Legend Loop Logic (Every 5 wins)
             if (currentRank === 'Legend') {
                 if (newRankWins >= rankConfig.winsToPromote) {
-                    newRankWins = 0; // Reset loop
-                    
-                    // Distribute Legend Rewards
+                    newRankWins = 0; 
                     const rewards = rankConfig.promotionReward;
                     updates.coins = gameState.coins + rewards.coins;
                     updates.ownedPacks = [...gameState.ownedPacks, ...rewards.packs];
-                    
-                    // Add Picks
                     const newPicks = rewards.picks.map(id => playerPickConfigs[id]).filter(Boolean);
                     updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, ...newPicks];
-                    
                     setRankUpModalData({ newRank: 'Legend', rewards });
                     playSfx('success');
                 }
-            } 
-            // Normal Rank Progression
-            else if (newRankWins >= rankConfig.winsToPromote) {
+            } else if (newRankWins >= rankConfig.winsToPromote) {
+                let nextRank: Rank = currentRank;
                 if (currentRank === 'Bronze') nextRank = 'Silver';
                 else if (currentRank === 'Silver') nextRank = 'Gold';
                 else if (currentRank === 'Gold') nextRank = 'Legend';
                 
-                newRankWins = 0; // Reset for next rank
-                promoted = true;
-                
-                // Distribute Promotion Rewards
+                newRankWins = 0;
                 const rewards = rankConfig.promotionReward;
                 updates.coins = gameState.coins + rewards.coins;
                 updates.ownedPacks = [...gameState.ownedPacks, ...rewards.packs];
@@ -715,18 +763,14 @@ const App: React.FC = () => {
 
                 setRankUpModalData({ newRank: nextRank, rewards });
                 playSfx('success');
+                updates.rank = nextRank;
             }
-
-            updates.rank = nextRank;
             updates.rankWins = newRankWins;
         }
-
-        // Apply all updates centrally
         updateGameState(updates);
     };
     
-    // FBC Submit
-    const handleFbcSubmit = (challengeId: string, submittedCards: CardType[]) => {
+    const handleFbcSubmit = (challengeId: string, submittedCards: GameCard[]) => {
         const challenge = fbcData.find(c => c.id === challengeId);
         if (!challenge) return;
 
@@ -743,7 +787,6 @@ const App: React.FC = () => {
         let newObjectiveProgress = applyObjectiveProgress(gameState.objectiveProgress, 'complete_fbcs', 1);
         let rewardUpdate: Partial<GameState> = {};
 
-        // Give Reward - Store in inventory
         if (challenge.reward.type === 'coins' && challenge.reward.amount) {
             rewardUpdate.coins = gameState.coins + challenge.reward.amount;
         } else if (challenge.reward.type === 'pack' && challenge.reward.details) {
@@ -764,7 +807,6 @@ const App: React.FC = () => {
         });
         playSfx('success');
 
-        // Show Modal
         setRewardModal({
             isOpen: true,
             reward: {
@@ -777,15 +819,8 @@ const App: React.FC = () => {
         });
     };
 
-    // Evo Logic
     const handleStartEvo = (evoId: string, cardId: string) => {
-        updateGameState({
-            activeEvolution: {
-                evoId,
-                cardId,
-                tasks: {}
-            }
-        });
+        updateGameState({ activeEvolution: { evoId, cardId, tasks: {} } });
     };
 
     const handleClaimEvo = () => {
@@ -820,7 +855,6 @@ const App: React.FC = () => {
             });
             playSfx('rewardClaimed');
 
-            // Show Modal
             setRewardModal({
                 isOpen: true,
                 reward: { type: 'card', cardId: resultCard.id },
@@ -829,7 +863,6 @@ const App: React.FC = () => {
         }
     };
     
-    // Objective Claim
     const handleClaimObjective = (objId: string) => {
         const obj = objectivesData.find(o => o.id === objId);
         if (!obj) return;
@@ -844,7 +877,6 @@ const App: React.FC = () => {
             }
         };
         
-        // Add Rewards to Inventory
         if (obj.reward.type === 'coins') {
             updates.coins = gameState.coins + (obj.reward.amount || 0);
         } else if (obj.reward.type === 'pack') {
@@ -860,22 +892,16 @@ const App: React.FC = () => {
                 updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, pickConfig];
             }
         } else if (obj.reward.type === 'coins_and_pick') {
-            // New Mixed Reward Type
-            if (obj.reward.amount) {
-                updates.coins = gameState.coins + obj.reward.amount;
-            }
+            if (obj.reward.amount) updates.coins = gameState.coins + obj.reward.amount;
             if (obj.reward.playerPickId) {
                 const pickConfig = playerPickConfigs[obj.reward.playerPickId];
-                if (pickConfig) {
-                    updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, pickConfig];
-                }
+                if (pickConfig) updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, pickConfig];
             }
         }
         
         updateGameState(updates);
         playSfx('rewardClaimed');
 
-        // Show Modal
         setRewardModal({
             isOpen: true,
             reward: obj.reward,
@@ -883,23 +909,26 @@ const App: React.FC = () => {
         });
     };
 
-    const handlePlayerPickComplete = (selectedCards: CardType[]) => {
-        const newCards: CardType[] = [];
+    const handlePlayerPickComplete = (selectedCards: GameCard[]) => {
+        const newCards: GameCard[] = [];
         selectedCards.forEach(card => {
             const uniqueCard = { ...card, id: `${card.id}-${Date.now()}-${Math.floor(Math.random() * 1000)}`};
             newCards.push(uniqueCard);
         });
-
-        // Instead of adding directly to storage, route through the PackResults flow to decide fate (Keep/Sell/List)
         setPendingPackCards(newCards);
-        
-        updateGameState({
-            activePlayerPick: null // Close selection modal
-        });
+        updateGameState({ activePlayerPick: null });
         playSfx('purchase');
     };
 
-    // --- Render ---
+    // --- RENDER ---
+
+    if (isLoadingAssets) {
+        return (
+            <div className="fixed inset-0 bg-black flex flex-col items-center justify-center z-[200]">
+                <p className="text-gold-light mt-4 font-header tracking-wider">Loading...</p>
+            </div>
+        );
+    }
 
     const notificationCounts = {
         objectives: objectivesData.filter(o => {
@@ -1022,7 +1051,6 @@ const App: React.FC = () => {
                 />
             )}
 
-            {/* Player Pick Modal */}
             {gameState.activePlayerPick && (
                 <PlayerPickModal
                     config={gameState.activePlayerPick}
@@ -1034,7 +1062,6 @@ const App: React.FC = () => {
                 />
             )}
 
-            {/* Rank Up Rewards Modal */}
             {rankUpModalData && (
                 <RankUpModal
                     isOpen={!!rankUpModalData}
@@ -1045,7 +1072,6 @@ const App: React.FC = () => {
                 />
             )}
 
-            {/* Generic Reward Modal */}
             {rewardModal.isOpen && (
                 <RewardModal 
                     isOpen={rewardModal.isOpen} 

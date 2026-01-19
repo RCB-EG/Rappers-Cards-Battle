@@ -1,12 +1,45 @@
-import React, { useState, useEffect, useMemo } from 'react';
+
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Card as CardType } from '../../types';
 import Card from '../Card';
+import Button from '../Button';
 import { sfx, getRevealSfxKey } from '../../data/sounds';
 
 interface PackAnimationModalProps {
   card: CardType | null;
   onAnimationEnd: (card: CardType) => void;
   playSfx: (soundKey: keyof typeof sfx) => void;
+}
+
+// Particle System Class
+class Particle {
+    x: number; y: number; vx: number; vy: number; life: number; color: string; size: number;
+    constructor(w: number, h: number, colors: string[]) {
+      this.x = w / 2;
+      this.y = h / 2;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 20 + 5;
+      this.vx = Math.cos(angle) * speed;
+      this.vy = Math.sin(angle) * speed;
+      this.life = 1.0;
+      this.color = colors[Math.floor(Math.random() * colors.length)];
+      this.size = Math.random() * 6 + 2;
+    }
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vx *= 0.94; // friction
+      this.vy *= 0.94;
+      this.life -= 0.01;
+    }
+    draw(ctx: CanvasRenderingContext2D) {
+      ctx.globalAlpha = Math.max(0, this.life);
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
 }
 
 const getAnimationDetails = (rarity: CardType['rarity']) => {
@@ -19,7 +52,7 @@ const getAnimationDetails = (rarity: CardType['rarity']) => {
         case 'icon':
         case 'legend':
         case 'event':
-            return { tier: 4, revealDelay: 3000, totalDuration: 5500 };
+            return { tier: 4, revealDelay: 3000, totalDuration: 6000 };
         case 'bronze':
         default:
             return { tier: 1, revealDelay: 1200, totalDuration: 2500 };
@@ -28,6 +61,8 @@ const getAnimationDetails = (rarity: CardType['rarity']) => {
 
 const PackAnimationModal: React.FC<PackAnimationModalProps> = ({ card, onAnimationEnd, playSfx }) => {
     const [isRevealing, setIsRevealing] = useState(false);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const animFrameRef = useRef<number | null>(null);
 
     const animationDetails = useMemo(() => card ? getAnimationDetails(card.rarity) : null, [card]);
 
@@ -39,7 +74,7 @@ const PackAnimationModal: React.FC<PackAnimationModalProps> = ({ card, onAnimati
                 setIsRevealing(true);
                 const revealSoundKey = getRevealSfxKey(card.rarity);
                 playSfx(revealSoundKey);
-            }, revealDelay - 500);
+            }, revealDelay);
 
             const endTimer = setTimeout(() => {
                 onAnimationEnd(card);
@@ -49,9 +84,52 @@ const PackAnimationModal: React.FC<PackAnimationModalProps> = ({ card, onAnimati
                 clearTimeout(revealTimer);
                 clearTimeout(endTimer);
                 setIsRevealing(false);
+                if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
             };
         }
     }, [card, animationDetails, onAnimationEnd, playSfx]);
+
+    // Particle Effect Logic
+    useEffect(() => {
+        if (isRevealing && card && animationDetails && animationDetails.tier >= 3) {
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            const particles: Particle[] = [];
+            let colors = ['#FFD700', '#FFA500', '#FFFFFF']; // Gold default
+            if (card.rarity === 'legend') colors = ['#FF00FF', '#00FFFF', '#FFFFFF']; // Cyberpunk
+            if (card.rarity === 'event') colors = ['#00FFCC', '#FFFFFF', '#0099FF'];
+            if (card.rarity === 'icon') colors = ['#00C7E2', '#FFFFFF'];
+
+            // Spawn explosion
+            for (let i = 0; i < 150; i++) {
+                particles.push(new Particle(canvas.width, canvas.height, colors));
+            }
+
+            const render = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                for (let i = 0; i < particles.length; i++) {
+                    particles[i].update();
+                    particles[i].draw(ctx);
+                }
+                if (particles.some(p => p.life > 0)) {
+                    animFrameRef.current = requestAnimationFrame(render);
+                }
+            };
+            render();
+        }
+    }, [isRevealing, card, animationDetails]);
+
+    const handleSkip = () => {
+        if (card) {
+            onAnimationEnd(card);
+        }
+    };
 
     if (!card || !animationDetails) return null;
 
@@ -63,13 +141,12 @@ const PackAnimationModal: React.FC<PackAnimationModalProps> = ({ card, onAnimati
         gold: '#ffd700',
         rotm: '#e364a7',
         icon: '#00c7e2',
-        legend: '#f2f2f2',
+        legend: '#ffffff',
         event: '#33ffdd'
     };
     const rarityColor = rarityGlowColors[card.rarity] || '#FFD700';
     
-    // The `reveal` class, reveal-delay, and animation-* classes are all handled by the CSS in index.html
-    const containerClasses = `fixed inset-0 bg-black z-[200] flex justify-center items-center overflow-hidden tier-${tier}`;
+    const containerClasses = `fixed inset-0 bg-black z-[200] flex justify-center items-center overflow-hidden tier-${tier} ${isRevealing && tier === 4 ? 'shake-screen' : ''}`;
     
     const cardContainerClasses = `
         relative
@@ -78,12 +155,26 @@ const PackAnimationModal: React.FC<PackAnimationModalProps> = ({ card, onAnimati
     `;
 
     return (
-        <div id="pack-animation-modal" className={containerClasses} style={{ '--rarity-glow-color': rarityColor, '--reveal-delay': `${animationDetails.revealDelay}ms` } as React.CSSProperties}>
+        <div id="pack-animation-modal" className={containerClasses} style={{ '--rarity-glow-color': rarityColor, '--reveal-delay': '0s' } as React.CSSProperties}>
+            {isRevealing && tier >= 4 && <div className="flash-overlay"></div>}
+            
+            <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-50" />
+            
             <div className="animation-vignette"></div>
+            
+            {/* God Rays for High Tiers */}
+            {tier >= 3 && <div className={`god-rays ${isRevealing ? 'opacity-100' : 'opacity-0'}`}></div>}
+            
             <div className="animation-flare"></div>
             
             <div id="animation-card-container" className={cardContainerClasses}>
                 <Card card={card} origin="animation" />
+            </div>
+
+            <div className="absolute bottom-8 right-8 z-[210]">
+                <Button variant="default" onClick={handleSkip} className="opacity-80 hover:opacity-100 !py-2 !px-4 text-sm bg-black/50 border-gray-600">
+                    Skip
+                </Button>
             </div>
         </div>
     );

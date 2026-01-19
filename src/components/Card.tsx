@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card as CardType } from '../types';
+import { rarityBgUrls } from '../utils/assets';
 
 interface CardProps {
   card: CardType;
@@ -13,20 +14,10 @@ interface CardProps {
 const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = false, ...props }) => {
   const [imageError, setImageError] = useState(false);
 
-  // Reset error state when card changes
+  // Reset states when card changes
   useEffect(() => {
     setImageError(false);
-  }, [card.image]);
-
-  const rarityBgUrls: Record<string, string> = {
-    bronze: 'https://i.imghippo.com/files/TmM6820WtQ.png',
-    silver: 'https://i.imghippo.com/files/zC9861peQ.png',
-    gold: 'https://i.imghippo.com/files/tUt8745JBc.png',
-    rotm: 'https://i.imghippo.com/files/UGRy5126YM.png',
-    icon: 'https://i.imghippo.com/files/PjIu1716584980.png',
-    legend: 'https://i.imghippo.com/files/jdCC2070F.png',
-    event: 'https://i.imghippo.com/files/jdCC2070F.png'
-  };
+  }, [card.image, card.id]);
 
   const specialRarityClass = card.rarity === 'legend' ? 'is-legendary' : card.rarity === 'event' ? 'is-event' : '';
 
@@ -64,20 +55,17 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
       onContextMenu={(e) => e.preventDefault()}
       {...props}
     >
-      {/* Base layer: ImgHippo Image Background */}
+      {/* Base layer: Card Background (Frame) */}
       <div className={`absolute inset-0 z-0 bg-cover bg-center`} style={{backgroundImage: `url('${bgUrl}')`}} />
       
       {/* Detail layer: Character Image */}
-      {/* Only show image if no error. */}
       {!imageError && (
-        <div className="absolute top-0 left-0 w-full h-full z-10 flex items-center justify-center">
-            <img 
-              className="w-full h-full object-cover" 
-              src={card.image} 
-              alt={card.name}
-              onError={() => setImageError(true)}
-            />
-        </div>
+        <img 
+          className="absolute inset-0 w-full h-full object-cover z-10"
+          src={card.image} 
+          alt={card.name}
+          onError={() => setImageError(true)}
+        />
       )}
 
       {/* Fallback Initials if image fails */}

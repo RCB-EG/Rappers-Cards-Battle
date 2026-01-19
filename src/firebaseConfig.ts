@@ -16,11 +16,10 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Export Auth and Firestore services to be used in App.tsx
+// Export Auth
 export const auth = getAuth(app);
 
-// Use initializeFirestore with experimentalForceLongPolling to prevent
-// "Could not reach Cloud Firestore backend" errors in environments with WebSocket restrictions.
+// Export Firestore with standard settings for best real-time performance
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
+    // experimentalForceLongPolling: true, // Removed to prefer WebSockets
 });

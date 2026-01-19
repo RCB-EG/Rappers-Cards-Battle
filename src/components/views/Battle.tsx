@@ -242,6 +242,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     const [shakeIntensity, setShakeIntensity] = useState<number>(0);
     const [showRankRewards, setShowRankRewards] = useState(false);
     const [teamSize, setTeamSize] = useState(5);
+    const [forcedCpuAttackerId, setForcedCpuAttackerId] = useState<string | null>(null); // For AI Flow Switcher
     const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const animationFrameRef = useRef<number | null>(null);
     
@@ -467,10 +468,11 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                 } else if (isNotesMaster) {
                     playSfx('battleBuff');
                     if (startRect) triggerSpecialEffect('notes', startRect.left + startRect.width/2, startRect.top);
-                    const addTaunt = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { ...c, activeEffects: [...c.activeEffects, { type: 'taunt', duration: 1 } as ActiveEffect] } : c);
+                    // Updated to 2 turns
+                    const addTaunt = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { ...c, activeEffects: [...c.activeEffects, { type: 'taunt', duration: 2 } as ActiveEffect] } : c);
                     
                     if (attacker.owner === 'player') setPlayerTeam(prev => addTaunt(prev)); else setCpuTeam(prev => addTaunt(prev));
-                    addToLog(`${attacker.name} demands attention!`);
+                    addToLog(`${attacker.name} demands attention! (2 turns)`);
                     
                 } else if (isStoryteller) {
                     playSfx('battleBuff');
@@ -614,15 +616,19 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                 }
             }
 
-            // --- Reset UI ---
+            // --- Reset UI & Handle Turn Switching ---
             setSelectedAttackerId(null); 
             setSelectedAction('standard');
 
+            // Handle Flow Switcher (Attack Again)
             if (isFlowSwitcher) {
                  addToLog(`${attacker.name} strikes again!`);
                  if (attacker.owner === 'player') {
                      setSelectedAttackerId(attacker.instanceId); 
                      setSelectedAction('standard');
+                 } else {
+                     // For CPU: Force the same card to attack next
+                     setForcedCpuAttackerId(attacker.instanceId);
                  }
                  setIsAnimating(false);
                  return; // Do NOT switch turn
@@ -719,55 +725,79 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         }
 
         const timer = setTimeout(() => {
-            const aiAttackers = cpuTeam.filter(c => c.currentHp > 0 && c.mode === 'attack');
-            const capableAttackers = aiAttackers.filter(c => !c.activeEffects.some(e => e.type === 'stun'));
-            if (capableAttackers.length === 0) { 
-                addToLog("CPU has no capable attackers!"); 
-                setTurn('player'); 
-                return; 
-            }
+            // Determine Attacker
+            let attacker: BattleCard | undefined;
             
-            let attacker: BattleCard;
-            if (difficulty === 'expert') {
-                attacker = capableAttackers.reduce((prev, curr) => (curr.atk > prev.atk ? curr : prev));
-            } else {
-                attacker = capableAttackers[Math.floor(Math.random() * capableAttackers.length)];
-            }
+            if (forcedCpuAttackerId) {
+                // If Flow Switcher triggered, use the forced attacker
+                attacker = cpuTeam.find(c => c.instanceId === forcedCpuAttackerId && c.currentHp > 0);
+                if (!attacker) {
+                    // Forced attacker died or is invalid
+                    setForcedCpuAttackerId(null);
+                }
+            } 
             
-            let action = 'standard';
-            const availableSupers = attacker.availableSuperpowers;
-            const isSilenced = attacker.activeEffects.some(e => e.type === 'silence');
-            
-            if (availableSupers.length > 0 && !isSilenced) {
-                if (difficulty === 'dumb') {
-                    if (Math.random() < 0.1) action = availableSupers[0];
-                } else if (difficulty === 'smart' || difficulty === 'expert') {
-                    if (Math.random() < 0.6) action = availableSupers[0];
+            if (!attacker) {
+                const aiAttackers = cpuTeam.filter(c => c.currentHp > 0 && c.mode === 'attack');
+                const capableAttackers = aiAttackers.filter(c => !c.activeEffects.some(e => e.type === 'stun'));
+                
+                if (capableAttackers.length === 0) { 
+                    addToLog("CPU has no capable attackers!"); 
+                    setTurn('player'); 
+                    return; 
+                }
+
+                if (difficulty === 'expert') {
+                    attacker = capableAttackers.reduce((prev, curr) => (curr.atk > prev.atk ? curr : prev));
                 } else {
-                    if (Math.random() < 0.3) action = availableSupers[0];
+                    attacker = capableAttackers[Math.floor(Math.random() * capableAttackers.length)];
                 }
             }
             
-            const validTargets = playerTeam.filter(c => isTargetable(c, playerTeam));
-            const isNonTargeted = ['Chopper', 'Show Maker', 'ShowMaker', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller', 'The Artist'].includes(action);
-            
-            if (validTargets.length > 0 || isNonTargeted) {
-                let target = null;
-                if (validTargets.length > 0) {
-                    if (difficulty === 'expert' || difficulty === 'smart') {
-                        target = validTargets.find(t => t.currentHp < attacker.atk) || 
-                                 validTargets.sort((a,b) => a.currentHp - b.currentHp)[0];
+            // If we successfully picked an attacker (forced or new)
+            if (attacker) {
+                // Clear forced ID after picking it to prevent infinite loop if action doesn't consume it (though Flow Switcher logic handles re-setting it)
+                if (forcedCpuAttackerId) setForcedCpuAttackerId(null);
+
+                let action = 'standard';
+                const availableSupers = attacker.availableSuperpowers;
+                const isSilenced = attacker.activeEffects.some(e => e.type === 'silence');
+                
+                // Only use superpower if not silenced and random chance passes
+                if (availableSupers.length > 0 && !isSilenced) {
+                    if (difficulty === 'dumb') {
+                        if (Math.random() < 0.1) action = availableSupers[0];
+                    } else if (difficulty === 'smart' || difficulty === 'expert') {
+                        if (Math.random() < 0.6) action = availableSupers[0];
                     } else {
-                        target = validTargets[Math.floor(Math.random() * validTargets.length)];
+                        if (Math.random() < 0.3) action = availableSupers[0];
                     }
                 }
-                executeAction(attacker, target, action);
-            } else { 
-                setTurn('player'); 
+                
+                const validTargets = playerTeam.filter(c => isTargetable(c, playerTeam));
+                const isNonTargeted = ['Chopper', 'Show Maker', 'ShowMaker', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller', 'The Artist'].includes(action);
+                
+                if (validTargets.length > 0 || isNonTargeted) {
+                    let target = null;
+                    if (validTargets.length > 0) {
+                        if (difficulty === 'expert' || difficulty === 'smart') {
+                            target = validTargets.find(t => t.currentHp < attacker!.atk) || 
+                                     validTargets.sort((a,b) => a.currentHp - b.currentHp)[0];
+                        } else {
+                            target = validTargets[Math.floor(Math.random() * validTargets.length)];
+                        }
+                    }
+                    executeAction(attacker, target, action);
+                } else { 
+                    setTurn('player'); 
+                }
+            } else {
+                setTurn('player');
             }
+
         }, 1200);
         return () => clearTimeout(timer);
-    }, [turn, isAnimating, phase, subMode, skipNextTurn]);
+    }, [turn, isAnimating, phase, subMode, skipNextTurn, forcedCpuAttackerId]);
 
     const handleCardSelect = (id: string) => {
         if (selectedCardIds.includes(id)) setSelectedCardIds(prev => prev.filter(c => c !== id));
@@ -804,8 +834,12 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
 
         if (subMode === 'ranked') {
             const rankConfig = rankSystem[gameState.rank];
-            minOvr = rankConfig.cpuOvrRange[0];
-            maxOvr = rankConfig.cpuOvrRange[1];
+            // Dynamic difficulty: Increase stats based on current win streak in this rank
+            // +1 OVR range shift for every win you have towards promotion
+            const difficultyBuff = (gameState.rankWins || 0) * 1;
+            
+            minOvr = rankConfig.cpuOvrRange[0] + difficultyBuff;
+            maxOvr = rankConfig.cpuOvrRange[1] + difficultyBuff;
         } else {
             const playerAvg = playerTeam.reduce((sum, c) => sum + c.ovr, 0) / playerTeam.length;
             minOvr = Math.max(55, Math.floor(playerAvg - 2));
@@ -826,6 +860,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         setCpuTeam(cTeam);
         setTurn('player');
         setSelectedAttackerId(null);
+        setForcedCpuAttackerId(null);
         setBattleLog([`Battle Start! (${subMode === 'ranked' ? 'Ranked' : 'Challenge'})`]);
         setPhase('battle');
         playSfx('packBuildup');

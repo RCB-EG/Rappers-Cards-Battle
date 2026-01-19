@@ -55,7 +55,7 @@ const PackResultsModal: React.FC<PackResultsModalProps> = ({ cards, onKeep, onSe
                         className="!py-2 !px-1 text-xs w-full"
                         onClick={() => onSell(card)}
                     >
-                        {sellValue} Coins
+                        Quick Sell: {sellValue}
                     </Button>
                 </div>
 

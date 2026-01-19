@@ -49,29 +49,33 @@ const RankUpModal: React.FC<RankUpModalProps> = ({ isOpen, onClose, newRank, rew
                     </div>
 
                     {/* Packs */}
-                    {Object.entries(packCounts).map(([type, count]) => (
-                        <div key={type} className="flex flex-col items-center w-28">
-                            <div className="relative group">
-                                <img src={packImages[type as PackType]} alt={type} className="w-20 h-auto object-contain drop-shadow-md transition-transform group-hover:scale-110" />
-                                {count > 1 && <div className="absolute -top-2 -right-2 bg-red-600 text-white text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full border-2 border-darker-gray shadow-sm">{count}</div>}
+                    {Object.entries(packCounts).map(([type, count]) => {
+                        const countNum = count as number;
+                        return (
+                            <div key={type} className="flex flex-col items-center w-28">
+                                <div className="relative group">
+                                    <img src={packImages[type as PackType]} alt={type} className="w-20 h-auto object-contain drop-shadow-md transition-transform group-hover:scale-110" />
+                                    {countNum > 1 && <div className="absolute -top-2 -right-2 bg-red-600 text-white text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full border-2 border-darker-gray shadow-sm">{countNum}</div>}
+                                </div>
+                                <span className="text-white font-bold text-sm mt-2">{countNum}x</span>
+                                <span className="text-gray-400 text-xs text-center leading-tight h-6 flex items-center capitalize">{t(`pack_${type}` as TranslationKey).replace(' Pack', '')}</span>
                             </div>
-                            <span className="text-white font-bold text-sm mt-2">{count}x</span>
-                            <span className="text-gray-400 text-xs text-center leading-tight h-6 flex items-center capitalize">{t(`pack_${type}` as TranslationKey).replace(' Pack', '')}</span>
-                        </div>
-                    ))}
+                        );
+                    })}
 
                     {/* Picks */}
                     {Object.entries(pickCounts).map(([pickId, count]) => {
                         const pickConfig = playerPickConfigs[pickId];
+                        const countNum = count as number;
                         return (
                             <div key={pickId} className="flex flex-col items-center w-28">
                                 <div className="relative group">
                                     <div className="w-20 h-28 bg-cover bg-center rounded-lg shadow-md border border-gray-600 group-hover:border-gold-light transition-all duration-300 group-hover:scale-105" style={{ backgroundImage: 'url("https://i.imghippo.com/files/cGUh9927EWc.png")' }}>
                                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center"><span className="text-3xl">❓</span></div>
                                     </div>
-                                    {count > 1 && <div className="absolute -top-2 -right-2 bg-red-600 text-white text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full border-2 border-darker-gray shadow-sm">{count}</div>}
+                                    {countNum > 1 && <div className="absolute -top-2 -right-2 bg-red-600 text-white text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full border-2 border-darker-gray shadow-sm">{countNum}</div>}
                                 </div>
-                                <span className="text-white font-bold text-sm mt-2">{count}x</span>
+                                <span className="text-white font-bold text-sm mt-2">{countNum}x</span>
                                 <span className="text-gray-400 text-xs text-center leading-tight h-6 flex items-center">{pickConfig ? t(pickConfig.nameKey as TranslationKey).replace(' Pick', '') : pickId}</span>
                             </div>
                         );

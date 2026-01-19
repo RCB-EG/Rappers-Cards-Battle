@@ -79,7 +79,11 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, onOpenInventoryPick, gameStat
                                     </div>
                                 </div>
                                 <span className="text-sm text-gray-300 mb-2">{packDetails[type as PackType]?.label || type}</span>
-                                <Button variant="keep" onClick={() => onOpenPack(type as PackType, { fromInventory: true })} className="py-1 px-4 text-sm">
+                                <Button 
+                                    variant="keep" 
+                                    onClick={() => onOpenPack(type as PackType, { fromInventory: true })} 
+                                    className="py-1 px-4 text-sm"
+                                >
                                     Open
                                 </Button>
                             </div>
@@ -122,7 +126,13 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, onOpenInventoryPick, gameStat
                     return (
                         <div key={packType} className="flex flex-col items-center">
                             <button
-                                onClick={() => isFreePack ? onOpenPack('free') : setConfirmingPack(packType)}
+                                onClick={() => {
+                                    if (isFreePack && !isDisabled) {
+                                        onOpenPack('free');
+                                    } else {
+                                        setConfirmingPack(packType);
+                                    }
+                                }}
                                 disabled={isDisabled}
                                 className="pack-item group flex flex-col items-center max-w-[150px] transition-transform duration-300 ease-in-out disabled:filter disabled:grayscale disabled:cursor-not-allowed enabled:hover:-translate-y-1"
                             >
@@ -134,7 +144,9 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, onOpenInventoryPick, gameStat
                             </button>
                             {isFreePack ? (
                                 <div className="text-center">
-                                    <span className="text-lg text-gold-light [text-shadow:0_0_5px_#B8860B]">{packDetails[packType].label}</span>
+                                    <span className="text-lg text-gold-light [text-shadow:0_0_5px_#B8860B]">
+                                        {packDetails[packType].label}
+                                    </span>
                                     <span className="block text-sm text-gray-400 h-5">
                                         {packsLeft > 0 ? `(${packsLeft} left)` : `(Resets later)`}
                                     </span>

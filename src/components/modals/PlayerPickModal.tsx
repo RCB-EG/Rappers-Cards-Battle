@@ -17,6 +17,16 @@ interface PlayerPickModalProps {
     playSfx: (key: keyof typeof sfx) => void;
 }
 
+const rarityColors: Record<string, string> = {
+    bronze: '#cd7f32',
+    silver: '#c0c0c0',
+    gold: '#ffd700',
+    rotm: '#e364a7',
+    icon: '#00c7e2',
+    legend: '#ffffff',
+    event: '#33ffdd'
+};
+
 const PlayerPickModal: React.FC<PlayerPickModalProps> = ({ config, onComplete, storage, formation, t, playSfx }) => {
     const [candidates, setCandidates] = useState<CardType[]>([]);
     const [revealedIndices, setRevealedIndices] = useState<number[]>([]);
@@ -92,14 +102,22 @@ const PlayerPickModal: React.FC<PlayerPickModalProps> = ({ config, onComplete, s
 
         setCandidates(picks);
         setIsGenerating(false);
+        
     }, [config]);
 
     // Sequential Reveal Effect
     useEffect(() => {
         if (!isGenerating && candidates.length > 0) {
-            candidates.forEach((_, index) => {
+            candidates.forEach((card, index) => {
                 setTimeout(() => {
-                    playSfx('packBuildup'); // Slight sound for each reveal
+                    const soundKey = 
+                        (card.rarity === 'rotm' || card.rarity === 'icon' || card.rarity === 'legend') 
+                        ? 'revealIcon' 
+                        : card.rarity === 'gold' 
+                        ? 'revealGold' 
+                        : 'packBuildup';
+                        
+                    playSfx(soundKey);
                     setRevealedIndices(prev => [...prev, index]);
                 }, 500 + (index * 800)); // Staggered reveal
             });
@@ -130,70 +148,109 @@ const PlayerPickModal: React.FC<PlayerPickModalProps> = ({ config, onComplete, s
 
     return (
         <Modal isOpen={true} onClose={() => {}} title={t(config.nameKey as TranslationKey)} size="xl">
-            <div className="flex flex-col items-center">
-                <p className="text-gray-300 mb-6 text-lg">
-                    {t('pick_select_instruction', { count: config.pickCount })}
-                </p>
+            {isGenerating ? (
+                <div className="flex flex-col items-center justify-center h-64">
+                    <div className="w-12 h-12 border-4 border-gold-light/30 border-t-gold-light rounded-full animate-spin mb-4"></div>
+                    <p className="text-gold-light">Scouting players...</p>
+                </div>
+            ) : (
+                <div className="flex flex-col items-center">
+                    <p className="text-gray-300 mb-6 text-lg">
+                        {t('pick_select_instruction', { count: config.pickCount })}
+                    </p>
 
-                <div className="flex flex-wrap justify-center gap-4 mb-8">
-                    {candidates.map((card, index) => {
-                        const isRevealed = revealedIndices.includes(index);
-                        const isSelected = selectedIndices.includes(index);
-                        
-                        // Check duplication
-                        const isDuplicate = 
-                            storage.some(c => c.name === card.name) || 
-                            Object.values(formation).some(c => c?.name === card.name);
+                    <div className="flex flex-wrap justify-center gap-6 mb-8">
+                        {candidates.map((card, index) => {
+                            const isRevealed = revealedIndices.includes(index);
+                            const isSelected = selectedIndices.includes(index);
+                            const rarityColor = rarityColors[card.rarity] || '#ffffff';
+                            
+                            // Check duplication
+                            const isDuplicate = 
+                                storage.some(c => c.name === card.name) || 
+                                (Object.values(formation) as (CardType | null)[]).some(c => c?.name === card.name);
 
-                        return (
-                            <div 
-                                key={card.id} 
-                                onClick={() => handleSelect(index)}
-                                className={`
-                                    relative w-[180px] h-[270px] cursor-pointer transition-all duration-300
-                                    ${!isRevealed ? 'opacity-100 scale-95' : 'opacity-100 scale-100'}
-                                    ${isSelected ? 'transform -translate-y-4 drop-shadow-[0_0_15px_#00c7e2]' : 'hover:scale-105'}
-                                `}
-                                style={{ transitionDelay: `${index * 100}ms` }}
-                            >
-                                {/* Unrevealed State (The custom player pick design) */}
+                            // Use Drop Shadow filter instead of Box Shadow for shape-conforming glow
+                            const glowStyle = isRevealed ? {
+                                filter: isSelected 
+                                    ? `drop-shadow(0 0 8px #00c7e2) drop-shadow(0 0 16px #00c7e2)` 
+                                    : `drop-shadow(0 0 6px ${rarityColor}) drop-shadow(0 0 12px ${rarityColor}66)`,
+                                transitionDelay: `${index * 100}ms`,
+                                // Apply transform directly via style to ensure it works with the filter transition
+                                transform: isSelected ? 'translateY(-1rem) scale(1.05)' : 'none'
+                            } : {
+                                transitionDelay: `${index * 100}ms`
+                            };
+
+                            return (
                                 <div 
-                                    className={`absolute inset-0 bg-cover bg-center rounded-lg transition-opacity duration-700 z-20 pointer-events-none ${isRevealed ? 'opacity-0' : 'opacity-100'}`}
-                                    style={{ backgroundImage: 'url("https://i.imghippo.com/files/cGUh9927EWc.png")' }}
-                                />
-                                
-                                {/* Revealed State (The actual Card) */}
-                                <div className={`absolute inset-0 z-10 transition-opacity duration-700 ${isRevealed ? 'opacity-100' : 'opacity-0'}`}>
-                                    <Card card={card} />
+                                    key={card.id} 
+                                    onClick={() => handleSelect(index)}
+                                    className={`
+                                        relative w-[180px] h-[270px] cursor-pointer transition-all duration-500 rounded-lg
+                                        ${!isRevealed ? 'opacity-100 scale-95' : 'opacity-100 scale-100 pick-reveal-pop'}
+                                        ${!isSelected ? 'hover:scale-105 hover:z-10' : 'z-20'}
+                                    `}
+                                    style={glowStyle}
+                                >
+                                    {/* Unrevealed State: Use img tag to allow filter: drop-shadow to respect alpha channel */}
+                                    <img 
+                                        src="https://i.imghippo.com/files/cGUh9927EWc.png"
+                                        alt="Pick Cover"
+                                        className={`absolute inset-0 w-full h-full object-cover rounded-lg transition-opacity duration-300 z-20 pointer-events-none ${isRevealed ? 'opacity-0' : 'opacity-100'}`}
+                                    />
                                     
-                                    {/* Duplicate Overlay */}
-                                    {isDuplicate && (
-                                        <div className="absolute top-2 inset-x-2 bg-red-600/90 text-white text-xs font-bold text-center py-1 rounded shadow-md border border-red-400 z-30">
-                                            DUPLICATE
+                                    {/* Revealed State (The actual Card) */}
+                                    <div className={`absolute inset-0 z-10 transition-opacity duration-300 ${isRevealed ? 'opacity-100' : 'opacity-0'}`}>
+                                        <Card card={card} />
+                                        
+                                        {/* Flash Effect on Reveal - Tinted with rarity color */}
+                                        {isRevealed && (
+                                            <div 
+                                                className="absolute inset-0 flash-overlay z-40 rounded-lg pointer-events-none mix-blend-overlay" 
+                                                style={{ 
+                                                    animationDuration: '0.8s',
+                                                    backgroundColor: rarityColor 
+                                                }} 
+                                            />
+                                        )}
+                                        {/* Additional White Flash for brightness */}
+                                        {isRevealed && (
+                                            <div 
+                                                className="absolute inset-0 flash-overlay z-40 rounded-lg pointer-events-none" 
+                                                style={{ animationDuration: '0.4s' }} 
+                                            />
+                                        )}
+
+                                        {/* Duplicate Overlay */}
+                                        {isDuplicate && (
+                                            <div className="absolute top-2 inset-x-2 bg-red-600/90 text-white text-xs font-bold text-center py-1 rounded shadow-md border border-red-400 z-30">
+                                                DUPLICATE
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Selection Indicator */}
+                                    {isSelected && (
+                                        <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 bg-blue-glow text-black text-xs font-bold px-2 py-1 rounded-full animate-bounce z-30 shadow-lg border border-white">
+                                            SELECTED
                                         </div>
                                     )}
                                 </div>
+                            );
+                        })}
+                    </div>
 
-                                {/* Selection Indicator */}
-                                {isSelected && (
-                                    <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 bg-blue-glow text-black text-xs font-bold px-2 py-1 rounded-full animate-bounce z-30 shadow-lg border border-white">
-                                        SELECTED
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
+                    <Button 
+                        variant="keep" 
+                        onClick={handleConfirm} 
+                        disabled={selectedIndices.length !== config.pickCount}
+                        className="w-full max-w-xs"
+                    >
+                        {t('confirm_pick')}
+                    </Button>
                 </div>
-
-                <Button 
-                    variant="keep" 
-                    onClick={handleConfirm} 
-                    disabled={selectedIndices.length !== config.pickCount}
-                    className="w-full max-w-xs"
-                >
-                    {t('confirm_pick')}
-                </Button>
-            </div>
+            )}
         </Modal>
     );
 };
