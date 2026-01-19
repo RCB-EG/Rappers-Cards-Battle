@@ -17,7 +17,7 @@ import { initialState } from './data/initialState';
 import { packs, allCards, objectivesData, evoData, fbcData, playerPickConfigs, rankSystem } from './data/gameData';
 import { sfx } from './data/sounds';
 import { translations, TranslationKey } from './utils/translations';
-import { playSound } from './utils/sound';
+import { playSound, updateMainMusic } from './utils/sound';
 import { useSettings } from './hooks/useSettings';
 import { auth, db } from './firebaseConfig';
 import { 
@@ -120,6 +120,30 @@ const App: React.FC = () => {
             playSound(sfx[key], settings.sfxVolume);
         }
     }, [settings.sfxOn, settings.sfxVolume]);
+
+    // Manage Background Music
+    useEffect(() => {
+        if (!showWelcome && !showIntro) {
+            updateMainMusic(settings.musicVolume, settings.musicOn);
+        } else {
+            // Ensure main music is paused during intro
+            const mainBg = document.getElementById('bg-music') as HTMLAudioElement;
+            if (mainBg) mainBg.pause();
+        }
+    }, [settings.musicVolume, settings.musicOn, showWelcome, showIntro]);
+
+    // Handle initial game start (User clicks "Play" on Welcome Screen)
+    const handleStartGame = () => {
+        setShowWelcome(false);
+        setShowIntro(true);
+        playSfx('buttonClick');
+    };
+
+    // Handle intro finish (Skip or End)
+    const handleFinishIntro = () => {
+        setShowIntro(false);
+        // Music effect hook will detect state change and start music
+    };
 
     // Apply objective progress
     const applyObjectiveProgress = useCallback((
@@ -483,15 +507,41 @@ const App: React.FC = () => {
              updates.activeEvolution = applyEvolutionTask(gameState.activeEvolution, 'quicksell_gold_card', 1);
         }
 
-        updateGameState(updates);
-        
+        let removed = false;
+
+        // 1. Pending Packs
         if (pendingPackCards.find(c => c.id === card.id)) {
             setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
-        } else if (gameState.storage.find(c => c.id === card.id)) {
-            updateGameState({ storage: gameState.storage.filter(c => c.id !== card.id) });
-        } else if (duplicateCard?.id === card.id) {
+            removed = true;
+        } 
+        
+        // 2. Storage
+        if (!removed && gameState.storage.find(c => c.id === card.id)) {
+            updates.storage = gameState.storage.filter(c => c.id !== card.id);
+            removed = true;
+        }
+
+        // 3. Formation
+        if (!removed) {
+             const newFormation = { ...gameState.formation };
+             let foundInFormation = false;
+             Object.keys(newFormation).forEach(key => {
+                if (newFormation[key]?.id === card.id) {
+                    newFormation[key] = null;
+                    foundInFormation = true;
+                }
+             });
+             if (foundInFormation) {
+                 updates.formation = newFormation;
+                 removed = true;
+             }
+        }
+
+        if (duplicateCard?.id === card.id) {
             setDuplicateCard(null);
         }
+        
+        updateGameState(updates);
         
         if (cardOptions?.card.id === card.id) setCardOptions(null);
     };
@@ -509,11 +559,21 @@ const App: React.FC = () => {
             createdAt: Date.now()
         }).then(() => {
             const newStorage = gameState.storage.filter(c => c.id !== card.id);
+            
+            // Remove from formation logic
+            const newFormation = { ...gameState.formation };
+            Object.keys(newFormation).forEach(key => {
+                if (newFormation[key]?.id === card.id) {
+                    newFormation[key] = null;
+                }
+            });
+
             const newObjectives = applyObjectiveProgress(gameState.objectiveProgress, 'list_market_cards', 1);
             const newEvo = applyEvolutionTask(gameState.activeEvolution, 'list_cards_market', 1);
             
             updateGameState({ 
                 storage: newStorage,
+                formation: newFormation,
                 objectiveProgress: newObjectives,
                 activeEvolution: newEvo
             });
@@ -872,8 +932,8 @@ const App: React.FC = () => {
         <div className="app-container min-h-screen bg-gradient-to-br from-gray-900 to-black text-white font-main overflow-x-hidden pb-10">
             <Particles rank={gameState.rank} />
             
-            {showIntro && <IntroVideo onSkip={() => setShowIntro(false)} />}
-            {showWelcome && !showIntro && <WelcomeScreen onStart={() => { setShowWelcome(false); setShowIntro(true); playSfx('buttonClick'); }} />}
+            {showIntro && <IntroVideo onSkip={handleFinishIntro} />}
+            {showWelcome && !showIntro && <WelcomeScreen onStart={handleStartGame} />}
             
             {!showWelcome && !showIntro && (
                 <>
@@ -912,7 +972,7 @@ const App: React.FC = () => {
                             )}
                             {view === 'collection' && <Collection gameState={gameState} setGameState={updateGameState} setCardForOptions={setCardOptions} t={t} />}
                             {view === 'market' && <Market market={gameState.market} onBuyCard={handleBuyCard} onCancelListing={handleCancelListing} currentUserId={currentUser?.username || ''} t={t} userCoins={gameState.coins} />}
-                            {view === 'battle' && <Battle gameState={gameState} onBattleWin={handleBattleResult} t={t} playSfx={playSfx} />}
+                            {view === 'battle' && <Battle gameState={gameState} onBattleWin={handleBattleResult} t={t} playSfx={playSfx} musicVolume={settings.musicVolume} musicOn={settings.musicOn} />}
                             {view === 'fbc' && <FBC gameState={gameState} onFbcSubmit={handleFbcSubmit} t={t} playSfx={playSfx} />}
                             {view === 'evo' && <Evo gameState={gameState} onStartEvo={handleStartEvo} onClaimEvo={handleClaimEvo} t={t} playSfx={playSfx} />}
                             {view === 'objectives' && <Objectives gameState={gameState} onClaimReward={handleClaimObjective} t={t} />}

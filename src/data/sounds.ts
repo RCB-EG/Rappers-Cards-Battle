@@ -33,6 +33,21 @@ export const sfx = {
     battleShot: 'https://cdn.pixabay.com/audio/2022/03/10/audio_1e309e5192.mp3', // Laser Shot
 };
 
+export const battleMusicTracks = [
+    'https://od.lk/s/NTdfMTAxMTA3MDY2Xw/Game%20Music%2002.mp3',
+    'https://od.lk/s/NTdfMTAxMTA3MDY3Xw/Game%20Music%2003.mp3',
+    'https://od.lk/s/NTdfMTAxMTA3MDY4Xw/Game%20Music%2004.mp3',
+    'https://od.lk/s/NTdfMTAyMDQ4NTk4Xw/New%20Game%20Music%20.mp3',
+    'https://od.lk/s/NTdfMTAyMDQ4NTk3Xw/New%20Game%20Music%2010.mp3',
+    'https://od.lk/s/NTdfMTAyMDQ4NTk5Xw/New%20Game%20Music%202.mp3',
+    'https://od.lk/s/NTdfMTAyMDQ4NjAxXw/New%20Game%20Music%204.mp3',
+    'https://od.lk/s/NTdfMTAyMDQ4NjAyXw/New%20Game%20Music%205.mp3',
+    'https://od.lk/s/NTdfMTAyMDQ4NTkzXw/New%20Game%20Music%206.mp3',
+    'https://od.lk/s/NTdfMTAyMDQ4NTk0Xw/New%20Game%20Music%207.mp3',
+    'https://od.lk/s/NTdfMTAyMDQ4NTk1Xw/New%20Game%20Music%208.mp3',
+    'https://od.lk/s/NTdfMTAyMDQ4NTk2Xw/New%20Game%20Music%209.mp3',
+];
+
 /**
  * Selects the correct card reveal sound based on its rarity.
  * @param rarity The rarity of the card.

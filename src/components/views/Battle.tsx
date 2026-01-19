@@ -7,12 +7,15 @@ import Modal from '../modals/Modal';
 import { allCards, superpowerIcons, rankSystem, playerPickConfigs } from '../../data/gameData';
 import { TranslationKey } from '../../utils/translations';
 import { sfx } from '../../data/sounds';
+import { playBattleTheme, stopBattleTheme } from '../../utils/sound';
 
 interface BattleProps {
     gameState: GameState;
     onBattleWin: (amount: number, isWin: boolean, mode: 'ranked' | 'challenge', squad: CardType[]) => void;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
     playSfx: (key: keyof typeof sfx) => void;
+    musicVolume: number;
+    musicOn: boolean;
 }
 
 type BattleMode = 'attack' | 'defense';
@@ -219,7 +222,7 @@ const BattleCardRender: React.FC<{
     );
 };
 
-const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx }) => {
+const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, musicVolume, musicOn }) => {
     const [phase, setPhase] = useState<'mode_select' | 'selection' | 'tactics' | 'battle' | 'result'>('mode_select');
     const [subMode, setSubMode] = useState<'ranked' | 'challenge'>('ranked');
     const [playerTeam, setPlayerTeam] = useState<BattleCard[]>([]);
@@ -258,6 +261,13 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx }) =
     }, [gameState.formation]);
 
     const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
+
+    // Cleanup music on unmount
+    useEffect(() => {
+        return () => {
+            stopBattleTheme(musicVolume, musicOn);
+        };
+    }, [musicVolume, musicOn]);
 
     // Set Team Size based on Mode/Rank
     useEffect(() => {
@@ -678,6 +688,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx }) =
 
         if (!playerAlive) {
             setPhase('result');
+            stopBattleTheme(musicVolume, musicOn); // Stop battle music on loss
             onBattleWin(0, false, subMode, playerTeam); // Loss
         } else if (!cpuAlive) {
             const cpuStrength = cpuTeam.reduce((sum, c) => sum + c.ovr, 0);
@@ -692,6 +703,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx }) =
 
             setReward(calculatedReward);
             setPhase('result');
+            stopBattleTheme(musicVolume, musicOn); // Stop battle music on win
             playSfx('success');
             onBattleWin(calculatedReward, true, subMode, playerTeam); // Win
         }
@@ -817,6 +829,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx }) =
         setBattleLog([`Battle Start! (${subMode === 'ranked' ? 'Ranked' : 'Challenge'})`]);
         setPhase('battle');
         playSfx('packBuildup');
+        playBattleTheme(musicVolume, musicOn); // START MUSIC
     };
 
     const restartSameTactics = () => {
@@ -915,7 +928,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx }) =
             <div className="animate-fadeIn">
                 <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
                     <div>
-                        <button onClick={() => setPhase('mode_select')} className="text-sm text-gray-400 hover:text-white mb-2">← Change Mode</button>
+                        <button onClick={() => { setPhase('mode_select'); setSelectedCardIds([]); }} className="text-sm text-gray-400 hover:text-white mb-2">← Change Mode</button>
                         <h2 className="font-header text-4xl text-white mb-2">{subMode === 'ranked' ? "Ranked Draft" : "Challenge Draft"}</h2>
                         <div className="flex items-center gap-4">
                             <p className="text-gray-400">Select <span className="text-white font-bold">{teamSize}</span> combatants.</p>
@@ -1002,7 +1015,11 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx }) =
                     <Button variant="default" onClick={() => { setSelectedCardIds([]); setPhase('selection'); }}>
                         {t('battle_opt_new_squad')}
                     </Button>
-                    <Button variant="sell" onClick={() => { setPhase('mode_select'); setSelectedCardIds([]); }}>
+                    <Button variant="sell" onClick={() => { 
+                        setPhase('mode_select'); 
+                        setSelectedCardIds([]); 
+                        stopBattleTheme(musicVolume, musicOn); // Ensure stopped on exit
+                    }}>
                         {t('battle_opt_change_mode')}
                     </Button>
                 </div>
