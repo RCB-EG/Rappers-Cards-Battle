@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
-import { GameState, Objective } from '../../types';
-import { objectivesData, allCards } from '../../data/gameData';
+import { GameState, Objective, PackType } from '../../types';
+import { objectivesData, allCards, playerPickConfigs } from '../../data/gameData';
 import Button from '../Button';
 import Card from '../Card';
 import { TranslationKey } from '../../utils/translations';
@@ -11,6 +12,14 @@ interface ObjectivesProps {
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
 }
 
+const packImages: Record<PackType, string> = {
+    free: 'https://i.postimg.cc/R0sYyFhL/Free.png',
+    bronze: 'https://i.imghippo.com/files/KCG5562T.png',
+    builder: 'https://i.postimg.cc/1z5Tv6mz/Builder.png',
+    special: 'https://i.postimg.cc/sxS0M4cT/Special.png',
+    legendary: 'https://i.postimg.cc/63Fm6md7/Legendary.png',
+};
+
 const formatTimeLeft = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
     const hours = Math.floor(totalSeconds / 3600);
@@ -19,7 +28,7 @@ const formatTimeLeft = (ms: number) => {
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 };
 
-const renderReward = (objective: Objective, t: ObjectivesProps['t']) => {
+const renderRewardText = (objective: Objective, t: ObjectivesProps['t']) => {
     const { reward } = objective;
     if (reward.type === 'coins') {
         return `${reward.amount} ${t('coins')}`;
@@ -30,6 +39,14 @@ const renderReward = (objective: Objective, t: ObjectivesProps['t']) => {
     if (reward.type === 'card' && reward.cardId) {
         const card = allCards.find(c => c.id === reward.cardId);
         return card ? card.name : 'Card Reward';
+    }
+    if (reward.type === 'player_pick') {
+        const pick = playerPickConfigs[reward.playerPickId!]
+        return pick ? t(pick.nameKey as TranslationKey) : 'Player Pick';
+    }
+    if (reward.type === 'coins_and_pick') {
+        const pick = playerPickConfigs[reward.playerPickId!]
+        return `${reward.amount} ${t('coins')} + ${pick ? t(pick.nameKey as TranslationKey) : 'Pick'}`;
     }
     return 'Reward';
 };
@@ -54,6 +71,9 @@ const ObjectiveGroup: React.FC<{
                 const progress = gameState.objectiveProgress[obj.id] || { tasks: {}, claimed: false };
                 const allTasksComplete = obj.tasks.every(task => (progress.tasks?.[task.id] || 0) >= task.target);
                 const rewardCard = obj.reward.type === 'card' ? allCards.find(c => c.id === obj.reward.cardId) : null;
+                const isPlayerPick = obj.reward.type === 'player_pick' || obj.reward.type === 'coins_and_pick';
+                const pickConfig = isPlayerPick && obj.reward.playerPickId ? playerPickConfigs[obj.reward.playerPickId] : null;
+                const isPackReward = obj.reward.type === 'pack' && obj.reward.packType;
 
                 return (
                     <div key={obj.id} className="bg-darker-gray/50 p-4 rounded-lg border border-gold-dark/20">
@@ -78,8 +98,33 @@ const ObjectiveGroup: React.FC<{
                                     <div className="w-[120px] h-[180px]">
                                         <Card card={rewardCard} className="!w-full !h-full" />
                                     </div>
+                                ) : isPlayerPick ? (
+                                    <div className="flex flex-col items-center">
+                                        <div 
+                                            className="w-[120px] h-[180px] bg-cover bg-center rounded-lg shadow-lg drop-shadow-[0_0_5px_#FFD700] flex flex-col items-center justify-center relative overflow-hidden"
+                                            style={{ backgroundImage: 'url("https://i.imghippo.com/files/cGUh9927EWc.png")' }}
+                                        >
+                                            {pickConfig && (
+                                                <div className="bg-black/80 w-full py-2 absolute bottom-6 border-t border-b border-gold-dark/50 backdrop-blur-[2px]">
+                                                    <p className="text-gold-light font-header text-sm leading-tight tracking-wider">RAPPER PICK</p>
+                                                    <p className="text-white text-xs font-bold">1 of {pickConfig.totalOptions}</p>
+                                                    <p className="text-gold-light text-xs font-bold">{pickConfig.minOvr}+ OVR</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                        {obj.reward.type === 'coins_and_pick' && (
+                                            <span className="text-gold-light font-bold text-sm mt-1">
+                                                + {obj.reward.amount} Coins
+                                            </span>
+                                        )}
+                                    </div>
+                                ) : isPackReward ? (
+                                    <div className="flex flex-col items-center">
+                                        <img src={packImages[obj.reward.packType!]} alt={obj.reward.packType} className="w-24 h-auto object-contain drop-shadow-md mb-2 hover:scale-105 transition-transform" />
+                                        <p className="text-gold-light font-bold text-lg">{renderRewardText(obj, t)}</p>
+                                    </div>
                                 ) : (
-                                    <p className="text-gold-light font-bold text-xl">{renderReward(obj, t)}</p>
+                                    <p className="text-gold-light font-bold text-xl">{renderRewardText(obj, t)}</p>
                                 )}
                                 <Button variant={progress.claimed || !allTasksComplete ? 'default' : 'keep'} onClick={() => onClaimReward(obj.id)} disabled={!allTasksComplete || progress.claimed}>
                                     {progress.claimed ? t('completed') : t('claim')}

@@ -5,6 +5,7 @@ import Button from '../Button';
 import Card from '../Card';
 import { MarketCard } from '../../types';
 import { TranslationKey } from '../../utils/translations';
+import { superpowerIcons } from '../../data/gameData';
 
 // Helper to get rarity color class
 const getRarityColorClass = (rarity: MarketCard['rarity']) => {
@@ -66,12 +67,20 @@ const BuyModal: React.FC<BuyModalProps> = ({ cardToBuy, onClose, onBuy, t, userC
                     {cardToBuy.superpowers.length > 0 && (
                       <div className="my-4">
                         <h4 className="font-header text-xl text-gold-light mb-2">Superpowers</h4>
-                        <div className="flex flex-wrap gap-2">
-                          {cardToBuy.superpowers.map((power) => (
-                            <span key={power} className="bg-blue-glow/20 text-blue-glow border border-blue-glow/50 rounded-full px-3 py-1 text-sm font-main">
-                              {power}
-                            </span>
-                          ))}
+                        <div className="flex flex-wrap gap-4">
+                          {cardToBuy.superpowers.map((power) => {
+                             const iconUrl = superpowerIcons[power] || superpowerIcons[Object.keys(superpowerIcons).find(k => k.toLowerCase() === power.toLowerCase()) || ''];
+                             return (
+                                <div key={power} className="flex flex-col items-center gap-1 w-20">
+                                    {iconUrl ? (
+                                        <img src={iconUrl} alt={power} className="w-12 h-12 object-contain drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]" />
+                                    ) : (
+                                        <div className="w-12 h-12 bg-blue-glow/20 rounded-full flex items-center justify-center border border-blue-glow/50 text-xs text-white">?</div>
+                                    )}
+                                    <span className="text-[10px] text-center text-blue-glow leading-tight font-main">{power}</span>
+                                </div>
+                             );
+                          })}
                         </div>
                       </div>
                     )}

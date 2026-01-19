@@ -5,9 +5,11 @@ export type Rarity = 'bronze' | 'silver' | 'gold' | 'icon' | 'rotm' | 'legend' |
 
 export type GameView = 'store' | 'collection' | 'market' | 'battle' | 'fbc' | 'evo' | 'objectives';
 
-export type PackType = 'free' | 'builder' | 'special' | 'legendary';
+export type PackType = 'free' | 'bronze' | 'builder' | 'special' | 'legendary';
 
 export type FormationLayoutId = '4-4-2' | '4-3-3' | '5-3-2' | '3-4-3';
+
+export type Rank = 'Bronze' | 'Silver' | 'Gold' | 'Legend';
 
 export interface Stats {
     lyrc: number;
@@ -39,6 +41,7 @@ export interface MarketCard extends Card {
 
 export interface PackData {
   cost: number;
+  bpCost: number; // Cost in Battle Points
   rarityChances: {
     [key in Rarity]?: number;
   };
@@ -51,6 +54,7 @@ export interface FBCChallenge {
     prerequisiteId?: string;
     groupId?: string;
     groupFinalRewardCardId?: string;
+    repeatable?: 'daily'; // New property for daily resets
     requirements: {
         cardCount: number;
         exactRarityCount?: { [key in Rarity]?: number };
@@ -59,7 +63,8 @@ export interface FBCChallenge {
         minRarityCount?: { [key in Rarity]?: number };
     };
     reward: {
-        type: 'pack' | 'card';
+        type: 'coins' | 'pack' | 'card';
+        amount?: number;
         details?: PackType;
         cardId?: string;
         bypassLimit?: boolean;
@@ -89,16 +94,26 @@ export interface ObjectiveTask {
     target: number;
 }
 
+export interface PlayerPickConfig {
+    id: string;
+    nameKey: string; // Translation key
+    pickCount: number; // How many cards the user keeps (e.g., 1)
+    totalOptions: number; // How many options are shown (e.g., 3)
+    minOvr: number; // Minimum OVR for generated cards
+    rarityGuarantee?: Rarity; // Optional rarity filter
+}
+
 export interface Objective {
   id: string;
   type: 'daily' | 'weekly' | 'milestone';
   titleKey: string;
   tasks: ObjectiveTask[];
   reward: {
-    type: 'coins' | 'pack' | 'card';
+    type: 'coins' | 'pack' | 'card' | 'player_pick' | 'coins_and_pick';
     amount?: number;
     packType?: PackType;
     cardId?: string;
+    playerPickId?: string;
   };
 }
 
@@ -121,6 +136,10 @@ export interface GameState {
   version?: number;
   userId: string;
   coins: number;
+  battlePoints: number; // New currency
+  xp: number;
+  rank: Rank;
+  rankWins: number; // Wins towards next rank
   pendingEarnings: number; // For offline market sales
   formation: Record<string, Card | null>;
   formationLayout: FormationLayoutId;
@@ -139,6 +158,9 @@ export interface GameState {
   objectiveProgress: Record<string, ObjectiveProgress>;
   lastDailyReset: number | null;
   lastWeeklyReset: number | null;
+  ownedPacks: PackType[];
+  ownedPlayerPicks: PlayerPickConfig[];
+  activePlayerPick: PlayerPickConfig | null;
 }
 
 export interface Deal {

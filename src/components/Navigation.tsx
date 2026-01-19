@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { GameView } from '../types';
 import { TranslationKey } from '../utils/translations';
@@ -10,6 +11,7 @@ interface NavigationProps {
       objectives: number;
       evo: number;
       fbc: number;
+      store: number;
   };
 }
 
@@ -56,6 +58,7 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setCurrentView, t,
       objectives: notificationCounts.objectives,
       evo: notificationCounts.evo,
       fbc: notificationCounts.fbc,
+      store: notificationCounts.store,
   };
 
   return (

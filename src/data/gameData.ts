@@ -1,4 +1,5 @@
-import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective } from '../types';
+
+import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective, PlayerPickConfig, Rank } from '../types';
 
 const generateStats = (ovr: number): Stats => {
     const base = ovr > 70 ? ovr - 10 : ovr - 5;
@@ -12,6 +13,85 @@ const generateStats = (ovr: number): Stats => {
         diss: generateStat(),
         char: generateStat(),
     };
+};
+
+export interface RankConfig {
+    winsToPromote: number;
+    cpuOvrRange: [number, number]; // Min, Max OVR for CPU cards
+    aiDifficulty: 'dumb' | 'normal' | 'smart' | 'expert';
+    teamSize: number; // Number of cards in battle
+    promotionReward: {
+        coins: number;
+        packs: PackType[];
+        picks: string[]; // IDs from playerPickConfigs
+    };
+}
+
+export const rankSystem: Record<Rank, RankConfig> = {
+    'Bronze': {
+        winsToPromote: 5,
+        cpuOvrRange: [58, 68], // Very Weak
+        aiDifficulty: 'dumb',
+        teamSize: 5,
+        promotionReward: {
+            coins: 6000,
+            packs: ['builder', 'builder', 'builder'],
+            picks: ['1of2']
+        }
+    },
+    'Silver': {
+        winsToPromote: 8,
+        cpuOvrRange: [74, 84], // Moderate
+        aiDifficulty: 'normal',
+        teamSize: 6,
+        promotionReward: {
+            coins: 18000,
+            packs: ['special', 'builder', 'builder'],
+            picks: ['1of3_75', '1of3_75']
+        }
+    },
+    'Gold': {
+        winsToPromote: 12,
+        cpuOvrRange: [85, 92], // Strong
+        aiDifficulty: 'smart',
+        teamSize: 7,
+        promotionReward: {
+            coins: 45000,
+            packs: ['special', 'special', 'builder', 'builder', 'builder', 'builder', 'builder'],
+            picks: ['1of5', '1of5']
+        }
+    },
+    'Legend': {
+        winsToPromote: 5, // Repeating loop
+        cpuOvrRange: [93, 99], // God Tier
+        aiDifficulty: 'expert',
+        teamSize: 8,
+        promotionReward: {
+            coins: 80000,
+            packs: ['legendary', 'special', 'special', 'special', 'special'],
+            picks: ['2of10', '2of10']
+        }
+    }
+};
+
+export const superpowerIcons: Record<string, string> = {
+    'Rhymes Crafter': 'https://i.imghippo.com/files/vNrv7527Vlk.png',
+    'Rhyme Crafter': 'https://i.imghippo.com/files/vNrv7527Vlk.png',
+    'Show Maker': 'https://i.imghippo.com/files/RQb3623EB.png',
+    'ShowMaker': 'https://i.imghippo.com/files/RQb3623EB.png',
+    'The Artist': 'https://i.imghippo.com/files/um8756xU.png',
+    'Words Bender': 'https://i.imghippo.com/files/phdJ6111L.png',
+    'Word Bender': 'https://i.imghippo.com/files/phdJ6111L.png',
+    'Storyteller': 'https://i.imghippo.com/files/iCc6391Tg.png',
+    'StoryTeller': 'https://i.imghippo.com/files/iCc6391Tg.png',
+    'Battler': 'https://i.imghippo.com/files/KET1640s.png',
+    'Career Killer': 'https://i.imghippo.com/files/tev2511DrE.png',
+    'Chopper': 'https://i.imghippo.com/files/Fg5274pck.png',
+    'Flow Switcher': 'https://i.imghippo.com/files/dHI7636jUs.png',
+    'Freestyler': 'https://i.imghippo.com/files/Fkz1064WCk.png',
+    'Notes Master': 'https://i.imghippo.com/files/em5378FZE.png',
+    'Note Master': 'https://i.imghippo.com/files/em5378FZE.png',
+    'Punchline Machine': 'https://i.imghippo.com/files/EFHO4474cYk.png',
 };
 
 // A collection of all possible cards in the game.
@@ -169,41 +249,71 @@ export const allCards: Card[] = [
 export const packs: Record<PackType, PackData> = {
   free: {
     cost: 0,
+    bpCost: 0,
     rarityChances: {
-      bronze: 65,
+      bronze: 70,
       silver: 25,
-      gold: 10,
+      gold: 5,
+    },
+  },
+  bronze: {
+    cost: 0,
+    bpCost: 0,
+    rarityChances: {
+      bronze: 100,
     },
   },
   builder: {
     cost: 1200,
+    bpCost: 200,
     rarityChances: {
-      bronze: 45,
-      silver: 35,
-      gold: 20,
+      bronze: 50,
+      silver: 40,
+      gold: 10,
     },
   },
   special: {
     cost: 4000,
+    bpCost: 650,
     rarityChances: {
-      silver: 10,
-      gold: 83,
-      rotm: 4,
-      icon: 3,
+      silver: 25,
+      gold: 73,
+      rotm: 1.5,
+      icon: 0.5,
     },
   },
   legendary: {
     cost: 40000,
+    bpCost: 6500,
     rarityChances: {
-      gold: 70,
-      rotm: 15,
-      icon: 14,
+      gold: 75,
+      rotm: 12,
+      icon: 12,
       legend: 1,
     },
   },
 };
 
+export const playerPickConfigs: Record<string, PlayerPickConfig> = {
+    '1of2': { id: '1of2', nameKey: 'pp_1of2', pickCount: 1, totalOptions: 2, minOvr: 70 },
+    '1of3_75': { id: '1of3_75', nameKey: 'pp_1of3_75', pickCount: 1, totalOptions: 3, minOvr: 75 },
+    '1of3_78': { id: '1of3_78', nameKey: 'pp_1of3_78', pickCount: 1, totalOptions: 3, minOvr: 78 },
+    '1of5': { id: '1of5', nameKey: 'pp_1of5', pickCount: 1, totalOptions: 5, minOvr: 80 },
+    '2of10': { id: '2of10', nameKey: 'pp_2of10', pickCount: 2, totalOptions: 10, minOvr: 85 },
+};
+
 export const fbcData: FBCChallenge[] = [
+    {
+        id: 'daily_bronze',
+        title: 'fbc_daily_bronze_title',
+        description: 'fbc_daily_bronze_desc',
+        repeatable: 'daily',
+        requirements: {
+            cardCount: 1,
+            exactRarityCount: { bronze: 1 },
+        },
+        reward: { type: 'pack', details: 'bronze' }
+    },
     {
         id: 'shehab_debut',
         title: 'shehab_debut_title',
@@ -261,9 +371,8 @@ export const evoData: Evolution[] = [
             rarity: 'gold',
         },
         tasks: [
-            { id: 'open_special_packs', description: 'Open 2 Special Packs', target: 2 },
-            { id: 'list_cards_market', description: 'List 2 cards on the market', target: 2 },
-            { id: 'quicksell_gold_card', description: 'Quick sell a Gold card', target: 1 }
+            { id: 'open_special_packs', description: 'Open 1 Special Pack', target: 1 },
+            { id: 'play_battle_abo', description: 'Play 1 battle with Gold Abo El Anwar in your squad', target: 1 },
         ],
         resultCardId: 'evo_abo_1'
     },
@@ -285,20 +394,24 @@ export const evoData: Evolution[] = [
 
 export const objectivesData: Objective[] = [
     // Daily
+    { id: 'd_login', type: 'daily', titleKey: 'obj_daily_login_title', tasks: [{ id: 'daily_login_task', descriptionKey: 'obj_daily_login_task', target: 1 }], reward: { type: 'pack', packType: 'builder' } },
     { id: 'd1', type: 'daily', titleKey: 'obj_open_free_pack_title', tasks: [{ id: 'open_free_packs', descriptionKey: 'obj_open_free_pack_task', target: 1 }], reward: { type: 'coins', amount: 250 } },
     { id: 'd2', type: 'daily', titleKey: 'obj_list_card_title', tasks: [{ id: 'list_market_cards', descriptionKey: 'obj_list_card_task', target: 1 }], reward: { type: 'coins', amount: 500 } },
+    { id: 'd3', type: 'daily', titleKey: 'obj_play_battle_title', tasks: [{ id: 'play_any_battle', descriptionKey: 'obj_play_battle_task', target: 1 }], reward: { type: 'coins', amount: 600 } },
+    { id: 'd4', type: 'daily', titleKey: 'obj_play_challenge_title', tasks: [{ id: 'play_challenge_battle', descriptionKey: 'obj_play_challenge_task', target: 3 }], reward: { type: 'coins', amount: 1600 } },
+    { id: 'd5', type: 'daily', titleKey: 'obj_win_challenge_title', tasks: [{ id: 'win_challenge_battle', descriptionKey: 'obj_win_challenge_task', target: 5 }], reward: { type: 'coins_and_pick', amount: 4000, playerPickId: '1of3_75' } },
     // Weekly
     { id: 'w1', type: 'weekly', titleKey: 'obj_open_builder_packs_title', tasks: [{ id: 'open_builder_packs', descriptionKey: 'obj_open_builder_packs_task', target: 5 }], reward: { type: 'pack', packType: 'builder' } },
     { id: 'w2', type: 'weekly', titleKey: 'obj_complete_fbc_title', tasks: [{ id: 'complete_fbcs', descriptionKey: 'obj_complete_fbc_task', target: 1 }], reward: { type: 'coins', amount: 2000 } },
+    { id: 'w3', type: 'weekly', titleKey: 'obj_player_pick_title', tasks: [{ id: 'open_builder_packs', descriptionKey: 'obj_open_builder_packs_pick_task', target: 3 }], reward: { type: 'player_pick', playerPickId: '1of3_78' } },
     // Milestone
     {
         id: 'milestone_a_step_ahead',
         type: 'milestone',
         titleKey: 'obj_a_step_ahead_title',
         tasks: [
-            { id: 'complete_evos', descriptionKey: 'obj_task_complete_evo', target: 1 },
             { id: 'complete_fbcs', descriptionKey: 'obj_task_complete_fbc', target: 1 },
-            { id: 'formation_11_gold', descriptionKey: 'obj_task_formation_11_gold', target: 1 }
+            { id: 'win_ranked_games', descriptionKey: 'obj_task_win_ranked_5', target: 5 }
         ],
         reward: { type: 'card', cardId: 'obj_ra3_1' }
     }

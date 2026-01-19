@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card as CardType } from '../types';
 
@@ -31,7 +32,7 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
 
   const cardContainerClasses = `
     card-container 
-    relative w-[180px] h-[270px] 
+    relative w-[150px] h-[225px] md:w-[180px] md:h-[270px]
     select-none 
     rounded-lg overflow-hidden
     drop-shadow-[0_5px_10px_rgba(0,0,0,0.7)] 

@@ -3,6 +3,7 @@ import React from 'react';
 import { GameState, Card, CurrentUser } from '../types';
 import Button from './Button';
 import { TranslationKey } from '../utils/translations';
+import { rankSystem } from '../data/gameData';
 
 interface HeaderProps {
     gameState: GameState;
@@ -24,6 +25,17 @@ const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode
     const displayName = currentUser ? currentUser.username : t('user_guest');
     const avatarSrc = currentUser?.avatar || `https://api.dicebear.com/8.x/bottts/svg?seed=guest&backgroundColor=b6e3f4,c0aede,d1d4f9`;
 
+    const currentRankConfig = rankSystem[gameState.rank];
+    const winsNeeded = currentRankConfig.winsToPromote;
+    const winsCurrent = gameState.rankWins;
+    const progressPercent = Math.min(100, (winsCurrent / winsNeeded) * 100);
+
+    const rankColors: Record<string, string> = {
+        'Bronze': 'text-amber-600 border-amber-600',
+        'Silver': 'text-gray-300 border-gray-300',
+        'Gold': 'text-yellow-400 border-yellow-400',
+        'Legend': 'text-purple-400 border-purple-400',
+    };
 
     return (
         <header>
@@ -56,8 +68,22 @@ const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode
                 />
             
                 <div className="top-stats flex justify-center w-full mt-4 mb-5 flex-wrap gap-4">
+                    <div className={`stat-box bg-[rgba(10,10,10,0.7)] rounded-lg px-5 py-2 min-w-[160px] border shadow-glow flex flex-col items-center justify-center text-lg text-white relative overflow-hidden ${rankColors[gameState.rank]}`}>
+                        <div className="flex items-center gap-2 z-10">
+                            <span className="font-header uppercase text-xl">{gameState.rank}</span>
+                            <span className="text-xs bg-black/50 px-2 py-0.5 rounded-full">{winsCurrent}/{winsNeeded} Wins</span>
+                        </div>
+                        <div className="w-full h-1 bg-gray-700 mt-1 rounded-full z-10">
+                            <div className="h-full bg-current transition-all duration-500 rounded-full" style={{ width: `${progressPercent}%` }}></div>
+                        </div>
+                        <span className="text-[10px] text-gray-400 mt-0.5 z-10">XP: {gameState.xp}</span>
+                    </div>
+
                     <div className="stat-box bg-[rgba(10,10,10,0.7)] rounded-lg px-5 py-2 min-w-[160px] border border-gold-dark/30 shadow-glow flex items-center justify-center text-lg text-white gap-2">
                         <span>{t('stat_coins')}:</span> <span className="text-gold-light">{gameState.coins}</span>
+                    </div>
+                    <div className="stat-box bg-[rgba(10,10,10,0.7)] rounded-lg px-5 py-2 min-w-[160px] border border-blue-glow/30 shadow-blue-glow flex items-center justify-center text-lg text-white gap-2">
+                        <span>BP:</span> <span className="text-blue-glow font-bold">{gameState.battlePoints || 0}</span>
                     </div>
                     <div className="stat-box bg-[rgba(10,10,10,0.7)] rounded-lg px-5 py-2 min-w-[160px] border border-gold-dark/30 shadow-glow flex items-center justify-center text-lg text-white gap-2">
                         <span>{t('stat_value')}:</span> <span className="text-gold-light">{formationValue}</span>

@@ -4,7 +4,7 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="https://i.imghippo.com/files/osQP7559xUw.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Rappers Battle Card Game</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -16,6 +16,7 @@
         background: url('https://i.imghippo.com/files/Exm8210UFo.png') no-repeat center center fixed;
         background-size: cover;
         background-attachment: fixed;
+        overscroll-behavior-y: none; /* Prevent pull-to-refresh on mobile */
       }
       body::before {
         content: '';
@@ -30,6 +31,7 @@
        /* Custom scrollbar for better aesthetics */
       ::-webkit-scrollbar {
         width: 8px;
+        height: 8px; /* For horizontal scrollbars */
       }
       ::-webkit-scrollbar-track {
         background: #1a1a1a;
@@ -393,9 +395,13 @@
 
         /* Collection View */
         .formation-pitch {
-            transform: scale(0.85);
+            transform: scale(0.65);
             transform-origin: top center;
-            margin-bottom: -60px; /* Adjusted for new smaller size */
+            margin-bottom: -120px; /* Adjusted for new smaller size */
+            width: 100%;
+            max-width: 420px;
+            margin-left: auto;
+            margin-right: auto;
         }
         .controls-bar {
             flex-direction: column;
@@ -423,6 +429,11 @@
             width: 100%;
             height: auto;
             aspect-ratio: 180 / 270;
+        }
+        
+        /* Ensure modals take appropriate width on mobile */
+        .max-w-md, .max-w-lg, .max-w-xl {
+            width: 95% !important;
         }
       }
     </style>
@@ -464,11 +475,16 @@
                 '0%': { transform: 'translateY(100vh) rotate(0)', opacity: '0' },
                 '50%': { opacity: '1' },
                 '100%': { transform: 'translateY(-100vh) rotate(360deg)', opacity: '0' },
+              },
+              'shake-subtle': {
+                '0%, 100%': { transform: 'rotate(-2deg)' },
+                '50%': { transform: 'rotate(2deg)' },
               }
             },
             animation: {
               fadeIn: 'fadeIn 0.5s ease-in-out',
               float: 'float 20s infinite ease-in-out',
+              'shake-subtle': 'shake-subtle 3s infinite ease-in-out',
             }
           }
         }

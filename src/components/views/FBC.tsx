@@ -1,6 +1,7 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { TranslationKey } from '../../utils/translations';
-import { GameState, Card as CardType, FBCChallenge, Rarity } from '../../types';
+import { GameState, Card as CardType, FBCChallenge, Rarity, PackType } from '../../types';
 import { fbcData, allCards } from '../../data/gameData';
 import Button from '../Button';
 import Card from '../Card';
@@ -14,6 +15,14 @@ interface FBCProps {
 }
 
 type FbcViewMode = 'list' | 'group' | 'submission';
+
+const packImages: Partial<Record<PackType, string>> = {
+    free: 'https://i.postimg.cc/R0sYyFhL/Free.png',
+    bronze: 'https://i.imghippo.com/files/KCG5562T.png',
+    builder: 'https://i.postimg.cc/1z5Tv6mz/Builder.png',
+    special: 'https://i.postimg.cc/sxS0M4cT/Special.png',
+    legendary: 'https://i.postimg.cc/63Fm6md7/Legendary.png',
+};
 
 const checkRequirements = (submission: CardType[], requirements: FBCChallenge['requirements']) => {
     const checks: Record<string, boolean> = {};
@@ -129,11 +138,15 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx }) => {
     const renderReward = (challenge: FBCChallenge) => {
         const { reward } = challenge;
         if (reward.type === 'pack' && reward.details) {
+            const packImg = packImages[reward.details];
+            if (packImg) {
+                return <img src={packImg} alt={reward.details} className="w-16 h-auto object-contain" />;
+            }
             return <p className="text-gold-light capitalize">{t(`pack_${reward.details}` as TranslationKey)}</p>;
         }
         if (reward.type === 'card' && reward.cardId) {
             const cardTemplate = allCards.find(c => c.id === reward.cardId);
-            if (cardTemplate) return <Card card={cardTemplate} />;
+            if (cardTemplate) return <Card card={cardTemplate} className="!w-[100px] !h-[150px]" />;
         }
         return null;
     };
@@ -226,6 +239,7 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx }) => {
                 {fbcListItems.length > 0 ? fbcListItems.map(challenge => {
                     const rewardCardId = challenge.groupFinalRewardCardId || (challenge.reward.type === 'card' ? challenge.reward.cardId : null);
                     const rewardCardTemplate = rewardCardId ? allCards.find(c => c.id === rewardCardId) : null;
+                    const isPackReward = challenge.reward.type === 'pack';
 
                     return (
                         <div key={challenge.id} onClick={() => handleSelectChallenge(challenge)} className="bg-gradient-to-br from-light-gray to-darker-gray p-5 rounded-lg border border-gold-dark/30 cursor-pointer transition-all duration-300 hover:border-gold-light hover:-translate-y-1 flex flex-col md:flex-row items-center justify-between gap-6">
@@ -237,6 +251,15 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx }) => {
                                 <div className="flex-shrink-0 mt-4 md:mt-0">
                                     <h4 className="font-main text-lg text-center mb-2">{t('fbc_reward_card')}</h4>
                                     <Card card={rewardCardTemplate} className="!w-[144px] !h-[216px] md:!w-[180px] md:!h-[270px]"/>
+                                </div>
+                            )}
+                            {isPackReward && challenge.reward.details && (
+                                <div className="flex-shrink-0 mt-4 md:mt-0 flex flex-col items-center">
+                                    <h4 className="font-main text-lg text-center mb-2">{t('fbc_reward')}</h4>
+                                    {packImages[challenge.reward.details] ? 
+                                        <img src={packImages[challenge.reward.details]} alt="Reward Pack" className="w-24 hover:scale-110 transition-transform"/> :
+                                        <span className="text-gold-light">{challenge.reward.details}</span>
+                                    }
                                 </div>
                             )}
                         </div>

@@ -8,9 +8,13 @@ formationLayouts['4-4-2'].allPositions.forEach(posId => {
 });
 
 export const initialState: GameState = {
-  version: 1.2,
+  version: 1.6,
   userId: `guest`,
   coins: 10000,
+  battlePoints: 0,
+  xp: 0,
+  rank: 'Bronze',
+  rankWins: 0,
   pendingEarnings: 0,
   formation: initialFormation,
   formationLayout: '4-4-2',
@@ -25,4 +29,7 @@ export const initialState: GameState = {
   objectiveProgress: {},
   lastDailyReset: null,
   lastWeeklyReset: null,
+  ownedPacks: [],
+  ownedPlayerPicks: [],
+  activePlayerPick: null,
 };

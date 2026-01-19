@@ -1,44 +1,51 @@
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { GameState, Card as CardType, GameView, PackType, MarketCard, FormationLayoutId, User, CurrentUser, Objective } from './types';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { 
+    GameState, 
+    Card as CardType, 
+    PackType, 
+    MarketCard, 
+    User, 
+    Settings, 
+    GameView, 
+    ObjectiveProgress, 
+    Evolution,
+    PlayerPickConfig,
+    Rank
+} from './types';
 import { initialState } from './data/initialState';
-import { allCards, packs, fbcData, evoData, formationLayouts, objectivesData, avatars } from './data/gameData';
+import { packs, allCards, objectivesData, evoData, fbcData, playerPickConfigs, rankSystem } from './data/gameData';
+import { sfx } from './data/sounds';
 import { translations, TranslationKey } from './utils/translations';
-import { useSettings } from './hooks/useSettings';
-import { calculateQuickSellValue } from './utils/cardUtils';
 import { playSound } from './utils/sound';
-import { sfx, getRevealSfxKey } from './data/sounds';
-
-// Firebase Imports
+import { useSettings } from './hooks/useSettings';
 import { auth, db } from './firebaseConfig';
 import { 
     onAuthStateChanged, 
+    signOut, 
     signInWithEmailAndPassword, 
     createUserWithEmailAndPassword, 
-    signOut, 
-    updateProfile 
+    User as FirebaseUser 
 } from 'firebase/auth';
 import { 
     doc, 
-    setDoc, 
     getDoc, 
+    setDoc, 
+    updateDoc, 
     onSnapshot, 
     collection, 
     addDoc, 
-    deleteDoc, 
-    runTransaction,
-    query,
-    orderBy,
-    limit,
-    where
+    query, 
+    orderBy, 
+    limit, 
+    deleteDoc 
 } from 'firebase/firestore';
 
-// Components
+import Header from './components/Header';
+import Navigation from './components/Navigation';
 import WelcomeScreen from './components/WelcomeScreen';
 import IntroVideo from './components/IntroVideo';
 import Particles from './components/Particles';
-import Header from './components/Header';
-import Navigation from './components/Navigation';
 import Store from './components/views/Store';
 import Collection from './components/views/Collection';
 import Market from './components/views/Market';
@@ -46,445 +53,288 @@ import Battle from './components/views/Battle';
 import FBC from './components/views/FBC';
 import Evo from './components/views/Evo';
 import Objectives from './components/views/Objectives';
-
-// Modals
+import LoginModal from './components/modals/LoginModal';
+import SignUpModal from './components/modals/SignUpModal';
 import SettingsModal from './components/modals/SettingsModal';
 import HowToPlayModal from './components/modals/HowToPlayModal';
 import MessageModal from './components/modals/MessageModal';
-import PackAnimationModal from './components/modals/PackAnimationModal';
-import PackResultsModal from './components/modals/PackResultsModal';
 import CardOptionsModal from './components/modals/CardOptionsModal';
+import DealModal from './components/modals/DealModal';
+import PackAnimationModal from './components/modals/PackAnimationModal';
+import BuyModal from './components/modals/BuyModal';
 import MarketModal from './components/modals/MarketModal';
 import DuplicateSellModal from './components/modals/DuplicateSellModal';
 import DailyRewardModal from './components/modals/DailyRewardModal';
-import LoginModal from './components/modals/LoginModal';
-import SignUpModal from './components/modals/SignUpModal';
-
-// --- ASSET PRELOADING LIST ---
-const ASSETS_TO_PRELOAD = [
-    // UI
-    'https://i.imghippo.com/files/osQP7559xUw.png', // Logo
-    'https://i.imghippo.com/files/Exm8210UFo.png', // Background
-    // Rarity BGs
-    'https://i.imghippo.com/files/TmM6820WtQ.png', // Bronze
-    'https://i.imghippo.com/files/zC9861peQ.png', // Silver
-    'https://i.imghippo.com/files/tUt8745JBc.png', // Gold
-    'https://i.imghippo.com/files/UGRy5126YM.png', // ROTM
-    'https://i.imghippo.com/files/PjIu1716584980.png', // Icon
-    'https://i.imghippo.com/files/jdCC2070F.png', // Legend/Event
-    // Packs
-    'https://i.postimg.cc/R0sYyFhL/Free.png',
-    'https://i.postimg.cc/1z5Tv6mz/Builder.png',
-    'https://i.postimg.cc/sxS0M4cT/Special.png',
-    'https://i.postimg.cc/63Fm6md7/Legendary.png',
-    // Avatars
-    ...avatars,
-    // All Cards
-    ...allCards.map(c => c.image)
-];
-
-// --- HELPER FUNCTIONS ---
-
-const applyObjectiveProgress = (
-    currentProgress: GameState['objectiveProgress'], 
-    task: string, 
-    amount: number, 
-    mode: 'increment' | 'set' = 'increment'
-): GameState['objectiveProgress'] => {
-    const updatedProgress = JSON.parse(JSON.stringify(currentProgress));
-
-    objectivesData.forEach(obj => {
-        if (updatedProgress[obj.id]?.claimed) return;
-
-        obj.tasks.forEach(taskInfo => {
-            if (taskInfo.id === task) {
-                if (!updatedProgress[obj.id]) {
-                    updatedProgress[obj.id] = { tasks: {}, claimed: false };
-                }
-                const current = updatedProgress[obj.id].tasks[task] || 0;
-                const newValue = mode === 'increment' ? current + amount : amount;
-                if (current !== newValue) {
-                     updatedProgress[obj.id].tasks[task] = newValue;
-                }
-            }
-        });
-    });
-    return updatedProgress;
-};
-
-const applyEvolutionTask = (
-    activeEvolution: GameState['activeEvolution'], 
-    taskId: string, 
-    amount: number
-): GameState['activeEvolution'] => {
-    if (!activeEvolution) return null;
-    const evoDef = evoData.find(e => e.id === activeEvolution.evoId);
-    if (!evoDef || !evoDef.tasks.some(t => t.id === taskId)) return activeEvolution;
-
-    const newTasks = { ...activeEvolution.tasks };
-    newTasks[taskId] = (newTasks[taskId] || 0) + amount;
-
-    return { ...activeEvolution, tasks: newTasks };
-};
+import PackResultsModal from './components/modals/PackResultsModal';
+import PlayerPickModal from './components/modals/PlayerPickModal';
+import RankUpModal from './components/modals/RankUpModal';
+import RewardModal, { RewardData } from './components/modals/RewardModal';
+import { calculateQuickSellValue } from './utils/cardUtils';
 
 const App: React.FC = () => {
-    // App Flow State
-    const [appState, setAppState] = useState<'loading' | 'welcome' | 'intro' | 'game'>('loading');
-    const [loadingProgress, setLoadingProgress] = useState(0);
-    
-    // Game & Auth State
+    // Game State
     const [gameState, setGameState] = useState<GameState>(initialState);
-    const [currentUser, setCurrentUser] = useState<CurrentUser>(null);
-    const [currentView, setCurrentView] = useState<GameView>('store');
-    const [isDevMode, setIsDevMode] = useState(false);
-    const [isLoading, setIsLoading] = useState(false);
-
-    // Track signup process to prevent race conditions
-    const isSigningUp = useRef(false);
-
-    // Settings & Language
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+    const [view, setView] = useState<GameView>('store');
     const [settings, updateSettings] = useSettings();
+    const [isDevMode, setIsDevMode] = useState(false);
     const [lang, setLang] = useState<'en' | 'ar'>('en');
 
-    // Modal States
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [isHowToPlayOpen, setIsHowToPlayOpen] = useState(false);
-    const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-    const [isSignUpModalOpen, setIsSignUpModalOpen] = useState(false);
-    const [authError, setAuthError] = useState<string | null>(null);
-    const [messageModal, setMessageModal] = useState<{ title: string; message: string; card?: CardType } | null>(null);
+    // UI State
+    const [showWelcome, setShowWelcome] = useState(true);
+    const [showIntro, setShowIntro] = useState(false);
+    const [modals, setModals] = useState({
+        login: false,
+        signup: false,
+        settings: false,
+        howToPlay: false,
+        dailyReward: false
+    });
     
-    // Pack Opening State
-    const [packCard, setPackCard] = useState<CardType | null>(null); // The "Hero" card for animation
-    const [pendingPackCards, setPendingPackCards] = useState<CardType[]>([]); // Cards waiting for user action
-    
-    const [cardWithOptions, setCardWithOptions] = useState<{ card: CardType; origin: 'formation' | 'storage' } | null>(null);
+    // Detailed Modal State
+    const [messageModal, setMessageModal] = useState<{title: string, message: string, card?: CardType} | null>(null);
+    const [cardOptions, setCardOptions] = useState<{card: CardType, origin: 'formation' | 'storage'} | null>(null);
     const [cardToList, setCardToList] = useState<CardType | null>(null);
-    const [duplicateToSell, setDuplicateToSell] = useState<CardType | null>(null);
-    const [isDailyRewardModalOpen, setIsDailyRewardModalOpen] = useState(false);
+    const [packCard, setPackCard] = useState<CardType | null>(null); // For Animation
+    const [pendingPackCards, setPendingPackCards] = useState<CardType[]>([]); // For Results
+    const [duplicateCard, setDuplicateCard] = useState<CardType | null>(null);
+    const [deal, setDeal] = useState<any>(null); // Placeholder for deal logic
+    const [rankUpModalData, setRankUpModalData] = useState<{ newRank: Rank, rewards: { coins: number, packs: PackType[], picks: string[] } } | null>(null);
+    const [rewardModal, setRewardModal] = useState<{ isOpen: boolean, reward: RewardData | null, title?: string }>({ isOpen: false, reward: null });
+
+    // --- Helpers ---
     
-    const t = useCallback((key: TranslationKey, replacements?: Record<string, string | number>): string => {
-        let translation = translations[lang][key] || translations['en'][key];
+    const t = useCallback((key: TranslationKey, replacements?: Record<string, string | number>) => {
+        let text = translations[lang][key] || key;
         if (replacements) {
-            Object.entries(replacements).forEach(([placeholder, value]) => {
-                translation = translation.replace(`{${placeholder}}`, String(value));
+            Object.entries(replacements).forEach(([k, v]) => {
+                text = text.replace(`{${k}}`, String(v));
             });
         }
-        return translation;
+        return text;
     }, [lang]);
-    
-    const playSfx = useCallback((soundKey: keyof typeof sfx) => {
+
+    const playSfx = useCallback((key: keyof typeof sfx) => {
         if (settings.sfxOn) {
-            playSound(sfx[soundKey], settings.sfxVolume);
+            playSound(sfx[key], settings.sfxVolume);
         }
     }, [settings.sfxOn, settings.sfxVolume]);
 
-    // --- ASSET PRELOADING ---
-    useEffect(() => {
-        let loadedCount = 0;
-        const totalAssets = ASSETS_TO_PRELOAD.length;
-        
-        const preloadImage = (src: string) => {
-            return new Promise((resolve, reject) => {
-                const img = new Image();
-                img.src = src;
-                img.onload = resolve;
-                img.onerror = resolve; // Continue even if one fails
-            });
-        };
-
-        const loadAllAssets = async () => {
-            const promises = ASSETS_TO_PRELOAD.map(async (src) => {
-                await preloadImage(src);
-                loadedCount++;
-                setLoadingProgress(Math.round((loadedCount / totalAssets) * 100));
-            });
-
-            await Promise.all(promises);
-            // Small delay to smooth transition
-            setTimeout(() => setAppState('welcome'), 500);
-        };
-
-        loadAllAssets();
-    }, []);
-
-    // --- FIREBASE INTEGRATION ---
-
-    // 1. Auth Listener & User Data Fetching
-    useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                setCurrentUser({
-                    username: user.displayName || 'Player',
-                    email: user.email || '',
-                    avatar: user.photoURL || undefined
-                });
-
-                const userDocRef = doc(db, 'users', user.uid);
-                const unsubUserData = onSnapshot(userDocRef, (docSnap) => {
-                    if (isSigningUp.current) return;
-
-                    if (docSnap.exists()) {
-                        const data = docSnap.data() as GameState;
-                        setGameState(prev => ({ 
-                            ...prev, 
-                            ...data,
-                            market: prev.market 
-                        }));
-                    } else {
-                        if (!isSigningUp.current) {
-                             const newUserState = { ...initialState, userId: user.uid };
-                             const { market, ...stateToSave } = newUserState;
-                             setDoc(userDocRef, stateToSave, { merge: true });
-                             setGameState(newUserState);
-                        }
-                    }
-                });
-
-                return () => unsubUserData();
-            } else {
-                setCurrentUser(null);
-                setGameState(initialState);
-            }
-        });
-
-        return () => unsubscribe();
-    }, [playSfx]);
-
-    // 2. Sales Listener (Incoming Earnings & Cleanup)
-    useEffect(() => {
-        if (!auth.currentUser) return;
-        
-        const q = query(collection(db, 'sales'), where('sellerId', '==', auth.currentUser.uid));
-        const unsubscribe = onSnapshot(q, async (snapshot) => {
-            if (snapshot.empty) return;
-
-            const salesToProcess: any[] = [];
-            let totalEarned = 0;
-            
-            snapshot.forEach(doc => {
-                salesToProcess.push({ id: doc.id, ...doc.data() });
-                totalEarned += (Number(doc.data().amount) || 0);
-            });
-
-            if (salesToProcess.length > 0) {
-                try {
-                    await runTransaction(db, async (transaction) => {
-                        const userRef = doc(db, 'users', auth.currentUser!.uid);
-                        const userDoc = await transaction.get(userRef);
-                        if (!userDoc.exists()) return;
-
-                        const currentCoins = Number(userDoc.data().coins) || 0;
-                        
-                        for (const sale of salesToProcess) {
-                            // 1. Delete Sale Record
-                            transaction.delete(doc(db, 'sales', sale.id));
-                            
-                            // 2. Delete Market Listing (Seller Cleanup)
-                            if (sale.marketId) {
-                                const marketRef = doc(db, 'market', sale.marketId);
-                                const marketDoc = await transaction.get(marketRef);
-                                if (marketDoc.exists()) {
-                                    transaction.delete(marketRef);
-                                }
-                            }
-                        }
-                        
-                        // 3. Update Seller Balance
-                        transaction.update(userRef, { coins: currentCoins + totalEarned });
-                    });
-
-                    playSfx('rewardClaimed');
-                    setMessageModal({
-                        title: 'Market Sale!',
-                        message: `You sold cards for ${totalEarned} coins!`
-                    });
-
-                } catch (e) {
-                    console.error("Error claiming sales:", e);
+    // Apply objective progress
+    const applyObjectiveProgress = useCallback((
+        currentProgress: Record<string, ObjectiveProgress>, 
+        taskId: string, 
+        increment: number
+    ): Record<string, ObjectiveProgress> => {
+        const newProgress = { ...currentProgress };
+        objectivesData.forEach(obj => {
+            const task = obj.tasks.find(t => t.id === taskId);
+            if (task) {
+                if (!newProgress[obj.id]) {
+                    newProgress[obj.id] = { tasks: {}, claimed: false };
                 }
+                const currentTaskValue = newProgress[obj.id].tasks[taskId] || 0;
+                newProgress[obj.id].tasks[taskId] = Math.min(task.target, currentTaskValue + increment);
             }
         });
-
-        return () => unsubscribe();
-    }, [currentUser, playSfx]); 
-
-    // 3. Market Listener
-    useEffect(() => {
-        const q = query(collection(db, 'market'), orderBy('createdAt', 'desc'), limit(100)); 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const marketCards: MarketCard[] = [];
-            snapshot.forEach((doc) => {
-                const data = doc.data() as MarketCard;
-                marketCards.push({ ...data, marketId: doc.id });
-            });
-            setGameState(prev => ({ ...prev, market: marketCards }));
-        }, (error) => {
-            if (error.code === 'failed-precondition') {
-                 const fallbackQ = query(collection(db, 'market'), limit(100));
-                 onSnapshot(fallbackQ, (snap) => {
-                    const cards: MarketCard[] = [];
-                    snap.forEach((d) => cards.push({ ...d.data() as MarketCard, marketId: d.id }));
-                    setGameState(p => ({ ...p, market: cards }));
-                 });
-            }
-        });
-
-        return () => unsubscribe();
+        return newProgress;
     }, []);
 
-    const saveToFirebase = useCallback(async (newState: GameState) => {
-        if (auth.currentUser && !isSigningUp.current) {
-            try {
-                const userDocRef = doc(db, 'users', auth.currentUser.uid);
-                const { market, ...stateToSave } = newState; 
-                await setDoc(userDocRef, stateToSave, { merge: true });
-            } catch (e) {
-                console.error("Error saving state:", e);
-            }
+    // Apply evolution task progress
+    const applyEvolutionTask = useCallback((
+        activeEvo: GameState['activeEvolution'],
+        taskId: string,
+        increment: number
+    ): GameState['activeEvolution'] => {
+        if (!activeEvo) return null;
+        
+        const evoDef = evoData.find(e => e.id === activeEvo.evoId);
+        if (!evoDef) return activeEvo;
+
+        const task = evoDef.tasks.find(t => t.id === taskId);
+        if (task) {
+            const currentVal = activeEvo.tasks[taskId] || 0;
+            const newVal = Math.min(task.target, currentVal + increment);
+             return {
+                ...activeEvo,
+                tasks: {
+                    ...activeEvo.tasks,
+                    [taskId]: newVal
+                }
+            };
         }
+        return activeEvo;
     }, []);
 
-    const updateGameState = (updates: Partial<GameState>) => {
-        setGameState(prevState => {
-            const newState = { ...prevState, ...updates };
-            saveToFirebase(newState);
+    // Update Game State Wrapper
+    const updateGameState = useCallback((updates: Partial<GameState>) => {
+        setGameState(prev => {
+            const newState = { ...prev, ...updates };
+            if (currentUser && firebaseUser) {
+                 const userRef = doc(db, 'users', firebaseUser.uid);
+                 updateDoc(userRef, updates).catch(console.error);
+            } else {
+                 localStorage.setItem('guestGameState', JSON.stringify(newState));
+            }
             return newState;
         });
-    };
-
-    useEffect(() => { document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr'; }, [lang]);
-    
-    useEffect(() => {
-        const bgMusic = document.getElementById('bg-music') as HTMLAudioElement;
-        const introMusic = document.getElementById('intro-music') as HTMLAudioElement;
-        if (bgMusic && introMusic) {
-            const isGameActive = appState === 'game';
-            bgMusic.volume = settings.musicVolume / 100;
-            introMusic.volume = settings.musicVolume / 100;
-            if (settings.musicOn && isGameActive) { bgMusic.play().catch(e => console.error("BG music autoplay failed", e)); } else { bgMusic.pause(); }
-        }
-    }, [settings.musicOn, settings.musicVolume, appState]);
+    }, [currentUser, firebaseUser]);
 
 
-    const handleSignUp = async (user: User) => {
-        if (!user.email || !user.password) return;
-        setIsLoading(true);
-        isSigningUp.current = true; 
-
-        try {
-            const userCredential = await createUserWithEmailAndPassword(auth, user.email, user.password);
-            await updateProfile(userCredential.user, {
-                displayName: user.username,
-                photoURL: user.avatar
-            });
-            
-            const { market, ...currentLocalState } = gameState;
-            const newUserState = { ...currentLocalState, userId: userCredential.user.uid };
-            
-            await setDoc(doc(db, 'users', userCredential.user.uid), newUserState);
-            setGameState(prev => ({ ...prev, userId: userCredential.user.uid }));
-
-            setIsSignUpModalOpen(false);
-            setAuthError(null);
-        } catch (error: any) {
-            setAuthError(error.message || "Failed to sign up");
-        } finally {
-            isSigningUp.current = false; 
-            setIsLoading(false);
-        }
-    };
-
-    const handleLogin = async (user: User) => {
-        if (!user.username || !user.password) return; 
-        
-        setIsLoading(true);
-        try {
-            await signInWithEmailAndPassword(auth, user.username, user.password);
-            setIsLoginModalOpen(false);
-            setAuthError(null);
-        } catch (error: any) {
-            setAuthError("Login failed. Please check your email and password.");
-        } finally {
-            setIsLoading(false);
-        }
-    };
-    
-    const handleLogout = async () => {
-        try {
-            await signOut(auth);
-            setGameState(initialState);
-        } catch (error) {
-            console.error("Logout failed", error);
-        }
-    };
-
-    const handleToggleDevMode = () => { setIsDevMode(prev => !prev); };
+    // --- Auth & Sync Effects ---
 
     useEffect(() => {
-        const { activeEvolution } = gameState;
-        if (!activeEvolution) return;
-    
-        const evoDef = evoData.find(e => e.id === activeEvolution.evoId);
-        if (!evoDef || evoDef.id !== 'tommy_gun_upgrade') return;
-        
-        let newActiveEvo = { ...activeEvolution };
-        let changed = false;
-        
-        const evolvingCardInFormation = Object.values(gameState.formation).some((c: CardType | null) => c?.id === activeEvolution.cardId);
-
-        const task1Id = 'tommy_gun_in_formation';
-        if (evolvingCardInFormation && (newActiveEvo.tasks[task1Id] || 0) < 1) {
-            newActiveEvo = applyEvolutionTask(newActiveEvo, task1Id, 1)!;
-            changed = true;
-        }
-
-        const task2Id = 'formation_rating_82';
-        if (evolvingCardInFormation && (newActiveEvo.tasks[task2Id] || 0) < 1) {
-            const formationCards = Object.values(gameState.formation).filter((c): c is CardType => !!c);
-            if (formationCards.length > 0) {
-                const totalOvr = formationCards.reduce((sum, card) => sum + card.ovr, 0);
-                const formationRating = Math.round(totalOvr / formationCards.length);
-                if (formationRating >= 82) {
-                    newActiveEvo = applyEvolutionTask(newActiveEvo, task2Id, 1)!;
-                    changed = true;
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            setFirebaseUser(user);
+            if (user) {
+                const userRef = doc(db, 'users', user.uid);
+                const docSnap = await getDoc(userRef);
+                
+                if (docSnap.exists()) {
+                    const userData = docSnap.data();
+                    setCurrentUser(userData.userProfile as User);
+                    // Merge remote state with safe defaults
+                    setGameState(prev => ({ ...initialState, ...userData, userId: user.uid, market: prev.market }));
+                } else {
+                    // New user setup
+                    const newProfile: User = { username: user.email?.split('@')[0] || 'User', email: user.email || '' };
+                    setCurrentUser(newProfile);
+                    const newState = { ...initialState, userId: user.uid, userProfile: newProfile };
+                    await setDoc(userRef, newState);
+                    setGameState(prev => ({ ...newState, market: prev.market }));
+                }
+            } else {
+                setCurrentUser(null);
+                const savedGuest = localStorage.getItem('guestGameState');
+                if (savedGuest) {
+                    try {
+                        setGameState({ ...initialState, ...JSON.parse(savedGuest) });
+                    } catch {
+                        setGameState(initialState);
+                    }
+                } else {
+                    setGameState(initialState);
                 }
             }
-        }
-        
-        if (changed) {
-            updateGameState({ activeEvolution: newActiveEvo });
-        }
-    }, [gameState.formation]);
+        });
+        return () => unsubscribe();
+    }, []);
 
+    // Sync Market
     useEffect(() => {
-        const goldCardsInFormation = Object.values(gameState.formation).filter((c): c is CardType => !!c && (c as CardType).rarity === 'gold').length;
-        const requiredGoldCards = 11;
-        
-        const objective = objectivesData.find(o => o.tasks.some(t => t.id === 'formation_11_gold'));
-        if (!objective) return;
-        
-        const currentProgress = gameState.objectiveProgress[objective.id]?.tasks['formation_11_gold'] || 0;
-        const newProgressValue = goldCardsInFormation >= requiredGoldCards ? 1 : 0;
-        
-        if (currentProgress !== newProgressValue) {
-            updateGameState({
-                objectiveProgress: applyObjectiveProgress(gameState.objectiveProgress, 'formation_11_gold', newProgressValue, 'set')
+        const q = query(collection(db, 'market'), orderBy('createdAt', 'desc'), limit(50));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const marketData: MarketCard[] = [];
+            snapshot.forEach((doc) => {
+                marketData.push({ ...doc.data() as MarketCard, marketId: doc.id });
             });
+            setGameState(prev => ({ ...prev, market: marketData }));
+        });
+        return () => unsubscribe();
+    }, []);
+
+    // --- Daily Reset & Login Objective ---
+    useEffect(() => {
+        const checkDailyObjectives = () => {
+            const now = Date.now();
+            const oneDay = 24 * 60 * 60 * 1000;
+            let lastReset = gameState.lastDailyReset;
+            let currentProgress = { ...gameState.objectiveProgress };
+            let currentCompletedFbcs = [...gameState.completedFbcIds];
+            let stateChanged = false;
+
+            // 1. Check Reset
+            if (!lastReset || (now - lastReset > oneDay)) {
+                // Clear daily objectives
+                objectivesData.filter(o => o.type === 'daily').forEach(o => {
+                    if (currentProgress[o.id]) {
+                        delete currentProgress[o.id];
+                    }
+                });
+                
+                // Clear daily FBCs
+                const dailyFbcIds = fbcData.filter(f => f.repeatable === 'daily').map(f => f.id);
+                currentCompletedFbcs = currentCompletedFbcs.filter(id => !dailyFbcIds.includes(id));
+
+                lastReset = now;
+                stateChanged = true;
+            }
+
+            // 2. Mark Login Objective
+            const loginObjId = 'd_login'; 
+            const taskId = 'daily_login_task';
+            const loginProgress = currentProgress[loginObjId]?.tasks[taskId] || 0;
+
+            if (loginProgress < 1) {
+                if (!currentProgress[loginObjId]) {
+                    currentProgress[loginObjId] = { tasks: {}, claimed: false };
+                }
+                currentProgress[loginObjId].tasks[taskId] = 1;
+                stateChanged = true;
+            }
+
+            if (stateChanged) {
+                updateGameState({ 
+                    lastDailyReset: lastReset,
+                    objectiveProgress: currentProgress,
+                    completedFbcIds: currentCompletedFbcs
+                });
+            }
+        };
+
+        checkDailyObjectives();
+    }, [gameState.lastDailyReset, gameState.objectiveProgress, gameState.completedFbcIds, updateGameState]);
+
+    // --- Objectives: Track Formation Changes (Ra3 Objective) ---
+    useEffect(() => {
+        const goldCount = Object.values(gameState.formation).filter(c => c && c.rarity === 'gold').length;
+        const objId = 'milestone_a_step_ahead';
+        const taskId = 'formation_11_gold';
+        
+        // Get current status to avoid infinite loops
+        const currentProgress = gameState.objectiveProgress[objId]?.tasks[taskId] || 0;
+        
+        // If condition met and not yet recorded as complete (target is 1)
+        if (goldCount >= 11 && currentProgress < 1) {
+             const newObjectiveProgress = applyObjectiveProgress(gameState.objectiveProgress, taskId, 1);
+             // Only update if it actually changes something
+             updateGameState({ objectiveProgress: newObjectiveProgress });
         }
-    }, [gameState.formation]);
-    
-    const handleOpenPack = useCallback((packType: PackType, isReward = false, bypassLimit = false) => {
+    }, [gameState.formation, gameState.objectiveProgress, applyObjectiveProgress, updateGameState]);
+
+
+    // --- Logic & Handlers ---
+
+    const handleOpenPack = useCallback((packType: PackType, options: { isReward?: boolean, bypassLimit?: boolean, fromInventory?: boolean, currency?: 'coins' | 'bp' } = {}) => {
+        const { isReward = false, bypassLimit = false, fromInventory = false, currency = 'coins' } = options;
         playSfx('packBuildup');
         const pack = packs[packType];
-        const newCards: CardType[] = [];
-        const pickedTemplateIds = new Set<string>(); // Track template IDs to ensure unique cards in this pack
         
-        // Generate 3 Unique Cards
+        // --- Weighting Logic ---
+        const getCardWeight = (card: CardType) => {
+            if (card.rarity === 'gold') return card.ovr < 87 ? 100 : 3; 
+            if (card.rarity === 'rotm') return card.ovr <= 90 ? 50 : 1;
+            if (card.rarity === 'icon') return card.ovr <= 91 ? 50 : 1;
+            return 20;
+        };
+
+        const selectWeightedCard = (candidates: CardType[]): CardType => {
+            const totalWeight = candidates.reduce((sum, c) => sum + getCardWeight(c), 0);
+            let random = Math.random() * totalWeight;
+            for (const card of candidates) {
+                random -= getCardWeight(card);
+                if (random < 0) return card;
+            }
+            return candidates[0];
+        };
+        
+        const newCards: CardType[] = [];
+        const pickedTemplateIds = new Set<string>();
+
         for (let i = 0; i < 3; i++) {
             let foundCard: CardType | null = null;
             let attempts = 0;
-            
             while (!foundCard && attempts < 50) {
                 const random = Math.random() * 100;
                 let cumulative = 0;
@@ -500,12 +350,9 @@ const App: React.FC = () => {
                     const rarities = Object.keys(pack.rarityChances) as (keyof typeof pack.rarityChances)[];
                     chosenRarity = rarities[rarities.length - 1];
                 }
-                
                 const possibleCards = allCards.filter(c => c.rarity === chosenRarity && c.isPackable !== false);
-                
                 if (possibleCards.length > 0) {
-                    const candidate = possibleCards[Math.floor(Math.random() * possibleCards.length)];
-                    // Check if we already picked this specific card template for this pack
+                    const candidate = selectWeightedCard(possibleCards);
                     if (!pickedTemplateIds.has(candidate.id)) {
                         foundCard = candidate;
                         pickedTemplateIds.add(candidate.id);
@@ -513,40 +360,42 @@ const App: React.FC = () => {
                 }
                 attempts++;
             }
-            
-            // Fallback if unique card not found (rare)
             if (!foundCard) {
-                const bronzeCards = allCards.filter(c => c.rarity === 'bronze' && c.isPackable !== false);
-                foundCard = bronzeCards.length > 0 ? bronzeCards[Math.floor(Math.random() * bronzeCards.length)] : allCards[0];
+                const bronzeCards = allCards.filter(c => c.rarity === 'bronze');
+                foundCard = bronzeCards.length > 0 ? selectWeightedCard(bronzeCards) : allCards[0];
             }
-            
             const newCard = { ...foundCard } as CardType;
-            // Ensure unique ID for every card instance
-            newCard.id = `${newCard.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}-${i}`;
+            newCard.id = `${newCard.id}-${Date.now()}-${Math.floor(Math.random() * 100000)}-${i}`;
             newCards.push(newCard);
         }
 
-        // Sort by Rating Descending to find the "Hero" card for animation
         newCards.sort((a, b) => b.ovr - a.ovr);
         const bestCard = newCards[0];
 
-        if (!isReward && pack.cost > gameState.coins && !isDevMode) {
-            setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins to open this pack.` });
-            return;
+        // Cost check if not a reward and not from inventory
+        if (!isReward && !fromInventory && !isDevMode) {
+            if (currency === 'coins' && pack.cost > gameState.coins) {
+                setMessageModal({ title: 'Not Enough Coins', message: `You need ${pack.cost} coins to open this pack.` });
+                return;
+            }
+            if (currency === 'bp' && pack.bpCost > (gameState.battlePoints || 0)) {
+                setMessageModal({ title: 'Not Enough BP', message: `You need ${pack.bpCost} Battle Points to open this pack.` });
+                return;
+            }
         }
         
         let stateUpdates: Partial<GameState> = {};
         
-        if (packType === 'free' && !bypassLimit) {
+        // Handling Free Pack Limits
+        if (packType === 'free' && !bypassLimit && !fromInventory) {
             const twelveHours = 12 * 60 * 60 * 1000;
             const now = Date.now();
             let { freePacksOpenedToday, lastFreePackResetTime } = gameState;
             if (lastFreePackResetTime && (now - lastFreePackResetTime > twelveHours)) {
                 freePacksOpenedToday = 0;
                 lastFreePackResetTime = now;
-            } else if (!lastFreePackResetTime) {
-                lastFreePackResetTime = now;
-            }
+            } else if (!lastFreePackResetTime) lastFreePackResetTime = now;
+            
             if (freePacksOpenedToday >= 3 && !isDevMode) {
                 setMessageModal({ title: 'Limit Reached', message: 'You have opened all your free packs for now. Come back later!' });
                 return;
@@ -555,8 +404,15 @@ const App: React.FC = () => {
             stateUpdates.lastFreePackResetTime = lastFreePackResetTime;
             stateUpdates.objectiveProgress = applyObjectiveProgress(gameState.objectiveProgress, 'open_free_packs', 1);
 
-        } else if (!isReward) {
-            stateUpdates.coins = gameState.coins - pack.cost;
+        } else if (!isReward && !fromInventory) {
+            // Deduct Currency
+            if (currency === 'coins') {
+                stateUpdates.coins = gameState.coins - pack.cost;
+            } else {
+                stateUpdates.battlePoints = (gameState.battlePoints || 0) - pack.bpCost;
+            }
+            
+            // Apply Objectives logic for purchased packs
             let currentObjectiveProgress = gameState.objectiveProgress;
             let currentActiveEvolution = gameState.activeEvolution;
 
@@ -566,9 +422,18 @@ const App: React.FC = () => {
             if (packType === 'special') {
                 currentActiveEvolution = applyEvolutionTask(currentActiveEvolution, 'open_special_packs', 1);
             }
-
             stateUpdates.objectiveProgress = currentObjectiveProgress;
             stateUpdates.activeEvolution = currentActiveEvolution;
+        }
+
+        // Inventory Removal
+        if (fromInventory) {
+            const packIndex = gameState.ownedPacks.indexOf(packType);
+            if (packIndex > -1) {
+                const newOwned = [...gameState.ownedPacks];
+                newOwned.splice(packIndex, 1);
+                stateUpdates.ownedPacks = newOwned;
+            }
         }
 
         if (settings.animationsOn) {
@@ -576,557 +441,590 @@ const App: React.FC = () => {
             setPendingPackCards(newCards);
             updateGameState(stateUpdates);
         } else {
-            // No animation: Show results immediately
             setPendingPackCards(newCards);
             updateGameState(stateUpdates);
         }
-    }, [gameState, isDevMode, settings.animationsOn, playSfx]);
+    }, [gameState, isDevMode, settings.animationsOn, playSfx, applyObjectiveProgress, applyEvolutionTask, updateGameState]);
 
-
-    const handlePackAnimationEnd = () => {
-        // Clear animation card, which reveals the PackResultsModal because pendingPackCards is set
-        setPackCard(null);
-    };
-    
-    // --- PACK RESULTS HANDLERS ---
-    
-    const handleKeepPackCard = (card: CardType) => {
-        setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
-        updateGameState({ storage: [...gameState.storage, card] });
-        playSfx('success');
-    };
-
-    const handleQuickSellPackCard = (card: CardType) => {
-        const value = calculateQuickSellValue(card);
-        setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
-        updateGameState({ coins: gameState.coins + value });
-        playSfx('rewardClaimed');
-    };
-
-    const handleQuickSellDuplicate = () => {
-        if (duplicateToSell) {
-          const quickSellValue = calculateQuickSellValue(duplicateToSell);
-          updateGameState({ coins: gameState.coins + quickSellValue });
-          setMessageModal({ title: 'Card Sold', message: `You received ${quickSellValue} coins for the duplicate ${duplicateToSell.name}.` });
-          setDuplicateToSell(null);
-        }
-    };
-    
-    // --- FIRESTORE TRANSACTION: BUY CARD ---
-    const handleBuyCard = async (card: MarketCard) => {
-        if (!auth.currentUser || !card.marketId) {
-            setMessageModal({ title: 'Account Required', message: 'You must be logged in to buy cards.' });
-            return;
-        }
-
-        const price = Number(card.price);
-        if (gameState.coins < price) {
-            setMessageModal({ title: 'Not Enough Coins', message: `You need ${price} coins to buy this card.` });
-            return;
-        }
-
-        try {
-            await runTransaction(db, async (transaction) => {
-                const marketRef = doc(db, 'market', card.marketId!);
-                const buyerRef = doc(db, 'users', auth.currentUser!.uid);
-                
-                // 1. ALL READS FIRST
-                const marketDoc = await transaction.get(marketRef);
-                // Note: We don't throw if missing immediately, but if it is missing, we can't buy it.
-                // However, transaction might fail if we don't handle it.
-                if (!marketDoc.exists()) throw "Card has already been sold.";
-
-                const buyerDoc = await transaction.get(buyerRef);
-                if (!buyerDoc.exists()) throw "Your user profile is missing from the server. Please try logging out and back in.";
-
-                // 2. LOGIC CHECKS
-                const buyerData = buyerDoc.data() as GameState;
-                const currentCoins = Number(buyerData.coins);
-                
-                if (isNaN(currentCoins)) throw "Error reading your coin balance. Please refresh.";
-                if (currentCoins < price) throw `Insufficient funds. Server says you have ${currentCoins}, but card costs ${price}.`;
-
-                const newCoins = currentCoins - price;
-                const newStorage = [...(buyerData.storage || []), card];
-
-                // 3. ALL WRITES LAST
-                transaction.update(buyerRef, { coins: newCoins, storage: newStorage });
-                
-                // NOTE: We do NOT delete marketRef here to avoid permission errors (buyer cannot delete seller's doc).
-                // Instead, we create a sale record, and the Seller's client will delete the market doc upon receipt.
-
-                if (card.sellerId && card.sellerId !== 'guest') {
-                    const newSaleRef = doc(collection(db, 'sales'));
-                    transaction.set(newSaleRef, {
-                        sellerId: card.sellerId,
-                        amount: price,
-                        cardName: card.name,
-                        buyerId: auth.currentUser!.uid,
-                        marketId: card.marketId, 
-                        timestamp: Date.now()
-                    });
-                } else if (card.sellerId === 'guest' || !card.sellerId) {
-                    // If buying from a "guest" or bot, we can try to delete the listing if rules allow public delete
-                    // OR we just accept it stays (infinite stock for guests).
-                    // For now, let's try to delete it. If it fails, the user at least gets the card (above update).
-                    // Actually, if we try to delete and fail, the whole transaction rolls back.
-                    // Safer to NOT delete guest listings in this architecture unless we own them.
-                }
+    const handleOpenPlayerPick = (config: PlayerPickConfig) => {
+        // Find pick in inventory and remove one instance
+        const pickIndex = gameState.ownedPlayerPicks.findIndex(p => p.id === config.id);
+        if (pickIndex > -1) {
+            const newOwned = [...gameState.ownedPlayerPicks];
+            newOwned.splice(pickIndex, 1);
+            updateGameState({ 
+                ownedPlayerPicks: newOwned,
+                activePlayerPick: config 
             });
-
-            playSfx('purchase');
-            setMessageModal({ title: 'Purchase Successful', message: `You bought ${card.name} for ${price} coins.`, card });
-
-        } catch (e: any) {
-            console.error("Buy error:", e);
-            const msg = typeof e === 'string' ? e : e.message || 'Could not complete purchase.';
-            setMessageModal({ title: 'Transaction Failed', message: msg });
         }
     };
 
-    // --- FIRESTORE TRANSACTION: CANCEL LISTING ---
-    const handleCancelListing = async (card: MarketCard) => {
-        if (!auth.currentUser || !card.marketId) return;
-
-        try {
-            await runTransaction(db, async (transaction) => {
-                const marketRef = doc(db, 'market', card.marketId!);
-                const userRef = doc(db, 'users', auth.currentUser!.uid);
-
-                // 1. READS
-                const marketDoc = await transaction.get(marketRef);
-                if (!marketDoc.exists()) throw "Listing not found.";
-                if (marketDoc.data().sellerId !== auth.currentUser!.uid) throw "You can only cancel your own listings.";
-
-                const userDoc = await transaction.get(userRef);
-                if (!userDoc.exists()) throw "User profile not found.";
-
-                // 2. LOGIC
-                const userData = userDoc.data() as GameState;
-                const newStorage = [...(userData.storage || []), card];
-
-                // 3. WRITES
-                transaction.delete(marketRef);
-                transaction.update(userRef, { storage: newStorage });
-            });
-
-            setMessageModal({ title: 'Listing Cancelled', message: `${card.name} has been returned to your storage.` });
-
-        } catch (e: any) {
-            console.error("Cancel error:", e);
-            setMessageModal({ title: 'Error', message: e.message || "Failed to cancel listing." });
-        }
-    };
-
-    // --- FIRESTORE: LIST CARD ---
-    const handleListCard = async (card: CardType, price: number) => {
-        if (!auth.currentUser) {
-            setMessageModal({ title: 'Account Required', message: 'You must Sign Up or Log In to list items on the live market.' });
-            return;
-        }
-
-        const newMarketCard: MarketCard = { 
-            ...card, 
-            price: Number(price), // Ensure price is a number
-            sellerId: auth.currentUser.uid,
-            createdAt: Date.now()
-        };
+    const handleKeepCard = (card: CardType) => {
+        // Strict duplicate checking by card Name
+        const alreadyInStorage = gameState.storage.some(c => c.name === card.name);
+        const alreadyInFormation = Object.values(gameState.formation).some(c => c?.name === card.name);
         
-        // Optimistically remove from local state
-        // Check if listing from PACK RESULTS or STORAGE
-        const isFromPack = pendingPackCards.some(c => c.id === card.id);
-        
-        if (isFromPack) {
+        if (alreadyInStorage || alreadyInFormation) {
+            setDuplicateCard(card);
             setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
-            updateGameState({
-                objectiveProgress: applyObjectiveProgress(gameState.objectiveProgress, 'list_market_cards', 1),
-                activeEvolution: applyEvolutionTask(gameState.activeEvolution, 'list_cards_market', 1)
-            });
-        } else {
-            // Remove from Storage/Formation logic
-            const { formation, storage } = gameState;
-            const formationPos = Object.keys(formation).find(pos => formation[pos]?.id === card.id);
-            let newFormation = { ...formation };
-            let newStorage = [...storage];
+            return;
+        }
 
-            if (formationPos) {
-                newFormation[formationPos] = null;
-            } else {
-                newStorage = storage.filter((c: CardType) => c.id !== card.id);
+        updateGameState({ storage: [...gameState.storage, card] });
+        setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
+    };
+
+    const handleQuickSell = (card: CardType) => {
+        playSfx('purchase');
+        const value = calculateQuickSellValue(card);
+        const updates: Partial<GameState> = { coins: gameState.coins + value };
+        
+        if (card.rarity === 'gold') {
+             updates.activeEvolution = applyEvolutionTask(gameState.activeEvolution, 'quicksell_gold_card', 1);
+        }
+
+        updateGameState(updates);
+        
+        if (pendingPackCards.find(c => c.id === card.id)) {
+            setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
+        } else if (gameState.storage.find(c => c.id === card.id)) {
+            updateGameState({ storage: gameState.storage.filter(c => c.id !== card.id) });
+        } else if (duplicateCard?.id === card.id) {
+            setDuplicateCard(null);
+        }
+        
+        if (cardOptions?.card.id === card.id) setCardOptions(null);
+    };
+
+    const handleListCard = (card: CardType, price: number) => {
+        if (!firebaseUser) {
+            setMessageModal({ title: 'Login Required', message: 'You must be logged in to use the market.' });
+            return;
+        }
+        
+        addDoc(collection(db, 'market'), {
+            ...card,
+            price,
+            sellerId: firebaseUser.uid,
+            createdAt: Date.now()
+        }).then(() => {
+            const newStorage = gameState.storage.filter(c => c.id !== card.id);
+            const newObjectives = applyObjectiveProgress(gameState.objectiveProgress, 'list_market_cards', 1);
+            const newEvo = applyEvolutionTask(gameState.activeEvolution, 'list_cards_market', 1);
+            
+            updateGameState({ 
+                storage: newStorage,
+                objectiveProgress: newObjectives,
+                activeEvolution: newEvo
+            });
+            setCardToList(null);
+            if (pendingPackCards.find(c => c.id === card.id)) {
+                setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
+            }
+        });
+    };
+
+    const handleBuyCard = (marketCard: MarketCard) => {
+        if (gameState.coins < marketCard.price) {
+             setMessageModal({ title: 'Insufficient Funds', message: 'You do not have enough coins.' });
+             return;
+        }
+        
+        // Optimistic check for duplicates before buying
+        const alreadyInStorage = gameState.storage.some(c => c.name === marketCard.name);
+        const alreadyInFormation = Object.values(gameState.formation).some(c => c?.name === marketCard.name);
+        
+        if (alreadyInStorage || alreadyInFormation) {
+             setMessageModal({ title: 'Duplicate Found', message: `You already own ${marketCard.name}.` });
+             return;
+        }
+        
+        const cardRef = doc(db, 'market', marketCard.marketId!);
+        deleteDoc(cardRef).then(() => {
+             playSfx('purchase');
+             const { marketId, sellerId, price, createdAt, ...cardData } = marketCard;
+             const newCard = { ...cardData, id: `${cardData.id}-${Date.now()}` };
+             updateGameState({
+                 coins: gameState.coins - marketCard.price,
+                 storage: [...gameState.storage, newCard]
+             });
+             setMessageModal({ title: 'Success', message: `You bought ${marketCard.name}!` });
+        }).catch(() => {
+             setMessageModal({ title: 'Error', message: 'This card is no longer available.' });
+        });
+    };
+
+    const handleCancelListing = (marketCard: MarketCard) => {
+         const cardRef = doc(db, 'market', marketCard.marketId!);
+         deleteDoc(cardRef).then(() => {
+             const { marketId, sellerId, price, createdAt, ...cardData } = marketCard;
+             updateGameState({ storage: [...gameState.storage, cardData] });
+         });
+    };
+
+    const handleAddToFormation = (card: CardType) => {
+        const emptyPos = Object.keys(gameState.formation).find(pos => gameState.formation[pos] === null);
+        if (emptyPos) {
+            const newFormation = { ...gameState.formation, [emptyPos]: card };
+            const newStorage = gameState.storage.filter(c => c.id !== card.id);
+            
+            let newEvo = gameState.activeEvolution;
+            if (card.name === 'Tommy Gun') {
+                newEvo = applyEvolutionTask(newEvo, 'tommy_gun_in_formation', 1);
+            }
+            
+            updateGameState({ formation: newFormation, storage: newStorage, activeEvolution: newEvo });
+            setCardOptions(null);
+        }
+    };
+    
+    // XP, Rank, and Rewards Logic
+    const handleBattleResult = (amount: number, isWin: boolean, mode: 'ranked' | 'challenge', squad: CardType[]) => {
+        setGameState(prev => {
+            let newState = { ...prev };
+            
+            // 1. Update BP & XP
+            const xpGain = isWin ? 150 : 25;
+            
+            newState.battlePoints = (prev.battlePoints || 0) + amount;
+            newState.xp = (prev.xp || 0) + xpGain;
+
+            // Update Objectives for Battles
+            let newObjProgress = applyObjectiveProgress(newState.objectiveProgress, 'play_any_battle', 1);
+            if (mode === 'challenge') {
+                newObjProgress = applyObjectiveProgress(newObjProgress, 'play_challenge_battle', 1);
+                if (isWin) {
+                    newObjProgress = applyObjectiveProgress(newObjProgress, 'win_challenge_battle', 1);
+                }
+            } else if (mode === 'ranked' && isWin) {
+                // New logic: Win 5 Ranked Games for Milestone
+                newObjProgress = applyObjectiveProgress(newObjProgress, 'win_ranked_games', 1);
+            }
+            newState.objectiveProgress = newObjProgress;
+
+            // New logic: Evo Task - Play with Abo El Anwar
+            if (squad.some(c => c.name === 'Abo El Anwar' && c.rarity === 'gold')) {
+                newState.activeEvolution = applyEvolutionTask(newState.activeEvolution, 'play_battle_abo', 1);
             }
 
-            updateGameState({
-                formation: newFormation,
-                storage: newStorage,
-                objectiveProgress: applyObjectiveProgress(gameState.objectiveProgress, 'list_market_cards', 1),
-                activeEvolution: applyEvolutionTask(gameState.activeEvolution, 'list_cards_market', 1)
-            });
-        }
+            // 2. Rank Progression (Only for Ranked Mode & Win)
+            if (isWin && mode === 'ranked') {
+                const currentRank = prev.rank || 'Bronze';
+                const rankConfig = rankSystem[currentRank];
+                
+                // Increment wins for current rank
+                let newRankWins = (prev.rankWins || 0) + 1;
+                
+                // Check Promotion/Reward Logic
+                let promoted = false;
+                let nextRank: Rank = currentRank;
+                
+                // Legend Loop Logic (Every 5 wins)
+                if (currentRank === 'Legend') {
+                    if (newRankWins >= rankConfig.winsToPromote) {
+                        newRankWins = 0; // Reset loop
+                        
+                        // Distribute Legend Rewards
+                        const rewards = rankConfig.promotionReward;
+                        newState.coins += rewards.coins;
+                        newState.ownedPacks = [...newState.ownedPacks, ...rewards.packs];
+                        
+                        // Add Picks
+                        const newPicks = rewards.picks.map(id => playerPickConfigs[id]).filter(Boolean);
+                        newState.ownedPlayerPicks = [...newState.ownedPlayerPicks, ...newPicks];
+                        
+                        setRankUpModalData({ newRank: 'Legend', rewards });
+                        playSfx('success');
+                    }
+                } 
+                // Normal Rank Progression
+                else if (newRankWins >= rankConfig.winsToPromote) {
+                    if (currentRank === 'Bronze') nextRank = 'Silver';
+                    else if (currentRank === 'Silver') nextRank = 'Gold';
+                    else if (currentRank === 'Gold') nextRank = 'Legend';
+                    
+                    newRankWins = 0; // Reset for next rank
+                    promoted = true;
+                    
+                    // Distribute Promotion Rewards
+                    const rewards = rankConfig.promotionReward;
+                    newState.coins += rewards.coins;
+                    newState.ownedPacks = [...newState.ownedPacks, ...rewards.packs];
+                    const newPicks = rewards.picks.map(id => playerPickConfigs[id]).filter(Boolean);
+                    newState.ownedPlayerPicks = [...newState.ownedPlayerPicks, ...newPicks];
 
-        try {
-            await addDoc(collection(db, 'market'), newMarketCard);
-            setCardToList(null);
-            setMessageModal({ title: 'Card Listed', message: `${card.name} has been listed on the market for ${price} coins.` });
-        } catch (e) {
-            console.error("Error listing card:", e);
-            setMessageModal({ title: 'Error', message: 'Failed to list card on server.' });
-        }
-    };
-    
-    const handleQuickSell = (cardToSell: CardType) => {
-        const quickSellValue = calculateQuickSellValue(cardToSell);
-        
-        const { formation, storage } = gameState;
-        const formationPos = Object.keys(formation).find(pos => formation[pos]?.id === cardToSell.id);
-        
-        let newFormation = { ...formation };
-        let newStorage = [...storage];
-        let newActiveEvolution = gameState.activeEvolution;
+                    setRankUpModalData({ newRank: nextRank, rewards });
+                    playSfx('success');
+                }
 
-        if (formationPos) {
-            newFormation[formationPos] = null;
-        } else {
-            newStorage = storage.filter((c: CardType) => c.id !== cardToSell.id);
-        }
-        
-        if (cardToSell.rarity === 'gold') {
-            newActiveEvolution = applyEvolutionTask(gameState.activeEvolution, 'quicksell_gold_card', 1);
-        }
+                newState.rank = nextRank;
+                newState.rankWins = newRankWins;
+            }
 
-        updateGameState({
-            formation: newFormation,
-            storage: newStorage,
-            coins: gameState.coins + quickSellValue,
-            activeEvolution: newActiveEvolution
+            // Sync to Firebase if user logged in
+            if (currentUser && firebaseUser) {
+                 const userRef = doc(db, 'users', firebaseUser.uid);
+                 updateDoc(userRef, { 
+                     battlePoints: newState.battlePoints,
+                     xp: newState.xp,
+                     rank: newState.rank,
+                     rankWins: newState.rankWins,
+                     coins: newState.coins,
+                     ownedPacks: newState.ownedPacks,
+                     ownedPlayerPicks: newState.ownedPlayerPicks,
+                     objectiveProgress: newState.objectiveProgress,
+                     activeEvolution: newState.activeEvolution
+                 }).catch(console.error);
+            } else {
+                 localStorage.setItem('guestGameState', JSON.stringify(newState));
+            }
+            return newState;
         });
-        
-        setCardWithOptions(null);
-        setMessageModal({ title: 'Card Sold', message: `You quick sold ${cardToSell.name} for ${quickSellValue} coins.` });
     };
     
-
+    // FBC Submit
     const handleFbcSubmit = (challengeId: string, submittedCards: CardType[]) => {
         const challenge = fbcData.find(c => c.id === challengeId);
         if (!challenge) return;
 
-        let newFormation = { ...gameState.formation };
-        let newStorage = [...gameState.storage];
-        const submittedIds = new Set(submittedCards.map(c => c.id));
-
-        for (const pos in newFormation) {
-            if (newFormation[pos] && submittedIds.has(newFormation[pos]!.id)) {
-                newFormation[pos] = null;
+        const submittedIds = submittedCards.map(c => c.id);
+        const newStorage = gameState.storage.filter(c => !submittedIds.includes(c.id));
+        const newFormation = { ...gameState.formation };
+        Object.keys(newFormation).forEach(key => {
+            if (newFormation[key] && submittedIds.includes(newFormation[key]!.id)) {
+                newFormation[key] = null;
             }
-        }
-        newStorage = newStorage.filter((c: CardType) => !submittedIds.has(c.id));
-
-        let rewardCard: CardType | null = null;
-        if (challenge.reward.type === 'card' && challenge.reward.cardId) {
-            const template = allCards.find(c => c.id === challenge.reward.cardId);
-            if (template) {
-                rewardCard = { ...template, id: `${template.id}-${Date.now()}` };
-                newStorage.push(rewardCard);
-            }
-        }
-        
-        updateGameState({
-            formation: newFormation,
-            storage: newStorage,
-            completedFbcIds: [...gameState.completedFbcIds, challengeId],
-            objectiveProgress: applyObjectiveProgress(gameState.objectiveProgress, 'complete_fbcs', 1)
         });
 
-        if (rewardCard) {
-             setMessageModal({
-                title: 'Challenge Complete!',
-                message: `You earned ${rewardCard.name}!`,
-                card: rewardCard
-            });
+        let newCompletedFbcs = [...gameState.completedFbcIds, challengeId];
+        let newObjectiveProgress = applyObjectiveProgress(gameState.objectiveProgress, 'complete_fbcs', 1);
+        let rewardUpdate: Partial<GameState> = {};
+
+        // Give Reward - Store in inventory
+        if (challenge.reward.type === 'coins' && challenge.reward.amount) {
+            rewardUpdate.coins = gameState.coins + challenge.reward.amount;
+        } else if (challenge.reward.type === 'pack' && challenge.reward.details) {
+            rewardUpdate.ownedPacks = [...gameState.ownedPacks, challenge.reward.details];
+        } else if (challenge.reward.type === 'card' && challenge.reward.cardId) {
+            const rewardCard = allCards.find(c => c.id === challenge.reward.cardId);
+            if (rewardCard) {
+                newStorage.push({ ...rewardCard, id: `${rewardCard.id}-${Date.now()}` });
+            }
         }
 
-        if (challenge.reward.type === 'pack' && challenge.reward.details) {
-            handleOpenPack(challenge.reward.details, true, challenge.reward.bypassLimit);
-        }
-        
-        playSfx('rewardClaimed');
+        updateGameState({
+            storage: newStorage,
+            formation: newFormation,
+            completedFbcIds: newCompletedFbcs,
+            objectiveProgress: newObjectiveProgress,
+            ...rewardUpdate
+        });
+        playSfx('success');
+
+        // Show Modal
+        setRewardModal({
+            isOpen: true,
+            reward: {
+                type: challenge.reward.type as any,
+                amount: challenge.reward.amount,
+                packType: challenge.reward.details,
+                cardId: challenge.reward.cardId
+            },
+            title: t(challenge.title as TranslationKey) + " Completed!"
+        });
     };
 
+    // Evo Logic
     const handleStartEvo = (evoId: string, cardId: string) => {
-        if (gameState.activeEvolution) {
-            setMessageModal({ title: 'Evolution in Progress', message: 'You must complete your active evolution first.' });
-            return;
-        }
-        const evoDef = evoData.find(e => e.id === evoId);
-        if (!evoDef) return;
-        const initialTasks: Record<string, number> = {};
-        evoDef.tasks.forEach(task => { initialTasks[task.id] = 0; });
         updateGameState({
-            activeEvolution: { evoId, cardId, tasks: initialTasks }
+            activeEvolution: {
+                evoId,
+                cardId,
+                tasks: {}
+            }
         });
     };
 
     const handleClaimEvo = () => {
-        playSfx('rewardClaimed');
-        
         if (!gameState.activeEvolution) return;
         const evoDef = evoData.find(e => e.id === gameState.activeEvolution!.evoId);
-        const resultCardTemplate = allCards.find(c => c.id === evoDef?.resultCardId);
-        if (!evoDef || !resultCardTemplate) return;
+        if (!evoDef) return;
 
-        const originalCardId = gameState.activeEvolution!.cardId;
-        const resultCard = { ...resultCardTemplate, id: `${resultCardTemplate.id}-${Date.now()}` };
-
-        let newFormation = { ...gameState.formation };
-        let newStorage = gameState.storage.filter((c: CardType) => c.id !== originalCardId);
-        const formationPos = Object.keys(gameState.formation).find(pos => gameState.formation[pos]?.id === originalCardId);
-        
-        if (formationPos) {
-            newFormation[formationPos] = resultCard;
-        } else {
-            newStorage.push(resultCard);
-        }
-
-        setMessageModal({
-            title: 'Evolution Complete!',
-            message: `Your card evolved into ${resultCard.name}!`,
-            card: resultCard,
-        });
-
-        updateGameState({
-            activeEvolution: null,
-            completedEvoIds: [...(gameState.completedEvoIds || []), evoDef.id],
-            formation: newFormation,
-            storage: newStorage,
-            objectiveProgress: applyObjectiveProgress(gameState.objectiveProgress, 'complete_evos', 1)
-        });
-    };
-
-    const handleClaimObjectiveReward = (objectiveId: string) => {
-        const objective = objectivesData.find(o => o.id === objectiveId);
-        if (!objective) return;
-        const progress = gameState.objectiveProgress[objectiveId];
-        const allTasksComplete = objective.tasks.every(task => (progress?.tasks?.[task.id] || 0) >= task.target);
-        if (!progress || progress.claimed || !allTasksComplete) return;
-    
-        playSfx('rewardClaimed');
-        
-        let newCoins = gameState.coins;
-        let newStorage = [...gameState.storage];
-        let rewardCard: CardType | undefined;
-        let rewardMessage = '';
-
-        const newProgress = { ...gameState.objectiveProgress, [objectiveId]: { ...progress, claimed: true } };
-
-        switch (objective.reward.type) {
-            case 'coins':
-                newCoins += objective.reward.amount!;
-                rewardMessage = `You received ${objective.reward.amount} coins.`;
-                break;
-            case 'card':
-                const cardTemplate = allCards.find(c => c.id === objective.reward.cardId);
-                if (cardTemplate) {
-                    const card = { ...cardTemplate, id: `${cardTemplate.id}-${Date.now()}` };
-                    newStorage.push(card);
-                    rewardCard = card;
-                    rewardMessage = `You earned ${card.name}!`;
+        const resultCard = allCards.find(c => c.id === evoDef.resultCardId);
+        if (resultCard) {
+            const oldCardId = gameState.activeEvolution.cardId;
+            let newStorage = gameState.storage.filter(c => c.id !== oldCardId);
+            let newFormation = { ...gameState.formation };
+            let replacedInFormation = false;
+            
+            Object.keys(newFormation).forEach(key => {
+                if (newFormation[key]?.id === oldCardId) {
+                    newFormation[key] = { ...resultCard, id: `${resultCard.id}-${Date.now()}` };
+                    replacedInFormation = true;
                 }
-                break;
-        }
-        
-        if (rewardMessage) {
-                setMessageModal({ title: 'Reward Claimed!', message: rewardMessage, card: rewardCard });
-        }
+            });
+            
+            if (!replacedInFormation) {
+                newStorage.push({ ...resultCard, id: `${resultCard.id}-${Date.now()}` });
+            }
 
-        updateGameState({ coins: newCoins, storage: newStorage, objectiveProgress: newProgress });
+            updateGameState({
+                activeEvolution: null,
+                completedEvoIds: [...gameState.completedEvoIds, evoDef.id],
+                storage: newStorage,
+                formation: newFormation,
+                objectiveProgress: applyObjectiveProgress(gameState.objectiveProgress, 'complete_evos', 1)
+            });
+            playSfx('rewardClaimed');
 
-        if (objective.reward.type === 'pack' && objective.reward.packType) {
-            handleOpenPack(objective.reward.packType, true);
+            // Show Modal
+            setRewardModal({
+                isOpen: true,
+                reward: { type: 'card', cardId: resultCard.id },
+                title: "Evolution Completed!"
+            });
         }
     };
     
-    const handleClaimDailyReward = (rewardType: 'coins' | 'pack' | 'card') => {
-        let title = 'Reward Claimed!';
-        let message = '';
-        let card: CardType | undefined = undefined;
+    // Objective Claim
+    const handleClaimObjective = (objId: string) => {
+        const obj = objectivesData.find(o => o.id === objId);
+        if (!obj) return;
         
-        if (rewardType === 'pack') {
-            const packType = Math.random() > 0.8 ? 'special' : 'builder';
-            handleOpenPack(packType, true);
-            updateGameState({ lastRewardClaimTime: Date.now() });
-            setIsDailyRewardModalOpen(false);
-            return;
-        }
-
-        let newCoins = gameState.coins;
-        let newStorage = [...gameState.storage];
-
-        switch(rewardType) {
-            case 'coins':
-                newCoins += 1000;
-                message = 'You received 1,000 coins!';
-                break;
-            case 'card':
-                const possibleCards = allCards.filter(c => c.value <= 5000 && c.rarity !== 'bronze');
-                const randomCard = possibleCards[Math.floor(Math.random() * possibleCards.length)];
-                if (randomCard) {
-                    const c = { ...randomCard, id: `${randomCard.id}-${Date.now()}` };
-                    newStorage.push(c);
-                    card = c;
-                    message = `You received ${c.name}!`;
-                }
-                break;
-        }
-        if (message) {
-            setMessageModal({ title, message, card });
-        }
-        updateGameState({ coins: newCoins, storage: newStorage, lastRewardClaimTime: Date.now() });
-        setIsDailyRewardModalOpen(false);
-    };
-    
-    const handleAddToFormation = useCallback((card: CardType) => {
-        const { formation, formationLayout, storage } = gameState;
-        const layout = formationLayouts[formationLayout];
-        const emptyPositionId = layout.allPositions.find(posId => !formation[posId]);
-
-        if (emptyPositionId) {
-            const newFormation = { ...formation, [emptyPositionId]: card };
-            const newStorage = storage.filter((c: CardType) => c.id !== card.id);
-            updateGameState({ formation: newFormation, storage: newStorage });
-            playSfx('success');
-            setCardWithOptions(null);
-        } else {
-            setMessageModal({ title: 'Formation Full', message: 'Your formation is full. Remove a player to add a new one.' });
-        }
-    }, [gameState, playSfx]);
-    
-    const claimableObjectivesCount = useMemo(() => {
-        return objectivesData.reduce((count, obj) => {
-            const progress = gameState.objectiveProgress[obj.id];
-            if (progress && !progress.claimed) {
-                const allTasksComplete = obj.tasks.every(task => (progress.tasks?.[task.id] || 0) >= task.target);
-                if (allTasksComplete) {
-                    return count + 1;
+        const progress = gameState.objectiveProgress[objId];
+        if (!progress || progress.claimed) return;
+        
+        let updates: Partial<GameState> = {
+            objectiveProgress: {
+                ...gameState.objectiveProgress,
+                [objId]: { ...progress, claimed: true }
+            }
+        };
+        
+        // Add Rewards to Inventory
+        if (obj.reward.type === 'coins') {
+            updates.coins = gameState.coins + (obj.reward.amount || 0);
+        } else if (obj.reward.type === 'pack') {
+            updates.ownedPacks = [...gameState.ownedPacks, obj.reward.packType!];
+        } else if (obj.reward.type === 'card') {
+            const card = allCards.find(c => c.id === obj.reward.cardId);
+            if (card) {
+                updates.storage = [...gameState.storage, { ...card, id: `${card.id}-${Date.now()}` }];
+            }
+        } else if (obj.reward.type === 'player_pick' && obj.reward.playerPickId) {
+            const pickConfig = playerPickConfigs[obj.reward.playerPickId];
+            if (pickConfig) {
+                updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, pickConfig];
+            }
+        } else if (obj.reward.type === 'coins_and_pick') {
+            // New Mixed Reward Type
+            if (obj.reward.amount) {
+                updates.coins = gameState.coins + obj.reward.amount;
+            }
+            if (obj.reward.playerPickId) {
+                const pickConfig = playerPickConfigs[obj.reward.playerPickId];
+                if (pickConfig) {
+                    updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, pickConfig];
                 }
             }
-            return count;
-        }, 0);
-    }, [gameState.objectiveProgress]);
-
-    const claimableEvoCount = useMemo(() => {
-        if (!gameState.activeEvolution) return 0;
-        const evoDef = evoData.find(e => e.id === gameState.activeEvolution!.evoId);
-        if (!evoDef) return 0;
-        const allTasksComplete = evoDef.tasks.every(task => (gameState.activeEvolution!.tasks[task.id] || 0) >= task.target);
-        return allTasksComplete ? 1 : 0;
-    }, [gameState.activeEvolution]);
-    
-    const formationCardCount = useMemo(() => Object.values(gameState.formation).filter(Boolean).length, [gameState.formation]);
-    const isFormationFull = formationCardCount >= 11;
-
-    const renderView = () => {
-        switch (currentView) {
-            case 'store': return <Store onOpenPack={(packType) => handleOpenPack(packType, false)} gameState={gameState} isDevMode={isDevMode} t={t} />;
-            case 'collection': return <Collection gameState={gameState} setGameState={updateGameState} setCardForOptions={setCardWithOptions} t={t} />;
-            case 'market': return <Market market={gameState.market} onBuyCard={handleBuyCard} onCancelListing={handleCancelListing} currentUserId={gameState.userId} t={t} userCoins={gameState.coins} />;
-            case 'battle': return <Battle t={t} />;
-            case 'fbc': return <FBC gameState={gameState} onFbcSubmit={handleFbcSubmit} t={t} playSfx={playSfx} />;
-            case 'evo': return <Evo gameState={gameState} onStartEvo={handleStartEvo} onClaimEvo={handleClaimEvo} t={t} playSfx={playSfx} />;
-            case 'objectives': return <Objectives gameState={gameState} onClaimReward={handleClaimObjectiveReward} t={t} />;
-            default: return null;
         }
+        
+        updateGameState(updates);
+        playSfx('rewardClaimed');
+
+        // Show Modal
+        setRewardModal({
+            isOpen: true,
+            reward: obj.reward,
+            title: t('completed') + ": " + t(obj.titleKey as TranslationKey)
+        });
+    };
+
+    const handlePlayerPickComplete = (selectedCards: CardType[]) => {
+        const newCards: CardType[] = [];
+        selectedCards.forEach(card => {
+            const uniqueCard = { ...card, id: `${card.id}-${Date.now()}-${Math.floor(Math.random() * 1000)}`};
+            newCards.push(uniqueCard);
+        });
+
+        // Instead of adding directly to storage, route through the PackResults flow to decide fate (Keep/Sell/List)
+        setPendingPackCards(newCards);
+        
+        updateGameState({
+            activePlayerPick: null // Close selection modal
+        });
+        playSfx('purchase');
+    };
+
+    // --- Render ---
+
+    const notificationCounts = {
+        objectives: objectivesData.filter(o => {
+            const prog = gameState.objectiveProgress[o.id];
+            return prog && !prog.claimed && o.tasks.every(t => (prog.tasks[t.id] || 0) >= t.target);
+        }).length,
+        evo: gameState.activeEvolution && evoData.find(e => e.id === gameState.activeEvolution?.evoId)?.tasks.every(t => (gameState.activeEvolution?.tasks[t.id] || 0) >= t.target) ? 1 : 0,
+        fbc: 0,
+        store: gameState.ownedPacks.length + gameState.ownedPlayerPicks.length
     };
 
     return (
-        <div className={`App font-main bg-dark-gray min-h-screen text-white ${lang === 'ar' ? 'font-ar' : ''}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+        <div className="app-container min-h-screen bg-gradient-to-br from-gray-900 to-black text-white font-main overflow-x-hidden pb-10">
+            <Particles />
             
-            {/* Loading Screen */}
-            {appState === 'loading' && (
-                <div className="fixed inset-0 z-[300] bg-black flex flex-col items-center justify-center p-4">
-                    <img 
-                        src="https://i.imghippo.com/files/osQP7559xUw.png" 
-                        alt="Loading..."
-                        className="w-[200px] mb-8 animate-pulse"
-                    />
-                    <div className="w-full max-w-md bg-gray-800 rounded-full h-4 overflow-hidden border border-gold-dark/50">
-                        <div 
-                            className="bg-gold-light h-full transition-all duration-300 ease-out"
-                            style={{ width: `${loadingProgress}%` }}
-                        />
-                    </div>
-                    <p className="mt-4 text-gray-400 font-header text-xl tracking-wider">Loading Assets... {loadingProgress}%</p>
-                </div>
-            )}
-
-            {appState === 'welcome' && <WelcomeScreen onStart={() => setAppState('intro')} />}
-            {appState === 'intro' && <IntroVideo onSkip={() => setAppState('game')} />}
+            {showIntro && <IntroVideo onSkip={() => setShowIntro(false)} />}
+            {showWelcome && !showIntro && <WelcomeScreen onStart={() => { setShowWelcome(false); setShowIntro(true); playSfx('buttonClick'); }} />}
             
-            {appState === 'game' && (
+            {!showWelcome && !showIntro && (
                 <>
-                    <Particles />
                     <Header 
                         gameState={gameState} 
                         currentUser={currentUser}
-                        onToggleDevMode={handleToggleDevMode} 
-                        isDevMode={isDevMode} 
-                        onOpenSettings={() => setIsSettingsOpen(true)} 
-                        onOpenHowToPlay={() => setIsHowToPlayOpen(true)}
-                        onOpenLogin={() => { setIsLoginModalOpen(true); setAuthError(null); }}
-                        onOpenSignUp={() => { setIsSignUpModalOpen(true); setAuthError(null); }}
-                        onLogout={handleLogout}
-                        lang={lang} 
-                        setLang={setLang} 
-                        t={t} 
+                        onToggleDevMode={() => setIsDevMode(!isDevMode)} 
+                        isDevMode={isDevMode}
+                        onOpenSettings={() => setModals({...modals, settings: true})}
+                        onOpenHowToPlay={() => setModals({...modals, howToPlay: true})}
+                        onOpenLogin={() => setModals({...modals, login: true})}
+                        onOpenSignUp={() => setModals({...modals, signup: true})}
+                        onLogout={() => signOut(auth)}
+                        lang={lang}
+                        setLang={setLang}
+                        t={t}
                     />
-                    <main className="container mx-auto px-4 pb-8">
+
+                    <div className="container mx-auto px-4 pt-4">
                         <Navigation 
-                            currentView={currentView} 
-                            setCurrentView={setCurrentView} 
+                            currentView={view} 
+                            setCurrentView={setView} 
                             t={t}
-                            notificationCounts={{ objectives: claimableObjectivesCount, evo: claimableEvoCount, fbc: 0 }}
+                            notificationCounts={notificationCounts}
                         />
-                        {renderView()}
-                    </main>
+
+                        <div className="view-content min-h-[60vh]">
+                            {view === 'store' && (
+                                <Store 
+                                    onOpenPack={handleOpenPack}
+                                    onOpenInventoryPick={handleOpenPlayerPick}
+                                    gameState={gameState} 
+                                    isDevMode={isDevMode} 
+                                    t={t} 
+                                />
+                            )}
+                            {view === 'collection' && <Collection gameState={gameState} setGameState={updateGameState} setCardForOptions={setCardOptions} t={t} />}
+                            {view === 'market' && <Market market={gameState.market} onBuyCard={handleBuyCard} onCancelListing={handleCancelListing} currentUserId={currentUser?.username || ''} t={t} userCoins={gameState.coins} />}
+                            {view === 'battle' && <Battle gameState={gameState} onBattleWin={handleBattleResult} t={t} playSfx={playSfx} />}
+                            {view === 'fbc' && <FBC gameState={gameState} onFbcSubmit={handleFbcSubmit} t={t} playSfx={playSfx} />}
+                            {view === 'evo' && <Evo gameState={gameState} onStartEvo={handleStartEvo} onClaimEvo={handleClaimEvo} t={t} playSfx={playSfx} />}
+                            {view === 'objectives' && <Objectives gameState={gameState} onClaimReward={handleClaimObjective} t={t} />}
+                        </div>
+                    </div>
                 </>
             )}
 
-            {/* Global Loader (Async Actions) */}
-            {isLoading && (
-                <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-gold-light"></div>
-                </div>
-            )}
-
-            <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} updateSettings={updateSettings} t={t} />
-            <HowToPlayModal isOpen={isHowToPlayOpen} onClose={() => setIsHowToPlayOpen(false)} t={t} />
+            {/* Modals */}
+            <LoginModal 
+                isOpen={modals.login} 
+                onClose={() => setModals({...modals, login: false})} 
+                onLogin={(creds) => signInWithEmailAndPassword(auth, creds.username, creds.password!).then(() => setModals({...modals, login: false})).catch(e => alert(e.message))} 
+                error={null} 
+                t={t} 
+            />
+            <SignUpModal 
+                isOpen={modals.signup} 
+                onClose={() => setModals({...modals, signup: false})} 
+                onSignUp={(creds) => createUserWithEmailAndPassword(auth, creds.email!, creds.password!).then((u) => {
+                     setDoc(doc(db, 'users', u.user.uid), { userProfile: { username: creds.username, email: creds.email, avatar: creds.avatar }, ...initialState });
+                     setModals({...modals, signup: false});
+                }).catch(e => alert(e.message))} 
+                error={null} 
+                t={t} 
+            />
+            <SettingsModal isOpen={modals.settings} onClose={() => setModals({...modals, settings: false})} settings={settings} updateSettings={updateSettings} t={t} />
+            <HowToPlayModal isOpen={modals.howToPlay} onClose={() => setModals({...modals, howToPlay: false})} t={t} />
             
-            <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} onLogin={handleLogin} error={authError} t={t} />
-            <SignUpModal isOpen={isSignUpModalOpen} onClose={() => setIsSignUpModalOpen(false)} onSignUp={handleSignUp} error={authError} t={t} />
-
-            {messageModal && <MessageModal isOpen={!!messageModal} onClose={() => setMessageModal(null)} title={messageModal.title} message={messageModal.message} card={messageModal.card} />}
-            {packCard && settings.animationsOn && <PackAnimationModal card={packCard} onAnimationEnd={handlePackAnimationEnd} playSfx={playSfx} />}
+            <MessageModal 
+                isOpen={!!messageModal} 
+                onClose={() => setMessageModal(null)} 
+                title={messageModal?.title || ''} 
+                message={messageModal?.message || ''} 
+                card={messageModal?.card}
+            />
             
-            {/* New Pack Results Modal */}
-            <PackResultsModal 
-                cards={pendingPackCards} 
-                onKeep={handleKeepPackCard} 
-                onSell={handleQuickSellPackCard} 
-                onList={(card) => setCardToList(card)}
-                storage={gameState.storage}
+            <CardOptionsModal 
+                cardWithOptions={cardOptions} 
+                onClose={() => setCardOptions(null)} 
+                onListCard={(c) => setCardToList(c)}
+                onQuickSell={handleQuickSell}
+                onAddToFormation={handleAddToFormation}
+                isFormationFull={Object.values(gameState.formation).every(c => c !== null)}
                 t={t}
             />
 
-            <CardOptionsModal 
-                cardWithOptions={cardWithOptions} 
-                onClose={() => setCardWithOptions(null)} 
-                onListCard={(card) => { setCardToList(card); setCardWithOptions(null); }} 
-                onQuickSell={handleQuickSell}
-                onAddToFormation={handleAddToFormation}
-                isFormationFull={isFormationFull}
+            {packCard && (
+                <PackAnimationModal 
+                    card={packCard} 
+                    onAnimationEnd={() => setPackCard(null)} 
+                    playSfx={playSfx} 
+                />
+            )}
+
+            {pendingPackCards.length > 0 && !packCard && (
+                <PackResultsModal 
+                    cards={pendingPackCards} 
+                    onKeep={handleKeepCard} 
+                    onSell={handleQuickSell}
+                    onList={(c) => { handleKeepCard(c); setCardToList(c); }}
+                    storage={gameState.storage}
+                    t={t}
+                />
+            )}
+
+            {/* Player Pick Modal */}
+            {gameState.activePlayerPick && (
+                <PlayerPickModal
+                    config={gameState.activePlayerPick}
+                    onComplete={handlePlayerPickComplete}
+                    storage={gameState.storage}
+                    formation={gameState.formation}
+                    t={t}
+                    playSfx={playSfx}
+                />
+            )}
+
+            {/* Rank Up Rewards Modal */}
+            {rankUpModalData && (
+                <RankUpModal
+                    isOpen={!!rankUpModalData}
+                    onClose={() => setRankUpModalData(null)}
+                    newRank={rankUpModalData.newRank}
+                    rewards={rankUpModalData.rewards}
+                    t={t}
+                />
+            )}
+
+            {/* Generic Reward Modal */}
+            {rewardModal.isOpen && (
+                <RewardModal 
+                    isOpen={rewardModal.isOpen} 
+                    onClose={() => setRewardModal({ ...rewardModal, isOpen: false })} 
+                    reward={rewardModal.reward} 
+                    title={rewardModal.title}
+                    t={t} 
+                />
+            )}
+
+            <MarketModal 
+                cardToList={cardToList} 
+                onClose={() => setCardToList(null)} 
+                onList={handleListCard} 
                 t={t} 
             />
-            <MarketModal cardToList={cardToList} onClose={() => setCardToList(null)} onList={handleListCard} t={t} />
-            <DuplicateSellModal card={duplicateToSell} onSell={handleQuickSellDuplicate} t={t} />
-            <DailyRewardModal isOpen={isDailyRewardModalOpen} onClaim={handleClaimDailyReward} />
+            
+            <DuplicateSellModal 
+                card={duplicateCard} 
+                onSell={() => { handleQuickSell(duplicateCard!); }} 
+                t={t} 
+            />
         </div>
     );
 };

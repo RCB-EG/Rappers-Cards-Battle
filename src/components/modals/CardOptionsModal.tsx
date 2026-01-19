@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Card as CardType } from '../../types';
 import Modal from './Modal';
@@ -5,6 +6,7 @@ import Button from '../Button';
 import Card from '../Card';
 import { TranslationKey } from '../../utils/translations';
 import { calculateQuickSellValue } from '../../utils/cardUtils';
+import { superpowerIcons } from '../../data/gameData';
 
 interface CardOptionsModalProps {
   cardWithOptions: { card: CardType; origin: 'formation' | 'storage' } | null;
@@ -72,12 +74,22 @@ const CardOptionsModal: React.FC<CardOptionsModalProps> = ({ cardWithOptions, on
             {card.superpowers.length > 0 && (
               <div className="my-4">
                 <h4 className="font-header text-xl text-gold-light mb-2">Superpowers</h4>
-                <div className="flex flex-wrap gap-2">
-                  {card.superpowers.map((power) => (
-                    <span key={power} className="bg-blue-glow/20 text-blue-glow border border-blue-glow/50 rounded-full px-3 py-1 text-sm font-main">
-                      {power}
-                    </span>
-                  ))}
+                <div className="flex flex-wrap gap-4">
+                  {card.superpowers.map((power) => {
+                     // Normalize look up or use direct key
+                     const iconUrl = superpowerIcons[power] || superpowerIcons[Object.keys(superpowerIcons).find(k => k.toLowerCase() === power.toLowerCase()) || ''];
+                     
+                     return (
+                        <div key={power} className="flex flex-col items-center gap-1 w-20">
+                            {iconUrl ? (
+                                <img src={iconUrl} alt={power} className="w-12 h-12 object-contain drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]" />
+                            ) : (
+                                <div className="w-12 h-12 bg-blue-glow/20 rounded-full flex items-center justify-center border border-blue-glow/50 text-xs text-white">?</div>
+                            )}
+                            <span className="text-[10px] text-center text-blue-glow leading-tight font-main">{power}</span>
+                        </div>
+                     );
+                  })}
                 </div>
               </div>
             )}

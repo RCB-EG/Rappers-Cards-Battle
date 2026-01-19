@@ -1,19 +1,37 @@
+
 import { Card } from '../types';
 
 /**
  * A centralized object containing URLs for all sound effects in the game.
+ * Sound effects have been removed.
  */
 export const sfx = {
-    buttonClick: 'https://od.lk/s/NTdfMTAxMjM1MjAyXw/Button.mp3',
-    tasksComplete: 'https://od.lk/s/NTdfMTAxMTE0OTgzXw/skill-attack-combo-music-note-5-384965.mp3',
-    rewardClaimed: 'https://od.lk/s/NTdfMTAxMjM1MTk5Xw/Reward%20Claimed.mp3',
-    packBuildup: 'https://od.lk/s/NTdfMTAxMjM1MjAxXw/Build%20up.mp3',
-    revealBronzeSilver: 'https://od.lk/s/NTdfMTAxMjM1MjAwXw/Bronze%20and%20Silver.mp3',
-    revealGold: 'https://od.lk/s/NTdfMTAxMjM1MjA0Xw/Gold.mp3',
-    revealIcon: 'https://od.lk/s/NTdfMTAxMjM1MjA1Xw/Icon.mp3',
-    revealRotm: 'https://od.lk/s/NTdfMTAxMjM1MjA2Xw/ROTM%20Packed.mp3',
-    purchase: 'https://archive.org/download/cash-register-sound/cash-register-sound.mp3',
-    success: 'https://archive.org/download/wind-chime-1/wind-chime-1.mp3',
+    // --- UI & Interactions ---
+    buttonClick: '', 
+    purchase: '', 
+    
+    // --- Rewards & Objectives ---
+    tasksComplete: '', 
+    rewardClaimed: '', 
+    success: '', 
+    
+    // --- Pack Opening (Cinematic) ---
+    packBuildup: '', 
+    revealBronzeSilver: '', 
+    revealGold: '', 
+    revealIcon: '', 
+    revealRotm: '', 
+    
+    // --- Epic Battle Sounds ---
+    battleAttackLight: '', 
+    battleAttackMedium: '', 
+    battleAttackHeavy: '', 
+    battleAttackUltimate: '', 
+    battleBuff: '', 
+    battleDebuff: '', 
+    battleHeal: '', 
+    battleStun: '', 
+    battleShot: '', 
 };
 
 /**
@@ -35,7 +53,6 @@ export const getRevealSfxKey = (rarity: Card['rarity']): keyof typeof sfx => {
         case 'legend':
         case 'event':
         default:
-            // Fallback for other high-tier rarities
-            return 'revealGold';
+            return 'revealIcon';
     }
 };
