@@ -19,7 +19,7 @@ const app = initializeApp(firebaseConfig);
 // Export Auth
 export const auth = getAuth(app);
 
-// Export Firestore with standard settings for best real-time performance
+// Export Firestore with long polling forced to bypass network restrictions/firewalls
 export const db = initializeFirestore(app, {
-    // experimentalForceLongPolling: true, // Removed to prefer WebSockets
+    experimentalForceLongPolling: true,
 });

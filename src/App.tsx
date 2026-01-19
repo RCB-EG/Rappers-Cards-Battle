@@ -39,7 +39,9 @@ import {
     orderBy, 
     limit, 
     deleteDoc,
-    runTransaction
+    runTransaction,
+    where,
+    writeBatch
 } from 'firebase/firestore';
 
 import Header from './components/Header';
@@ -153,7 +155,6 @@ const App: React.FC = () => {
                         const userData = docSnap.data();
                         setCurrentUser(userData.userProfile as User);
                         // Merge remote data with initial state to handle any new fields in updates
-                        // Important: Preserve local market state if any, though usually market loads separately
                         setGameState(prev => ({ 
                             ...initialState, 
                             ...userData, 
@@ -165,7 +166,6 @@ const App: React.FC = () => {
                         const newProfile: User = { username: user.email?.split('@')[0] || 'User', email: user.email || '' };
                         setCurrentUser(newProfile);
                         const newState = { ...initialState, userId: user.uid, userProfile: newProfile };
-                        // Filter out 'market' before saving just in case
                         const { market, ...stateToSave } = newState;
                         await setDoc(userRef, stateToSave);
                         setGameState(prev => ({ ...newState, market: prev.market }));
@@ -193,10 +193,8 @@ const App: React.FC = () => {
     }, []);
 
     // 2. Data Saver
-    // This function saves the state to Firestore or LocalStorage
     const saveGameData = useCallback(async (stateToSave: Partial<GameState>) => {
         if (!auth.currentUser) {
-            // Guest: Save to LocalStorage (merging with existing)
             try {
                 const current = JSON.parse(localStorage.getItem('guestGameState') || '{}');
                 const merged = { ...current, ...stateToSave };
@@ -205,13 +203,10 @@ const App: React.FC = () => {
             return;
         }
 
-        // Online: Save to Firestore
         try {
             const userRef = doc(db, 'users', auth.currentUser.uid);
-            // Sanitize: Remove 'market' (it's global), remove undefineds
             const { market, ...cleanState } = stateToSave as GameState; 
-            const sanitized = JSON.parse(JSON.stringify(cleanState)); // Simple way to strip undefined
-            
+            const sanitized = JSON.parse(JSON.stringify(cleanState)); 
             await updateDoc(userRef, sanitized);
         } catch (error) {
             console.error("Error saving game data:", error);
@@ -219,18 +214,10 @@ const App: React.FC = () => {
     }, []);
 
     // 3. State Update Wrapper
-    // Updates local React state immediately (Optimistic UI) and triggers background save
     const updateGameState = useCallback((updates: Partial<GameState>) => {
         setGameState(prev => {
             const newState = { ...prev, ...updates };
-            // Fire and forget save. Passing 'updates' is usually enough if we trust merge,
-            // but passing 'newState' (without market) ensures consistency.
-            // However, to reduce bandwidth, we can just save the updated fields if we are careful.
-            // For robustness "from scratch", let's save the critical parts of newState.
-            
-            // We defer the save slightly to let the render cycle finish? No need.
             saveGameData(updates); 
-            
             return newState;
         });
     }, [saveGameData]);
@@ -243,13 +230,63 @@ const App: React.FC = () => {
             snapshot.forEach((doc) => {
                 marketData.push({ ...doc.data() as MarketCard, marketId: doc.id });
             });
-            // Update ONLY the market field locally, do NOT trigger a user save
             setGameState(prev => ({ ...prev, market: marketData }));
         }, (error) => {
             console.error("Market sync error:", error);
         });
         return () => unsubscribe();
     }, []);
+
+    // 5. Payout Listener (Seller Logic)
+    useEffect(() => {
+        if (!firebaseUser) return;
+
+        const q = query(collection(db, 'payouts'), where('receiverId', '==', firebaseUser.uid));
+        
+        const unsubscribe = onSnapshot(q, async (snapshot) => {
+            if (snapshot.empty) return;
+
+            let totalEarned = 0;
+            const batch = writeBatch(db);
+            const itemsSold: string[] = [];
+
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                totalEarned += data.amount;
+                itemsSold.push(data.cardName || 'Card');
+                batch.delete(doc.ref);
+            });
+
+            if (totalEarned > 0) {
+                try {
+                    // Execute batch delete of payout docs
+                    await batch.commit();
+                    
+                    // Update local state and save to DB
+                    setGameState(prev => {
+                        const newCoins = prev.coins + totalEarned;
+                        // Trigger save immediately for consistency
+                        const userRef = doc(db, 'users', firebaseUser.uid);
+                        updateDoc(userRef, { coins: newCoins }).catch(e => console.error(e));
+                        return { ...prev, coins: newCoins };
+                    });
+
+                    // Notify user
+                    playSfx('rewardClaimed');
+                    // Simple summary
+                    const msg = itemsSold.length === 1 
+                        ? `You sold ${itemsSold[0]} for ${totalEarned} coins!` 
+                        : `You sold ${itemsSold.length} items for ${totalEarned} coins!`;
+                        
+                    setMessageModal({ title: 'Market Earnings', message: msg });
+                } catch (e) {
+                    console.error("Error claiming payouts", e);
+                }
+            }
+        });
+
+        return () => unsubscribe();
+    }, [firebaseUser, playSfx]);
 
 
     // --- Game Logic ---
@@ -264,7 +301,6 @@ const App: React.FC = () => {
         setShowIntro(false);
     };
 
-    // Helper: Apply Objective Progress
     const applyObjectiveProgress = useCallback((
         currentProgress: Record<string, ObjectiveProgress>, 
         taskId: string, 
@@ -284,7 +320,6 @@ const App: React.FC = () => {
         return newProgress;
     }, []);
 
-    // Helper: Apply Evo Progress
     const applyEvolutionTask = useCallback((
         activeEvo: GameState['activeEvolution'],
         taskId: string,
@@ -310,7 +345,6 @@ const App: React.FC = () => {
         return activeEvo;
     }, []);
 
-    // --- Objectives: Track Formation Changes ---
     useEffect(() => {
         const goldCount = Object.values(gameState.formation).filter((c: GameCard | null) => c && c.rarity === 'gold').length;
         const objId = 'milestone_a_step_ahead';
@@ -324,7 +358,6 @@ const App: React.FC = () => {
         }
     }, [gameState.formation, gameState.objectiveProgress, applyObjectiveProgress, updateGameState]);
 
-    // --- Daily Reset Logic ---
     useEffect(() => {
         const checkDailyObjectives = () => {
             const now = Date.now();
@@ -374,7 +407,6 @@ const App: React.FC = () => {
              return;
         }
         
-        // Anti-Duplicate Check
         const alreadyInStorage = gameState.storage.some((c: GameCard) => c.name === marketCard.name);
         const alreadyInFormation = (Object.values(gameState.formation) as (GameCard | null)[]).some(c => c?.name === marketCard.name);
         
@@ -388,7 +420,7 @@ const App: React.FC = () => {
             return;
         }
 
-        // TRANSACTION: Atomically remove from market AND update user
+        // TRANSACTION: Remove from market, update buyer, pay seller
         try {
             await runTransaction(db, async (transaction) => {
                 const cardRef = doc(db, 'market', marketCard.marketId!);
@@ -409,11 +441,10 @@ const App: React.FC = () => {
                 const userData = userDoc.data() as GameState;
                 if (userData.coins < marketCard.price) throw "Insufficient funds (server check)";
 
-                // 3. Update User Doc
+                // 3. Update Buyer (Remove coins, add card)
                 const { marketId, sellerId, price, createdAt, ...cardData } = marketCard;
                 const newCard = { ...cardData, id: `${cardData.id}-${Date.now()}` };
                 
-                // We must use arrayUnion/increment ideally, but reading and writing the whole object in a transaction is safe too for this scale
                 const newStorage = [...userData.storage, newCard];
                 const newCoins = userData.coins - price;
 
@@ -422,13 +453,20 @@ const App: React.FC = () => {
                     coins: newCoins
                 });
 
-                // Update Local State Optimistically (Transaction successful if we get here?) 
-                // Actually transaction runs on server. We should update local state AFTER await.
+                // 4. Create Payout for Seller (Add to payouts collection)
+                // We use a new doc reference. The Payout Listener on the seller's client will pick this up.
+                const newPayoutRef = doc(collection(db, 'payouts'));
+                transaction.set(newPayoutRef, {
+                    receiverId: sellerId,
+                    amount: price,
+                    cardName: cardData.name,
+                    timestamp: Date.now()
+                });
             });
 
             // If transaction succeeds:
             playSfx('purchase');
-            // Manual local update to match DB
+            // Optimistic Update
             const { marketId, sellerId, price, createdAt, ...cardData } = marketCard;
             const newCard = { ...cardData, id: `${cardData.id}-${Date.now()}` };
             
@@ -496,6 +534,8 @@ const App: React.FC = () => {
          }
     };
 
+    // ... (Keep existing pack, pick, sell, battle logic as is)
+    
     const handleOpenPack = useCallback((packType: PackType, options: { isReward?: boolean, bypassLimit?: boolean, fromInventory?: boolean, currency?: 'coins' | 'bp' } = {}) => {
         const { isReward = false, bypassLimit = false, fromInventory = false, currency = 'coins' } = options;
         
