@@ -197,7 +197,9 @@ const App: React.FC = () => {
             const newState = { ...prev, ...updates };
             if (currentUser && firebaseUser) {
                  const userRef = doc(db, 'users', firebaseUser.uid);
-                 updateDoc(userRef, updates).catch(console.error);
+                 // Sanitize updates to remove undefined values which crash Firestore
+                 const cleanUpdates = JSON.parse(JSON.stringify(updates));
+                 updateDoc(userRef, cleanUpdates).catch(console.error);
             } else {
                  localStorage.setItem('guestGameState', JSON.stringify(newState));
             }
@@ -640,106 +642,87 @@ const App: React.FC = () => {
     
     // XP, Rank, and Rewards Logic
     const handleBattleResult = (amount: number, isWin: boolean, mode: 'ranked' | 'challenge', squad: CardType[]) => {
-        setGameState(prev => {
-            let newState = { ...prev };
-            
-            // 1. Update BP & XP
-            const xpGain = isWin ? 150 : 25;
-            
-            newState.battlePoints = (prev.battlePoints || 0) + amount;
-            newState.xp = (prev.xp || 0) + xpGain;
+        const updates: Partial<GameState> = {};
+        
+        // 1. Update BP & XP
+        const xpGain = isWin ? 150 : 25;
+        updates.battlePoints = (gameState.battlePoints || 0) + amount;
+        updates.xp = (gameState.xp || 0) + xpGain;
 
-            // Update Objectives for Battles
-            let newObjProgress = applyObjectiveProgress(newState.objectiveProgress, 'play_any_battle', 1);
-            if (mode === 'challenge') {
-                newObjProgress = applyObjectiveProgress(newObjProgress, 'play_challenge_battle', 1);
-                if (isWin) {
-                    newObjProgress = applyObjectiveProgress(newObjProgress, 'win_challenge_battle', 1);
-                }
-            } else if (mode === 'ranked' && isWin) {
-                // New logic: Win 5 Ranked Games for Milestone
-                newObjProgress = applyObjectiveProgress(newObjProgress, 'win_ranked_games', 1);
+        // Update Objectives for Battles
+        let newObjProgress = applyObjectiveProgress(gameState.objectiveProgress, 'play_any_battle', 1);
+        if (mode === 'challenge') {
+            newObjProgress = applyObjectiveProgress(newObjProgress, 'play_challenge_battle', 1);
+            if (isWin) {
+                newObjProgress = applyObjectiveProgress(newObjProgress, 'win_challenge_battle', 1);
             }
-            newState.objectiveProgress = newObjProgress;
+        } else if (mode === 'ranked' && isWin) {
+            // New logic: Win 5 Ranked Games for Milestone
+            newObjProgress = applyObjectiveProgress(newObjProgress, 'win_ranked_games', 1);
+        }
+        updates.objectiveProgress = newObjProgress;
 
-            // New logic: Evo Task - Play with Abo El Anwar
-            if (squad.some(c => c.name === 'Abo El Anwar' && c.rarity === 'gold')) {
-                newState.activeEvolution = applyEvolutionTask(newState.activeEvolution, 'play_battle_abo', 1);
-            }
+        // New logic: Evo Task - Play with Abo El Anwar
+        if (squad.some(c => c.name === 'Abo El Anwar' && c.rarity === 'gold')) {
+            updates.activeEvolution = applyEvolutionTask(gameState.activeEvolution, 'play_battle_abo', 1);
+        }
 
-            // 2. Rank Progression (Only for Ranked Mode & Win)
-            if (isWin && mode === 'ranked') {
-                const currentRank = prev.rank || 'Bronze';
-                const rankConfig = rankSystem[currentRank];
-                
-                // Increment wins for current rank
-                let newRankWins = (prev.rankWins || 0) + 1;
-                
-                // Check Promotion/Reward Logic
-                let promoted = false;
-                let nextRank: Rank = currentRank;
-                
-                // Legend Loop Logic (Every 5 wins)
-                if (currentRank === 'Legend') {
-                    if (newRankWins >= rankConfig.winsToPromote) {
-                        newRankWins = 0; // Reset loop
-                        
-                        // Distribute Legend Rewards
-                        const rewards = rankConfig.promotionReward;
-                        newState.coins += rewards.coins;
-                        newState.ownedPacks = [...newState.ownedPacks, ...rewards.packs];
-                        
-                        // Add Picks
-                        const newPicks = rewards.picks.map(id => playerPickConfigs[id]).filter(Boolean);
-                        newState.ownedPlayerPicks = [...newState.ownedPlayerPicks, ...newPicks];
-                        
-                        setRankUpModalData({ newRank: 'Legend', rewards });
-                        playSfx('success');
-                    }
-                } 
-                // Normal Rank Progression
-                else if (newRankWins >= rankConfig.winsToPromote) {
-                    if (currentRank === 'Bronze') nextRank = 'Silver';
-                    else if (currentRank === 'Silver') nextRank = 'Gold';
-                    else if (currentRank === 'Gold') nextRank = 'Legend';
+        // 2. Rank Progression (Only for Ranked Mode & Win)
+        if (isWin && mode === 'ranked') {
+            const currentRank = gameState.rank || 'Bronze';
+            const rankConfig = rankSystem[currentRank];
+            
+            // Increment wins for current rank
+            let newRankWins = (gameState.rankWins || 0) + 1;
+            
+            // Check Promotion/Reward Logic
+            let promoted = false;
+            let nextRank: Rank = currentRank;
+            
+            // Legend Loop Logic (Every 5 wins)
+            if (currentRank === 'Legend') {
+                if (newRankWins >= rankConfig.winsToPromote) {
+                    newRankWins = 0; // Reset loop
                     
-                    newRankWins = 0; // Reset for next rank
-                    promoted = true;
-                    
-                    // Distribute Promotion Rewards
+                    // Distribute Legend Rewards
                     const rewards = rankConfig.promotionReward;
-                    newState.coins += rewards.coins;
-                    newState.ownedPacks = [...newState.ownedPacks, ...rewards.packs];
+                    updates.coins = gameState.coins + rewards.coins;
+                    updates.ownedPacks = [...gameState.ownedPacks, ...rewards.packs];
+                    
+                    // Add Picks
                     const newPicks = rewards.picks.map(id => playerPickConfigs[id]).filter(Boolean);
-                    newState.ownedPlayerPicks = [...newState.ownedPlayerPicks, ...newPicks];
-
-                    setRankUpModalData({ newRank: nextRank, rewards });
+                    updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, ...newPicks];
+                    
+                    setRankUpModalData({ newRank: 'Legend', rewards });
                     playSfx('success');
                 }
+            } 
+            // Normal Rank Progression
+            else if (newRankWins >= rankConfig.winsToPromote) {
+                if (currentRank === 'Bronze') nextRank = 'Silver';
+                else if (currentRank === 'Silver') nextRank = 'Gold';
+                else if (currentRank === 'Gold') nextRank = 'Legend';
+                
+                newRankWins = 0; // Reset for next rank
+                promoted = true;
+                
+                // Distribute Promotion Rewards
+                const rewards = rankConfig.promotionReward;
+                updates.coins = gameState.coins + rewards.coins;
+                updates.ownedPacks = [...gameState.ownedPacks, ...rewards.packs];
+                const newPicks = rewards.picks.map(id => playerPickConfigs[id]).filter(Boolean);
+                updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, ...newPicks];
 
-                newState.rank = nextRank;
-                newState.rankWins = newRankWins;
+                setRankUpModalData({ newRank: nextRank, rewards });
+                playSfx('success');
             }
 
-            // Sync to Firebase if user logged in
-            if (currentUser && firebaseUser) {
-                 const userRef = doc(db, 'users', firebaseUser.uid);
-                 updateDoc(userRef, { 
-                     battlePoints: newState.battlePoints,
-                     xp: newState.xp,
-                     rank: newState.rank,
-                     rankWins: newState.rankWins,
-                     coins: newState.coins,
-                     ownedPacks: newState.ownedPacks,
-                     ownedPlayerPicks: newState.ownedPlayerPicks,
-                     objectiveProgress: newState.objectiveProgress,
-                     activeEvolution: newState.activeEvolution
-                 }).catch(console.error);
-            } else {
-                 localStorage.setItem('guestGameState', JSON.stringify(newState));
-            }
-            return newState;
-        });
+            updates.rank = nextRank;
+            updates.rankWins = newRankWins;
+        }
+
+        // Apply all updates centrally
+        updateGameState(updates);
     };
     
     // FBC Submit
