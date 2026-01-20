@@ -23,7 +23,7 @@ export const sfx = {
 
     // --- Epic Battle Sounds ---
     battleAttackLight: 'https://cdn.pixabay.com/audio/2022/03/15/audio_731473624e.mp3', // Quick Punch
-    battleAttackMedium: 'https://cdn.pixabay.com/audio/2022/03/15/audio_59357425f8.mp3', // Heavy Hit
+    battleAttackMedium: 'https://cdn.pixabay.com/audio/2022/01/18/audio_3f773663a7.mp3', // Heavy Hit (Replaced)
     battleAttackHeavy: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c233150537.mp3', // Explosion Impact
     battleAttackUltimate: 'https://cdn.pixabay.com/audio/2022/03/10/audio_7250269f24.mp3', // Large Beam/Blast
     battleBuff: 'https://cdn.pixabay.com/audio/2024/05/20/audio_5cc7526735.mp3', // Power Up

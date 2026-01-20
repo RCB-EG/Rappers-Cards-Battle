@@ -71,7 +71,7 @@ const HP_MULTIPLIERS: Record<Rarity, number> = {
     event: 40,
 };
 
-const SUPERPOWER_DESC: Record<string, string> = {
+export const SUPERPOWER_DESC: Record<string, string> = {
     'Rhymes Crafter': '☠️ Deals damage over time for 3 turns.',
     'Rhyme Crafter': '☠️ Deals damage over time for 3 turns.',
     'Punchline Machine': '💫 Stuns target, forcing opponent to skip next turn.',
@@ -101,7 +101,7 @@ const packImages: Record<PackType, string> = {
 
 const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, musicVolume, musicOn }) => {
     const [phase, setPhase] = useState<'mode_select' | 'selection' | 'tactics' | 'battle' | 'result' | 'pvp'>('mode_select');
-    const [subMode, setSubMode] = useState<'ranked' | 'challenge'>('ranked');
+    const [subMode, setSubMode] = useState<'ranked' | 'challenge' | 'online'>('ranked');
     const [playerTeam, setPlayerTeam] = useState<BattleCard[]>([]);
     const [cpuTeam, setCpuTeam] = useState<BattleCard[]>([]);
     const [turn, setTurn] = useState<'player' | 'cpu'>('player');
@@ -152,6 +152,9 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         if (subMode === 'ranked') {
             const config = rankSystem[gameState.rank];
             setTeamSize(config.teamSize);
+        } else if (subMode === 'online') {
+            // PvP Fixed size for now to simplify syncing
+            setTeamSize(5);
         } else {
             // Default to 5 for challenge, but let user change it in UI
             if (teamSize < 5) setTeamSize(5); 
@@ -515,7 +518,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         if (!playerAlive) {
             setPhase('result');
             stopBattleTheme(musicVolume, musicOn); 
-            onBattleWin(0, false, subMode, playerTeam); 
+            onBattleWin(0, false, subMode === 'online' ? 'challenge' : subMode, playerTeam); 
         } else if (!cpuAlive) {
             const cpuStrength = cpuTeam.reduce((sum, c) => sum + c.ovr, 0);
             const basePoints = Math.floor(cpuStrength * 0.6);
@@ -530,13 +533,13 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
             setPhase('result');
             stopBattleTheme(musicVolume, musicOn); 
             playSfx('success');
-            onBattleWin(calculatedReward, true, subMode, playerTeam); 
+            onBattleWin(calculatedReward, true, subMode === 'online' ? 'challenge' : subMode, playerTeam); 
         }
     }, [playerTeam, cpuTeam, phase, subMode]);
 
     // --- EFFECT 3: CPU AI Logic ---
     useEffect(() => {
-        if (phase !== 'battle' || turn !== 'cpu' || isAnimating || skipNextTurn === 'cpu') return;
+        if (phase !== 'battle' || turn !== 'cpu' || isAnimating || skipNextTurn === 'cpu' || subMode === 'online') return;
 
         let difficulty = 'normal';
         if (subMode === 'ranked') {
@@ -591,79 +594,95 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         return () => clearTimeout(timer);
     }, [turn, isAnimating, phase, subMode, skipNextTurn, forcedCpuAttackerId]);
 
-    const handleCardSelect = (id: string) => {
-        if (selectedCardIds.includes(id)) setSelectedCardIds(prev => prev.filter(c => c !== id));
-        else if (selectedCardIds.length < teamSize) setSelectedCardIds(prev => [...prev, id]);
-    };
-
     const goToTactics = () => {
-        if (selectedCardIds.length !== teamSize) return;
-        const pTeam = selectedCardIds.map((id, i) => {
-            const card = availableCards.find(c => c.id === id)!;
-            return calculateStats(card, 'attack', 'player', i);
-        });
-        setPlayerTeam(pTeam);
+        const selected = availableCards.filter(c => selectedCardIds.includes(c.id));
+        const initialBattleTeam = selected.map((c, i) => calculateStats(c, 'attack', 'player', i));
+        setPlayerTeam(initialBattleTeam);
         setPhase('tactics');
         playSfx('buttonClick');
     };
 
     const toggleCardMode = (instanceId: string) => {
         setPlayerTeam(prev => prev.map(c => {
-            if (c.instanceId === instanceId) {
-                const newMode = c.mode === 'attack' ? 'defense' : 'attack';
-                return calculateStats(c, newMode, 'player', parseInt(c.instanceId.split('-')[1]));
-            }
-            return c;
+            if (c.instanceId !== instanceId) return c;
+            const newMode = c.mode === 'attack' ? 'defense' : 'attack';
+            
+            const hpBase = HP_MULTIPLIERS[c.rarity] || 10;
+            const newMaxHp = Math.floor(c.ovr * (hpBase / 10) * (newMode === 'defense' ? 2 : 1));
+            const newAtk = newMode === 'defense' ? 0 : Math.floor(c.ovr * (1 + (c.superpowers?.length || 0) * 0.1));
+            
+            return {
+                ...c,
+                mode: newMode,
+                maxHp: newMaxHp,
+                currentHp: newMaxHp,
+                atk: newAtk
+            };
         }));
+        playSfx('buttonClick');
     };
 
     const startBattle = () => {
-        const cTeam: BattleCard[] = [];
-        const usedTemplateNames = new Set<string>();
-        let minOvr = 60;
-        let maxOvr = 70;
+        let ovrRange: [number, number] = [60, 70];
+        
         if (subMode === 'ranked') {
-            const rankConfig = rankSystem[gameState.rank];
-            const difficultyBuff = (gameState.rankWins || 0) * 1;
-            minOvr = rankConfig.cpuOvrRange[0] + difficultyBuff;
-            maxOvr = rankConfig.cpuOvrRange[1] + difficultyBuff;
-        } else {
-            const playerAvg = playerTeam.reduce((sum, c) => sum + c.ovr, 0) / playerTeam.length;
-            minOvr = Math.max(55, Math.floor(playerAvg - 2));
-            maxOvr = Math.min(99, Math.ceil(playerAvg + 2));
+            const config = rankSystem[gameState.rank];
+            ovrRange = config.cpuOvrRange;
+        } else if (subMode === 'challenge') {
+            const playerAvg = playerTeam.length > 0 ? playerTeam.reduce((sum, c) => sum + c.ovr, 0) / playerTeam.length : 70;
+            ovrRange = [Math.floor(playerAvg - 5), Math.ceil(playerAvg + 5)];
         }
+
+        const newCpuTeam: BattleCard[] = [];
         for (let i = 0; i < teamSize; i++) {
-            const targetOvr = Math.floor(minOvr + Math.random() * (maxOvr - minOvr));
-            const candidates = allCards.filter(c => !usedTemplateNames.has(c.name));
-            const pool = candidates.length > 0 ? candidates : allCards;
-            const sorted = [...pool].sort((a, b) => Math.abs(a.ovr - targetOvr) - Math.abs(b.ovr - targetOvr));
-            const candidate = sorted[Math.floor(Math.random() * Math.min(5, sorted.length))];
-            usedTemplateNames.add(candidate.name);
-            const mode: BattleMode = Math.random() < 0.4 ? 'defense' : 'attack';
-            cTeam.push(calculateStats({ ...candidate, id: `cpu-${candidate.id}` }, mode, 'cpu', i));
+            let pool = allCards.filter(c => c.ovr >= ovrRange[0] && c.ovr <= ovrRange[1]);
+            if (pool.length === 0) pool = allCards.filter(c => Math.abs(c.ovr - ovrRange[0]) < 10);
+            if (pool.length === 0) pool = allCards;
+
+            const randomCard = pool[Math.floor(Math.random() * pool.length)];
+            const mode: BattleMode = Math.random() < 0.2 ? 'defense' : 'attack';
+            
+            newCpuTeam.push(calculateStats(randomCard, mode, 'cpu', i));
         }
-        setCpuTeam(cTeam);
-        setTurn('player');
-        setSelectedAttackerId(null);
-        setForcedCpuAttackerId(null);
-        setBattleLog([`Battle Start! (${subMode === 'ranked' ? 'Ranked' : 'Challenge'})`]);
+
+        setCpuTeam(newCpuTeam);
         setPhase('battle');
-        playSfx('packBuildup');
-        playBattleTheme(musicVolume, musicOn); 
+        setBattleLog(["Battle Started! Player's Turn."]);
+        setTurn('player');
+        setSkipNextTurn(null);
+        setReward(0);
+        
+        setProjectiles([]);
+        setSpecialEffects([]);
+        setFloatingTexts([]);
+        setHitParticles([]);
+        
+        playBattleTheme(musicVolume, musicOn);
     };
 
     const restartSameTactics = () => {
-        const freshPlayerTeam = resetPlayerTeam(playerTeam);
-        setPlayerTeam(freshPlayerTeam);
-        setTimeout(startBattle, 0); 
+        setPlayerTeam(prev => resetPlayerTeam(prev));
+        startBattle();
     };
 
-    // --- RENDER ---
+    const handleCardSelect = (id: string) => {
+        if (selectedCardIds.includes(id)) setSelectedCardIds(prev => prev.filter(c => c !== id));
+        else if (selectedCardIds.length < teamSize) setSelectedCardIds(prev => [...prev, id]);
+    };
+
+    const handleBattleStart = () => {
+        if (subMode === 'online') {
+            setPhase('pvp');
+        } else {
+            startBattle();
+        }
+    };
 
     if (phase === 'pvp') {
         return (
             <PvPBattle 
                 gameState={gameState}
+                preparedTeam={playerTeam}
                 onBattleEnd={(reward, isWin) => onBattleWin(reward, isWin, 'challenge', [])} 
                 onExit={() => { setPhase('mode_select'); stopBattleTheme(musicVolume, musicOn); }}
                 playSfx={playSfx}
@@ -713,7 +732,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                     </div>
                     {/* Online PvP */}
                     <div className="flex-1 flex flex-col items-center gap-4">
-                        <div onClick={() => { setPhase('pvp'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-green-900/50 hover:border-green-400 rounded-xl p-8 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(34,197,94,0.1)] hover:shadow-[0_0_30px_rgba(34,197,94,0.3)] h-full justify-between">
+                        <div onClick={() => { setSubMode('online'); setPhase('selection'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-green-900/50 hover:border-green-400 rounded-xl p-8 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(34,197,94,0.1)] hover:shadow-[0_0_30px_rgba(34,197,94,0.3)] h-full justify-between">
                             <div>
                                 <div className="text-6xl mb-4">🌍</div>
                                 <h3 className="font-header text-3xl text-green-400 mb-2">Casual Online</h3>
@@ -728,9 +747,8 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                         </div>
                     </div>
                 </div>
-                {/* ... (Modal code remains same) */}
+                {/* Rewards Modal */}
                 <Modal isOpen={showRankRewards} onClose={() => setShowRankRewards(false)} title={t('rank_rewards_title')} size="lg">
-                    {/* ... (Keep existing rank rewards modal content) */}
                     <div className="space-y-6 max-h-[70vh] overflow-y-auto p-2">
                         {(Object.keys(rankSystem) as Rank[]).map((rank) => {
                             const config = rankSystem[rank];
@@ -784,7 +802,9 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                 <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
                     <div>
                         <button onClick={() => { setPhase('mode_select'); setSelectedCardIds([]); }} className="text-sm text-gray-400 hover:text-white mb-2">← Change Mode</button>
-                        <h2 className="font-header text-4xl text-white mb-2">{subMode === 'ranked' ? "Ranked Draft" : "Challenge Draft"}</h2>
+                        <h2 className="font-header text-4xl text-white mb-2">
+                            {subMode === 'ranked' ? "Ranked Draft" : subMode === 'online' ? "Online Draft" : "Challenge Draft"}
+                        </h2>
                         <div className="flex items-center gap-4">
                             <p className="text-gray-400">Select <span className="text-white font-bold">{teamSize}</span> combatants.</p>
                             
@@ -847,7 +867,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                         </div>
                     ))}
                 </div>
-                <div className="flex justify-center"><Button variant="cta" onClick={startBattle} className="text-2xl px-12 py-4">FIGHT!</Button></div>
+                <div className="flex justify-center"><Button variant="cta" onClick={handleBattleStart} className="text-2xl px-12 py-4">FIGHT!</Button></div>
             </div>
         );
     }
@@ -860,9 +880,11 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                 {won && (<div className="text-center space-y-2"><p className="text-2xl text-white">Reward Earned</p><p className="text-5xl text-blue-glow font-bold font-header">{reward} BP</p></div>)}
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl mt-4">
-                    <Button variant="keep" onClick={restartSameTactics}>
-                        {t('battle_opt_same_tactics')}
-                    </Button>
+                    {subMode !== 'online' && (
+                        <Button variant="keep" onClick={restartSameTactics}>
+                            {t('battle_opt_same_tactics')}
+                        </Button>
+                    )}
                     <Button variant="default" onClick={() => { setPlayerTeam(resetPlayerTeam(playerTeam)); setPhase('tactics'); }}>
                         {t('battle_opt_change_tactics')}
                     </Button>
@@ -886,6 +908,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
 
     return (
         <div className="animate-fadeIn relative w-full max-w-6xl mx-auto min-h-[80vh] flex flex-col justify-between py-4">
+            {/* Styles, Particles, Effects */}
             <style>{`
                 /* Enhanced Projectiles */
                 @keyframes projectile-travel { 
