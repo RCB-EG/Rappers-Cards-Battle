@@ -142,6 +142,30 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         setTimeout(() => setSpecialEffects(prev => prev.filter(e => e.id !== id)), 1500);
     };
 
+    const isTargetable = (target: BattleCard, targetTeam: BattleCard[]) => {
+        if (target.currentHp <= 0) return false;
+        
+        const activeTeammates = targetTeam.filter(c => c.currentHp > 0);
+        
+        // 1. Untargetable check
+        if (activeTeammates.length > 1 && target.activeEffects.some(e => e.type === 'untargetable')) return false;
+        
+        // 2. Taunt check (Taunt overrides Defense priority)
+        const taunters = activeTeammates.filter(c => c.activeEffects.some(e => e.type === 'taunt'));
+        if (taunters.length > 0) {
+            return taunters.some(c => c.instanceId === target.instanceId);
+        }
+        
+        // 3. Defense Mode Priority
+        const defenders = activeTeammates.filter(c => c.mode === 'defense');
+        if (defenders.length > 0) {
+            // If target is NOT a defender, it's not targetable
+            if (target.mode !== 'defense') return false;
+        }
+        
+        return true;
+    };
+
     // --- Matchmaking ---
     useEffect(() => {
         let interval: any;
@@ -223,10 +247,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
     useEffect(() => {
         let unsubscribe: () => void;
         if (status === 'searching' && auth.currentUser) {
-            // Only listen for battles created RECENTLY (last 1 minute) to avoid ghost matches
-            // Ideally we'd use a composite query with timestamp, but let's filter client side for MVP simplicity
             const q = query(collection(db, 'battles'), where('player1.uid', '==', auth.currentUser.uid), where('status', '==', 'active'));
-            
             unsubscribe = onSnapshot(q, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
                     if (change.type === 'added') {
@@ -269,13 +290,11 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     onBattleEnd(reward, amIWinner);
                 }
             } else {
-                // Battle document deleted/missing?
                 alert("Match connection lost.");
                 onExit();
             }
         }, (error) => {
             console.error(error);
-            // Ignore permission errors on unmount
         });
 
         return () => unsubscribe();
@@ -286,14 +305,15 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         if (battleState.turn !== auth.currentUser.uid) return;
         
         const actionName = actionOverride || selectedAction;
-        const isTargeted = actionName === 'standard' || !['Chopper', 'Show Maker', 'ShowMaker', 'Notes Master', 'Note Master', 'The Artist', 'Storyteller', 'StoryTeller'].includes(actionName);
+        const isNonTargeted = ['Chopper', 'Show Maker', 'ShowMaker', 'Notes Master', 'Note Master', 'The Artist', 'Storyteller', 'StoryTeller'].includes(actionName);
         
-        if (isTargeted && !targetId && !selectedAttackerId) return;
+        // Validation: If it's a targeted move (standard or special), we need a target
+        if (!isNonTargeted && !targetId && !selectedAttackerId) return;
 
         setIsAnimating(true);
         const imPlayer1 = battleState.player1.uid === auth.currentUser.uid;
         
-        // Correctly identify squads
+        // Identify squads
         const mySquad = imPlayer1 ? battleState.player1.team : battleState.player2.team;
         const enemySquad = imPlayer1 ? battleState.player2.team : battleState.player1.team;
 
@@ -304,7 +324,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         let newMySquad = [...mySquad];
         let logMsg = '';
         
-        // Superpower Cost
+        // Remove Superpower Charge (if using one)
         if (actionName !== 'standard') {
             const attackerIdx = newMySquad.findIndex(c => c.instanceId === attacker.instanceId);
             if (attackerIdx > -1) {
@@ -315,7 +335,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
             }
         }
 
-        // Logic
+        // --- Logic Execution ---
         if (actionName === 'standard') {
             const targetIndex = enemySquad.findIndex(c => c.instanceId === targetId);
             if (targetIndex > -1) {
@@ -331,32 +351,91 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     showFloatText(rect.left, rect.top, `-${damage}`, '#ff4444');
                 }
             }
-        } else if (['Chopper'].includes(actionName)) {
+        } 
+        // --- AoE / Global Specials ---
+        else if (['Chopper'].includes(actionName)) {
             playSfx('battleAttackUltimate');
             triggerSpecialEffect('shockwave');
             const damage = Math.floor(attacker.atk * 0.6);
             newEnemySquad = newEnemySquad.map(c => c.currentHp > 0 ? { ...c, currentHp: Math.max(0, c.currentHp - damage) } : c);
-            logMsg = `${attacker.name} used Chopper!`;
-        } else if (['Show Maker', 'ShowMaker'].includes(actionName)) {
+            logMsg = `${attacker.name} used Chopper! AoE ${damage}!`;
+        } 
+        else if (['Show Maker', 'ShowMaker'].includes(actionName)) {
             playSfx('battleBuff');
             triggerSpecialEffect('spotlight');
             const buffAmt = Math.floor(attacker.atk * 0.3);
             newMySquad = newMySquad.map(c => c.currentHp > 0 ? { ...c, atk: c.atk + buffAmt, activeEffects: [...c.activeEffects, { type: 'buff', duration: 99 } as ActiveEffect] } : c);
-            logMsg = `${attacker.name} hypes up the crew!`;
-        } else if (targetId) {
+            logMsg = `${attacker.name} hypes up the crew! (+${buffAmt} ATK)`;
+        } 
+        else if (['Notes Master', 'Note Master'].includes(actionName)) {
+            playSfx('battleBuff');
+            const attackerIdx = newMySquad.findIndex(c => c.instanceId === attacker.instanceId);
+            if (attackerIdx > -1) {
+                newMySquad[attackerIdx].activeEffects.push({ type: 'taunt', duration: 2 });
+            }
+            logMsg = `${attacker.name} demands attention! (Taunt)`;
+        }
+        else if (['Storyteller', 'StoryTeller'].includes(actionName)) {
+            playSfx('battleBuff');
+            const attackerIdx = newMySquad.findIndex(c => c.instanceId === attacker.instanceId);
+            if (attackerIdx > -1) {
+                newMySquad[attackerIdx].activeEffects.push({ type: 'untargetable', duration: 2 });
+            }
+            logMsg = `${attacker.name} fades into the background...`;
+        }
+        // --- Targeted Specials ---
+        else if (targetId) {
             const targetIndex = enemySquad.findIndex(c => c.instanceId === targetId);
             if (targetIndex > -1) {
-                // Simplified effect logic for brevity in online sync
                 if (actionName.includes('Rhyme')) {
                     newEnemySquad[targetIndex].activeEffects.push({ type: 'poison', duration: 3, val: 50 });
                     logMsg = `${attacker.name} poisoned ${newEnemySquad[targetIndex].name}!`;
+                    playSfx('battleDebuff');
                 } else if (actionName.includes('Punchline')) {
                     newEnemySquad[targetIndex].activeEffects.push({ type: 'stun', duration: 2 });
                     logMsg = `${attacker.name} stunned ${newEnemySquad[targetIndex].name}!`;
-                } else {
+                    playSfx('battleStun');
+                } else if (actionName === 'Career Killer') {
+                    // Instakill if < 30%
+                    const target = newEnemySquad[targetIndex];
+                    if (target.currentHp < target.maxHp * 0.3) {
+                        newEnemySquad[targetIndex] = { ...target, currentHp: 0 };
+                        logMsg = `${attacker.name} ENDED ${target.name}'s career!`;
+                        playSfx('battleAttackUltimate');
+                    } else {
+                        // Failover damage
+                        const damage = Math.floor(attacker.atk * 1.5);
+                        newEnemySquad[targetIndex] = { ...target, currentHp: Math.max(0, target.currentHp - damage) };
+                        logMsg = `${attacker.name} hit ${target.name} hard for ${damage}!`;
+                    }
+                } else if (actionName === 'Battler') {
+                    newEnemySquad[targetIndex].activeEffects.push({ type: 'silence', duration: 99 });
+                    logMsg = `${attacker.name} silenced ${newEnemySquad[targetIndex].name}!`;
+                    playSfx('battleDebuff');
+                } else if (['Words Bender', 'Word Bender'].includes(actionName)) {
+                    // Life Drain
+                    const damage = Math.floor(attacker.atk * 0.8);
+                    newEnemySquad[targetIndex] = { ...newEnemySquad[targetIndex], currentHp: Math.max(0, newEnemySquad[targetIndex].currentHp - damage) };
+                    const attackerIdx = newMySquad.findIndex(c => c.instanceId === attacker.instanceId);
+                    if (attackerIdx > -1) {
+                        newMySquad[attackerIdx].currentHp = Math.min(newMySquad[attackerIdx].maxHp, newMySquad[attackerIdx].currentHp + damage);
+                    }
+                    logMsg = `${attacker.name} drained ${damage} HP from ${newEnemySquad[targetIndex].name}!`;
+                    playSfx('battleHeal');
+                }
+                else {
+                    // Generic damage for unhandled specials
                     const damage = Math.floor(attacker.atk * 1.2);
                     newEnemySquad[targetIndex] = { ...newEnemySquad[targetIndex], currentHp: Math.max(0, newEnemySquad[targetIndex].currentHp - damage) };
-                    logMsg = `${attacker.name} used ${actionName}!`;
+                    logMsg = `${attacker.name} used ${actionName} on ${newEnemySquad[targetIndex].name}!`;
+                    playSfx('battleAttackMedium');
+                }
+                
+                // Visuals for targeted hit
+                const targetNode = cardRefs.current[targetId!];
+                if (targetNode) {
+                    const rect = targetNode.getBoundingClientRect();
+                    triggerSpecialEffect('impact-burst', rect.left + rect.width/2, rect.top + rect.height/2);
                 }
             }
         }
@@ -396,7 +475,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     <div className="text-left mb-6 bg-black/30 p-4 rounded text-sm text-gray-400">
                         <p>1. Squad selected: {myTeam.length} cards.</p>
                         <p>2. Find match.</p>
-                        <p>3. If search takes too long, try later.</p>
+                        <p>3. Turn-based combat.</p>
                     </div>
                     <Button variant="cta" onClick={findMatch} className="w-full text-xl py-4 shadow-blue-glow">Find Match</Button>
                     <Button variant="default" onClick={onExit} className="w-full mt-4">Back to Menu</Button>
@@ -418,19 +497,16 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
 
     if (status === 'active' && battleState && auth.currentUser) {
         const imPlayer1 = battleState.player1.uid === auth.currentUser.uid;
-        
-        // Safety checks for malformed data
         const mySquad = (imPlayer1 ? battleState.player1.team : battleState.player2.team) || [];
         const enemySquad = (imPlayer1 ? battleState.player2.team : battleState.player1.team) || [];
         const enemyName = (imPlayer1 ? battleState.player2.username : battleState.player1.username) || "Opponent";
         
-        // If opponent squad is empty (ghost match), show error
         if (enemySquad.length === 0) {
             return (
                 <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
                     <h3 className="text-2xl text-red-500 font-header">Connection Error</h3>
-                    <p className="text-gray-400">Opponent disconnected or invalid match data.</p>
-                    <Button variant="sell" onClick={onExit}>Exit Match</Button>
+                    <p className="text-gray-400">Match data invalid.</p>
+                    <Button variant="sell" onClick={onExit}>Exit</Button>
                 </div>
             );
         }
@@ -441,7 +517,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         return (
             <div className="relative w-full max-w-6xl mx-auto min-h-[80vh] flex flex-col justify-between py-4 animate-fadeIn">
                 
-                {/* CSS & Particles */}
                 <style>{`
                     .projectile-container { position: fixed; top: 0; left: 0; width: 0; height: 0; z-index: 50; pointer-events: none; }
                     .impact-burst { position: fixed; width: 100px; height: 100px; background: radial-gradient(circle, #fff 10%, transparent 70%); animation: impact-explode 0.4s ease-out forwards; pointer-events: none; z-index: 60; }
@@ -455,17 +530,26 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 <div className="flex flex-col items-center">
                     <div className="text-red-400 font-header text-xl mb-2">{enemyName}</div>
                     <div className="flex justify-center gap-2 flex-wrap">
-                        {enemySquad.map(card => (
-                            <BattleCardRender 
-                                key={card.instanceId} 
-                                card={{...card, owner: 'opponent'}} 
-                                isInteractable={isMyTurn && !!selectedAttackerId && (selectedAction === 'standard' || ['Rhymes Crafter', 'Punchline Machine', 'Career Killer'].some(s => selectedAction.includes(s)))} 
-                                shakeIntensity={0}
-                                onRef={(el) => cardRefs.current[card.instanceId] = el}
-                                onClick={() => handleAttack(card.instanceId)}
-                                smallScale={true}
-                            />
-                        ))}
+                        {enemySquad.map(card => {
+                            // Determine interaction validity based on targeting rules
+                            const isTarget = isTargetable(card, enemySquad);
+                            // Can interact if: My Turn AND Attacker Selected AND (Standard Attack OR Targeted Superpower) AND Card is a Valid Target
+                            const canClick = isMyTurn && !!selectedAttackerId && 
+                                             (selectedAction === 'standard' || !['Chopper', 'Show Maker', 'ShowMaker', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller'].includes(selectedAction)) &&
+                                             isTarget;
+
+                            return (
+                                <BattleCardRender 
+                                    key={card.instanceId} 
+                                    card={{...card, owner: 'opponent'}} 
+                                    isInteractable={canClick} 
+                                    shakeIntensity={0}
+                                    onRef={(el) => cardRefs.current[card.instanceId] = el}
+                                    onClick={() => handleAttack(card.instanceId)}
+                                    smallScale={true}
+                                />
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -482,7 +566,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                             )}
                             <button onClick={() => setSelectedAction('standard')} className={`px-3 py-1 rounded border-2 font-bold text-sm ${selectedAction === 'standard' ? 'bg-white text-black border-gold-light' : 'bg-transparent text-gray-300 border-gray-600'}`}>Attack</button>
                             {activeAttacker.availableSuperpowers.map(sp => {
-                                const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'The Artist', 'Storyteller', 'StoryTeller'].includes(sp);
+                                const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller'].includes(sp);
                                 return (
                                     <button key={sp} onClick={() => { setSelectedAction(sp); if (isImmediate) handleAttack(null, sp); }} className={`px-3 py-1 rounded border-2 font-bold text-sm flex items-center gap-1 ${selectedAction === sp ? 'bg-blue-600 text-white border-blue-300' : 'bg-transparent text-blue-300 border-blue-800'}`}>
                                         {sp}
