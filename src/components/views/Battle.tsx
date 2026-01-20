@@ -755,8 +755,8 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                             </div>
                             <div className="bg-black/40 w-full p-3 rounded-lg border border-gray-700 space-y-2">
                                 <p className="text-green-400 font-bold text-sm">✅ Real PvP Action</p>
-                                <p className="text-blue-300 font-bold text-sm">⚖️ Winner: 25% BP</p>
-                                <p className="text-gray-500 font-bold text-sm">❌ Loser: 10% BP</p>
+                                <p className="text-blue-300 font-bold text-sm">⚖️ Winner: 100 BP</p>
+                                <p className="text-gray-500 font-bold text-sm">❌ Loser: 25 BP</p>
                             </div>
                             <div className="mt-4 text-sm text-gray-500">Online Mode</div>
                         </div>
@@ -809,113 +809,6 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                 </Modal>
             </div>
         )
-    }
-
-    if (phase === 'selection') {
-        return (
-            <div className="animate-fadeIn">
-                <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
-                    <div>
-                        <button onClick={() => { setPhase('mode_select'); setSelectedCardIds([]); }} className="text-sm text-gray-400 hover:text-white mb-2">← Change Mode</button>
-                        <h2 className="font-header text-4xl text-white mb-2">
-                            {subMode === 'ranked' ? "Ranked Draft" : subMode === 'online' ? "Online Draft" : "Challenge Draft"}
-                        </h2>
-                        <div className="flex items-center gap-4">
-                            <p className="text-gray-400">Select <span className="text-white font-bold">{teamSize}</span> combatants.</p>
-                            
-                            {/* Team Size Selector for Challenge Mode */}
-                            {subMode === 'challenge' && (
-                                <div className="flex items-center gap-2 bg-black/40 rounded-lg p-1 border border-gray-700">
-                                    <span className="text-xs text-gray-400 px-2 uppercase font-bold">{t('battle_team_size')}</span>
-                                    {[5, 6, 7, 8].map(size => (
-                                        <button 
-                                            key={size}
-                                            onClick={() => { setTeamSize(size); setSelectedCardIds([]); playSfx('buttonClick'); }}
-                                            className={`w-8 h-8 rounded flex items-center justify-center font-bold text-sm transition-all ${teamSize === size ? 'bg-blue-600 text-white shadow-blue-glow' : 'bg-transparent text-gray-500 hover:bg-white/10'}`}
-                                        >
-                                            {size}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                        {subMode === 'ranked' && (
-                            <p className="text-gold-light text-sm mt-1">Current Rank: {gameState.rank} (AI: {rankSystem[gameState.rank].aiDifficulty.toUpperCase()})</p>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <span className={`text-2xl font-header ${selectedCardIds.length === teamSize ? 'text-green-400' : 'text-white'}`}>{selectedCardIds.length} / {teamSize}</span>
-                        <Button variant={selectedCardIds.length === teamSize ? 'cta' : 'default'} onClick={goToTactics} disabled={selectedCardIds.length !== teamSize}>Next: Tactics</Button>
-                    </div>
-                </div>
-                <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-4 bg-black/20 p-4 rounded-lg min-h-[400px]">
-                    {availableCards.length > 0 ? availableCards.map(card => {
-                        const isSelected = selectedCardIds.includes(card.id);
-                        return (
-                            <div key={card.id} onClick={() => handleCardSelect(card.id)} className={`cursor-pointer transition-all ${isSelected ? 'scale-105 ring-4 ring-green-500 rounded-lg' : 'hover:scale-105 opacity-80'}`}>
-                                <Card card={card} />
-                            </div>
-                        );
-                    }) : <p className="col-span-full text-center text-gray-400">No cards in formation.</p>}
-                </div>
-            </div>
-        );
-    }
-
-    if (phase === 'tactics') {
-        return (
-            <div className="animate-fadeIn">
-                <h2 className="font-header text-4xl text-white text-center mb-2">Battle Tactics</h2>
-                <p className="text-center text-gray-400 mb-8">Assign roles. Defense cards have 2x HP but cannot attack.</p>
-                <div className="flex justify-center gap-4 md:gap-8 flex-wrap mb-10">
-                    {playerTeam.map((card) => (
-                        <div key={card.instanceId} className="flex flex-col items-center gap-3 bg-black/40 p-4 rounded-lg border border-gray-700 w-[120px] md:w-auto">
-                            <div className={`transition-transform duration-300 ${card.mode === 'defense' ? 'rotate-90 scale-90' : ''}`}>
-                                <BattleCardRender card={card} isInteractable={false} shakeIntensity={0} onRef={()=>{}} smallScale={true} />
-                            </div>
-                            <div className="flex flex-col items-center w-full">
-                                <div className="text-sm mb-2 font-bold text-gold-light">{card.mode === 'defense' ? `HP: ${card.maxHp} (2x)` : `ATK: ${card.atk}`}</div>
-                                <button onClick={() => toggleCardMode(card.instanceId)} className={`flex items-center justify-center gap-2 px-3 py-1 rounded w-full font-header tracking-wide transition-colors text-sm ${card.mode === 'attack' ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'}`}>
-                                    {card.mode === 'attack' ? '⚔️ ATTACK' : '🛡️ DEFENSE'}
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-                <div className="flex justify-center"><Button variant="cta" onClick={handleBattleStart} className="text-2xl px-12 py-4">FIGHT!</Button></div>
-            </div>
-        );
-    }
-
-    if (phase === 'result') {
-        const won = cpuTeam.every(c => c.currentHp <= 0);
-        return (
-            <div className="animate-fadeIn flex flex-col items-center justify-center min-h-[60vh] gap-8">
-                <h2 className={`font-header text-7xl ${won ? 'text-green-500 drop-shadow-[0_0_20px_rgba(34,197,94,0.8)]' : 'text-red-500'}`}>{won ? "VICTORY" : "DEFEAT"}</h2>
-                {won && (<div className="text-center space-y-2"><p className="text-2xl text-white">Reward Earned</p><p className="text-5xl text-blue-glow font-bold font-header">{reward} BP</p></div>)}
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl mt-4">
-                    {subMode !== 'online' && (
-                        <Button variant="keep" onClick={restartSameTactics}>
-                            {t('battle_opt_same_tactics')}
-                        </Button>
-                    )}
-                    <Button variant="default" onClick={() => { setPlayerTeam(resetPlayerTeam(playerTeam)); setPhase('tactics'); }}>
-                        {t('battle_opt_change_tactics')}
-                    </Button>
-                    <Button variant="default" onClick={() => { setSelectedCardIds([]); setPhase('selection'); }}>
-                        {t('battle_opt_new_squad')}
-                    </Button>
-                    <Button variant="sell" onClick={() => { 
-                        setPhase('mode_select'); 
-                        setSelectedCardIds([]); 
-                        stopBattleTheme(musicVolume, musicOn); 
-                    }}>
-                        {t('battle_opt_change_mode')}
-                    </Button>
-                </div>
-            </div>
-        );
     }
 
     // PvE Battle Render
@@ -1122,18 +1015,26 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                         <div className={`text-2xl md:text-3xl font-header px-6 md:px-8 py-2 rounded-full border-2 transition-colors ${turn === 'player' ? 'bg-blue-600/50 border-blue-400 text-white shadow-[0_0_20px_#2563eb]' : 'bg-red-600/50 border-red-400 text-white shadow-[0_0_20px_#dc2626]'}`}>{turn === 'player' ? "YOUR TURN" : "ENEMY TURN"}</div>
                         <div className="relative w-full max-w-2xl flex justify-center items-start h-20">
                             {activeAttacker && turn === 'player' ? (
-                                <div className="flex gap-2 animate-fadeIn z-50 relative flex-wrap justify-center">
-                                    {selectedAction !== 'standard' && (<div className="absolute -top-12 left-0 right-0 bg-black/90 text-gold-light text-center text-sm p-2 rounded border border-gold-dark/50 animate-fadeIn z-50 shadow-lg whitespace-nowrap">{SUPERPOWER_DESC[selectedAction] || "Special Ability"}</div>)}
-                                    <button onClick={() => setSelectedAction('standard')} className={`px-3 md:px-4 py-1 md:py-2 rounded border-2 font-bold transition-all ${selectedAction === 'standard' ? 'bg-white text-black border-gold-light scale-105' : 'bg-black/60 text-gray-300 border-gray-600'}`}>Attack</button>
-                                    {activeAttacker.availableSuperpowers.map(sp => {
-                                        const isSilenced = activeAttacker.activeEffects.some(e => e.type === 'silence');
-                                        const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'The Artist', 'Storyteller', 'StoryTeller'].includes(sp);
-                                        return (
-                                            <button key={sp} onClick={() => { if (isSilenced) return; setSelectedAction(sp); if (isImmediate) executeAction(activeAttacker, null, sp); }} disabled={isSilenced} className={`px-3 md:px-4 py-1 md:py-2 rounded border-2 font-bold flex items-center gap-2 transition-all relative ${selectedAction === sp ? 'bg-blue-600 text-white border-blue-300 scale-105 shadow-[0_0_10px_#2563eb]' : 'bg-black/60 text-blue-300 border-blue-800'} ${isSilenced ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
-                                                <span className="text-xs uppercase">{sp}</span>
-                                            </button>
-                                        );
-                                    })}
+                                <div className="flex flex-col items-center animate-fadeIn bg-black/80 p-2 rounded-lg border border-gold-dark/50 z-30 max-w-[95%] md:max-w-xl">
+                                    {/* VISUAL FIX: Moved description inside normal flow */}
+                                    {selectedAction !== 'standard' && (
+                                        <div className="text-gold-light text-xs md:text-sm mb-2 text-center w-full border-b border-white/10 pb-1">
+                                            {SUPERPOWER_DESC[selectedAction] || "Special Ability"}
+                                        </div>
+                                    )}
+                                    
+                                    <div className="flex gap-2 flex-wrap justify-center">
+                                        <button onClick={() => setSelectedAction('standard')} className={`px-3 md:px-4 py-1 md:py-2 rounded border-2 font-bold transition-all ${selectedAction === 'standard' ? 'bg-white text-black border-gold-light scale-105' : 'bg-black/60 text-gray-300 border-gray-600'}`}>Attack</button>
+                                        {activeAttacker.availableSuperpowers.map(sp => {
+                                            const isSilenced = activeAttacker.activeEffects.some(e => e.type === 'silence');
+                                            const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'The Artist', 'Storyteller', 'StoryTeller'].includes(sp);
+                                            return (
+                                                <button key={sp} onClick={() => { if (isSilenced) return; setSelectedAction(sp); if (isImmediate) executeAction(activeAttacker, null, sp); }} disabled={isSilenced} className={`px-3 md:px-4 py-1 md:py-2 rounded border-2 font-bold flex items-center gap-2 transition-all relative ${selectedAction === sp ? 'bg-blue-600 text-white border-blue-300 scale-105 shadow-[0_0_10px_#2563eb]' : 'bg-black/60 text-blue-300 border-blue-800'} ${isSilenced ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
+                                                    <span className="text-xs uppercase">{sp}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             ) : (<div className="text-center text-gray-300 text-sm font-mono max-w-md bg-black/40 p-2 rounded">{battleLog[0]}</div>)}
                         </div>

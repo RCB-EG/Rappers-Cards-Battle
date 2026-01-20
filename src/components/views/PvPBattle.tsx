@@ -20,7 +20,7 @@ interface PvPBattleProps {
     musicOn: boolean;
 }
 
-// Animation Types (Copied from Battle for consistency)
+// Animation Types
 interface Projectile {
     id: number;
     startX: number;
@@ -341,7 +341,9 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     const amIWinner = data.winner === auth.currentUser?.uid;
                     if (amIWinner) playSfx('success');
                     
-                    let rewardAmt = amIWinner ? Math.floor(500 + (data.player1.team.length + data.player2.team.length) * 10) : 100;
+                    // FIXED REWARD: Winner 100, Loser 25
+                    let rewardAmt = amIWinner ? 100 : 25;
+                    
                     setGameResult({ isWin: amIWinner, reward: rewardAmt });
                     setShowResultScreen(true);
                     onBattleEnd(rewardAmt, amIWinner);
@@ -432,7 +434,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
             playSfx('battleBuff');
             const attackerIdx = newMySquad.findIndex(c => c.instanceId === attacker.instanceId);
             if (attackerIdx > -1) {
-                // FIXED: Duration should be 1 to match PvE and expire on next turn
                 newMySquad[attackerIdx].activeEffects.push({ type: 'untargetable', duration: 1 });
             }
             logMsg = `${attacker.name} fades into the background...`;
@@ -707,19 +708,25 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     </div>
                     
                     {isMyTurn && activeAttacker ? (
-                        <div className="flex gap-2 flex-wrap justify-center animate-fadeIn bg-black/80 p-2 rounded-lg border border-gold-dark/50 z-30 max-w-[95%]">
+                        <div className="flex flex-col items-center animate-fadeIn bg-black/80 p-2 rounded-lg border border-gold-dark/50 z-30 max-w-[95%] md:max-w-xl">
+                            {/* VISUAL FIX: Moved description inside normal flow to prevent overlapping */}
                             {selectedAction !== 'standard' && (
-                                <div className="absolute -top-10 left-0 right-0 text-center text-sm text-gold-light p-1 bg-black/90 rounded border border-gold-dark">{SUPERPOWER_DESC[selectedAction] || "Ability"}</div>
+                                <div className="text-gold-light text-xs md:text-sm mb-2 text-center w-full border-b border-white/10 pb-1">
+                                    {SUPERPOWER_DESC[selectedAction] || "Ability"}
+                                </div>
                             )}
-                            <button onClick={() => setSelectedAction('standard')} className={`px-3 py-1 rounded border-2 font-bold text-sm transition-all ${selectedAction === 'standard' ? 'bg-white text-black border-gold-light' : 'bg-transparent text-gray-300 border-gray-600'}`}>Attack</button>
-                            {activeAttacker.availableSuperpowers.map(sp => {
-                                const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller', 'The Artist'].includes(sp);
-                                return (
-                                    <button key={sp} onClick={() => { setSelectedAction(sp); if (isImmediate) handleAttack(null, sp); }} className={`px-3 py-1 rounded border-2 font-bold text-sm flex items-center gap-1 transition-all ${selectedAction === sp ? 'bg-blue-600 text-white border-blue-300 shadow-blue-glow' : 'bg-transparent text-blue-300 border-blue-800'}`}>
-                                        {sp}
-                                    </button>
-                                );
-                            })}
+                            
+                            <div className="flex gap-2 flex-wrap justify-center">
+                                <button onClick={() => setSelectedAction('standard')} className={`px-3 py-1 rounded border-2 font-bold text-sm transition-all ${selectedAction === 'standard' ? 'bg-white text-black border-gold-light' : 'bg-transparent text-gray-300 border-gray-600'}`}>Attack</button>
+                                {activeAttacker.availableSuperpowers.map(sp => {
+                                    const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller', 'The Artist'].includes(sp);
+                                    return (
+                                        <button key={sp} onClick={() => { setSelectedAction(sp); if (isImmediate) handleAttack(null, sp); }} className={`px-3 py-1 rounded border-2 font-bold text-sm flex items-center gap-1 transition-all ${selectedAction === sp ? 'bg-blue-600 text-white border-blue-300 shadow-blue-glow' : 'bg-transparent text-blue-300 border-blue-800'}`}>
+                                            {sp}
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
                     ) : (
                         <div className="text-center text-gray-300 text-xs md:text-sm font-mono bg-black/60 p-2 rounded min-w-[200px] border border-gray-700">
