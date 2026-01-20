@@ -8,12 +8,13 @@ formationLayouts['4-4-2'].allPositions.forEach(posId => {
 });
 
 export const initialState: GameState = {
-  version: 1.6,
+  version: 1.7,
   userId: `guest`,
   coins: 10000,
   battlePoints: 0,
   xp: 0,
   rank: 'Bronze',
+  rankValue: 1,
   rankWins: 0,
   pendingEarnings: 0,
   formation: initialFormation,
@@ -32,4 +33,5 @@ export const initialState: GameState = {
   ownedPacks: [],
   ownedPlayerPicks: [],
   activePlayerPick: null,
+  friends: []
 };

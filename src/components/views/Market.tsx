@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { MarketCard } from '../../types';
 import Card from '../Card';
 import BuyModal from '../modals/BuyModal';
@@ -7,41 +7,83 @@ import { TranslationKey } from '../../utils/translations';
 
 interface MarketProps {
   market: MarketCard[];
-  onBuyCard: (card: MarketCard) => void;
+  onBuyCard: (card: MarketCard) => void; // Legacy prop name, now handles logic routing
   onCancelListing: (card: MarketCard) => void;
   currentUserId: string;
   t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
   userCoins: number;
 }
 
+const formatDuration = (ms: number) => {
+    if (ms <= 0) return "Expired";
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m ${Math.floor((ms % 60000) / 1000)}s`;
+};
+
 const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, currentUserId, t, userCoins }) => {
   const [cardToBuy, setCardToBuy] = useState<MarketCard | null>(null);
-  const [sortBy, setSortBy] = useState('newest');
+  const [sortBy, setSortBy] = useState('ending_soon');
   const [rarityFilter, setRarityFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [now, setNow] = useState(Date.now());
+
+  // Timer Tick
+  useEffect(() => {
+      const timer = setInterval(() => setNow(Date.now()), 1000);
+      return () => clearInterval(timer);
+  }, []);
+
+  // Process market items (handle resets visually if needed)
+  const processedMarket = useMemo(() => {
+      return market.map(card => {
+          let expiresAt = card.expiresAt || 0;
+          const durationMs = (card.durationHours || 24) * 3600000;
+          
+          // Client-side auto-reset visualization logic requested
+          // If expired AND no bidder, calculate the current active window
+          if (now > expiresAt && !card.highestBidderId && durationMs > 0) {
+             const timeSinceExpiry = now - expiresAt;
+             const cycles = Math.ceil(timeSinceExpiry / durationMs);
+             expiresAt = expiresAt + (cycles * durationMs);
+          }
+          
+          return { ...card, displayExpiresAt: expiresAt };
+      });
+  }, [market, now]);
 
   const sortedAndFilteredMarket = useMemo(() => {
-    let filtered = market.filter(card => 
+    let filtered = processedMarket.filter(card => 
       card.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
       (rarityFilter === 'all' || card.rarity === rarityFilter)
     );
+    
     filtered.sort((a, b) => {
       switch (sortBy) {
-        case 'price-desc': return b.price - a.price;
-        case 'price-asc': return a.price - b.price;
+        case 'price-desc': return b.buyNowPrice - a.buyNowPrice;
+        case 'price-asc': return a.buyNowPrice - b.buyNowPrice;
+        case 'bid-desc': return b.bidPrice - a.bidPrice;
+        case 'ending_soon': return (a.displayExpiresAt || 0) - (b.displayExpiresAt || 0);
         case 'newest': return (b.createdAt || 0) - (a.createdAt || 0);
-        case 'oldest': return (a.createdAt || 0) - (b.createdAt || 0);
         default: return 0;
       }
     });
     return filtered;
-  }, [market, sortBy, rarityFilter, searchTerm]);
+  }, [processedMarket, sortBy, rarityFilter, searchTerm]);
 
-  const handleAction = (card: MarketCard) => {
-    if (card.sellerId === currentUserId) {
+  // Unified Handler passed to BuyModal
+  const handleMarketAction = (card: MarketCard, action: 'buy' | 'bid' | 'cancel', bidAmount?: number) => {
+    if (action === 'cancel') {
         onCancelListing(card);
-    } else {
-        onBuyCard(card);
+    } else if (action === 'buy') {
+        // Trigger buy logic via main app handler (which detects it's a Buy Now via price matching)
+        // We pass a modified card object or handle it in App.tsx. 
+        // For now, onBuyCard in App.tsx needs to be smart.
+        // Actually, let's pass the intent implicitly.
+        onBuyCard({ ...card, bidPrice: card.buyNowPrice }); 
+    } else if (action === 'bid' && bidAmount) {
+        onBuyCard({ ...card, bidPrice: bidAmount });
     }
     setCardToBuy(null);
   };
@@ -73,10 +115,11 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
         </div>
         <div className="filter-group flex gap-2 items-center">
           <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-2 rounded-md">
+            <option value="ending_soon">Ending Soon</option>
             <option value="newest">Newest Listed</option>
-            <option value="price-asc">{t('sort_price_asc')}</option>
-            <option value="price-desc">{t('sort_price_desc')}</option>
-            <option value="oldest">Oldest Listed</option>
+            <option value="price-asc">Buy Now: Low to High</option>
+            <option value="price-desc">Buy Now: High to Low</option>
+            <option value="bid-desc">Highest Bid</option>
           </select>
         </div>
       </div>
@@ -86,14 +129,41 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
         {sortedAndFilteredMarket.length > 0 ? (
           sortedAndFilteredMarket.map(card => {
             const isOwner = card.sellerId === currentUserId;
+            const timeLeft = Math.max(0, (card.displayExpiresAt || 0) - now);
+            const isWinning = card.highestBidderId === currentUserId;
+
             return (
-                <div key={card.id} className="cursor-pointer relative group" onClick={() => setCardToBuy(card)}>
-                <Card card={card} origin="market" />
-                <div className={`absolute bottom-2 left-0 right-0 py-1 rounded-b-md transition-opacity duration-300 opacity-100 group-hover:opacity-0 text-center ${isOwner ? 'bg-blue-600/80' : 'bg-black/70'}`}>
-                    <span className="text-gold-light font-bold">
-                        {isOwner ? 'YOURS' : `${card.price} ${t('coins')}`}
-                    </span>
-                </div>
+                <div key={card.id} className="cursor-pointer relative group w-full max-w-[180px]" onClick={() => setCardToBuy(card)}>
+                    <Card card={card} origin="market" className="!w-full !h-auto aspect-[2/3]" />
+                    
+                    {/* Timer Badge */}
+                    <div className={`absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold shadow-md z-20 ${timeLeft < 300000 ? 'bg-red-600 text-white animate-pulse' : 'bg-black/70 text-gray-300'}`}>
+                        {formatDuration(timeLeft)}
+                    </div>
+
+                    {/* Winning Badge */}
+                    {isWinning && (
+                        <div className="absolute top-2 left-2 bg-green-500 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-md z-20">
+                            Winning
+                        </div>
+                    )}
+
+                    <div className={`absolute bottom-2 left-0 right-0 py-2 rounded-b-md transition-opacity duration-300 opacity-100 group-hover:opacity-0 flex flex-col items-center justify-center gap-0.5 ${isOwner ? 'bg-blue-900/90' : 'bg-black/80'}`}>
+                        {isOwner ? (
+                            <span className="text-white font-bold text-sm">YOUR LISTING</span>
+                        ) : (
+                            <>
+                                <div className="flex justify-between w-full px-3 text-xs">
+                                    <span className="text-gray-400">Bid</span>
+                                    <span className="text-blue-300 font-bold">{card.bidPrice}</span>
+                                </div>
+                                <div className="flex justify-between w-full px-3 text-xs">
+                                    <span className="text-gray-400">Buy</span>
+                                    <span className="text-gold-light font-bold">{card.buyNowPrice}</span>
+                                </div>
+                            </>
+                        )}
+                    </div>
                 </div>
             );
           })
@@ -105,7 +175,7 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
       <BuyModal 
         cardToBuy={cardToBuy} 
         onClose={() => setCardToBuy(null)} 
-        onBuy={handleAction} 
+        onAction={handleMarketAction} 
         t={t} 
         userCoins={userCoins} 
         isOwner={cardToBuy?.sellerId === currentUserId}

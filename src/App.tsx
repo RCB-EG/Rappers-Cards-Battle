@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
     GameState, 
     Card as GameCard, 
-    PackType,
+    PackType, 
     PackData, 
     MarketCard, 
     User, 
@@ -38,7 +38,7 @@ import {
     query, 
     orderBy, 
     limit, 
-    deleteDoc,
+    deleteDoc, 
     runTransaction,
     where,
     writeBatch
@@ -56,6 +56,7 @@ import Battle from './components/views/Battle';
 import FBC from './components/views/FBC';
 import Evo from './components/views/Evo';
 import Objectives from './components/views/Objectives';
+import Social from './components/views/Social';
 import LoginModal from './components/modals/LoginModal';
 import SignUpModal from './components/modals/SignUpModal';
 import SettingsModal from './components/modals/SettingsModal';
@@ -149,27 +150,36 @@ const App: React.FC = () => {
                 // Fetch user data once on login
                 try {
                     const userRef = doc(db, 'users', user.uid);
-                    const docSnap = await getDoc(userRef);
                     
-                    if (docSnap.exists()) {
-                        const userData = docSnap.data();
-                        setCurrentUser(userData.userProfile as User);
-                        // Merge remote data with initial state to handle any new fields in updates
-                        setGameState(prev => ({ 
-                            ...initialState, 
-                            ...userData, 
-                            userId: user.uid, 
-                            market: prev.market 
-                        }));
-                    } else {
-                        // Create new user profile
-                        const newProfile: User = { username: user.email?.split('@')[0] || 'User', email: user.email || '' };
-                        setCurrentUser(newProfile);
-                        const newState = { ...initialState, userId: user.uid, userProfile: newProfile };
-                        const { market, ...stateToSave } = newState;
-                        await setDoc(userRef, stateToSave);
-                        setGameState(prev => ({ ...newState, market: prev.market }));
-                    }
+                    // Listen to realtime updates for self (this handles friend acceptance by others immediately)
+                    onSnapshot(userRef, (docSnap) => {
+                        if (docSnap.exists()) {
+                            const userData = docSnap.data();
+                            
+                            const profile: User = userData.userProfile || {
+                                username: userData.username || user.email?.split('@')[0] || 'User',
+                                email: userData.email || user.email || '',
+                                avatar: userData.avatar || undefined
+                            };
+                            setCurrentUser(profile);
+                            
+                            setGameState(prev => ({ 
+                                ...initialState, 
+                                ...userData, 
+                                userId: user.uid, 
+                                market: prev.market 
+                            }));
+                        } else {
+                            // First time creation logic if direct listen fails or new user
+                            const newProfile: User = { username: user.email?.split('@')[0] || 'User', email: user.email || '' };
+                            setCurrentUser(newProfile);
+                            const newState = { ...initialState, userId: user.uid, userProfile: newProfile };
+                            const { market, ...stateToSave } = newState;
+                            setDoc(userRef, stateToSave); // No await needed to block
+                            setGameState(prev => ({ ...newState, market: prev.market }));
+                        }
+                    });
+
                 } catch (error) {
                     console.error("Error fetching user data:", error);
                 }
@@ -192,7 +202,7 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
-    // 2. Data Saver
+    // 2. Data Saver & Rank Value Calculation
     const saveGameData = useCallback(async (stateToSave: Partial<GameState>) => {
         if (!auth.currentUser) {
             try {
@@ -207,6 +217,13 @@ const App: React.FC = () => {
             const userRef = doc(db, 'users', auth.currentUser.uid);
             const { market, ...cleanState } = stateToSave as GameState; 
             const sanitized = JSON.parse(JSON.stringify(cleanState)); 
+            
+            // Auto-calculate rankValue for leaderboard sorting if rank changed
+            if (sanitized.rank) {
+                const rankMap: Record<Rank, number> = { 'Legend': 4, 'Gold': 3, 'Silver': 2, 'Bronze': 1 };
+                sanitized.rankValue = rankMap[sanitized.rank as Rank] || 1;
+            }
+
             await updateDoc(userRef, sanitized);
         } catch (error) {
             console.error("Error saving game data:", error);
@@ -224,6 +241,7 @@ const App: React.FC = () => {
 
     // 4. Market Listener (Global Data)
     useEffect(() => {
+        // Market is public read, so this should work for guests too if rules allow `read: if true`
         const q = query(collection(db, 'market'), orderBy('createdAt', 'desc'), limit(50));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const marketData: MarketCard[] = [];
@@ -401,89 +419,172 @@ const App: React.FC = () => {
 
     // --- Actions ---
 
-    const handleBuyCard = async (marketCard: MarketCard) => {
-        if (gameState.coins < marketCard.price) {
+    // This function handles both "Buy Now" (using buyNowPrice) and "Bid" (using input amount)
+    const handleMarketAction = async (marketCard: MarketCard) => {
+        if (!auth.currentUser) {
+            setMessageModal({ title: 'Guest Mode', message: 'Market actions require an account.' });
+            return;
+        }
+
+        const actionType = marketCard.bidPrice >= marketCard.buyNowPrice ? 'buy' : 'bid';
+        const cost = marketCard.bidPrice; // This comes from the modal input or buy now click
+
+        if (gameState.coins < cost) {
              setMessageModal({ title: 'Insufficient Funds', message: 'You do not have enough coins.' });
              return;
         }
         
-        const alreadyInStorage = gameState.storage.some((c: GameCard) => c.name === marketCard.name);
-        const alreadyInFormation = (Object.values(gameState.formation) as (GameCard | null)[]).some(c => c?.name === marketCard.name);
-        
-        if (alreadyInStorage || alreadyInFormation) {
-             setMessageModal({ title: 'Duplicate Found', message: `You already own ${marketCard.name}.` });
-             return;
+        // Only check duplicates on Full Purchase, allow bidding on duplicates if you want (but risk stuck value)
+        if (actionType === 'buy') {
+            const alreadyInStorage = gameState.storage.some((c: GameCard) => c.name === marketCard.name);
+            const alreadyInFormation = (Object.values(gameState.formation) as (GameCard | null)[]).some(c => c?.name === marketCard.name);
+            if (alreadyInStorage || alreadyInFormation) {
+                setMessageModal({ title: 'Duplicate Found', message: `You already own ${marketCard.name}.` });
+                return;
+            }
         }
 
-        if (!auth.currentUser) {
-            setMessageModal({ title: 'Guest Mode', message: 'Market purchases require an account.' });
-            return;
-        }
-
-        // TRANSACTION: Remove from market, update buyer, pay seller
         try {
             await runTransaction(db, async (transaction) => {
                 const cardRef = doc(db, 'market', marketCard.marketId!);
-                const cardDoc = await transaction.get(cardRef);
-                
-                if (!cardDoc.exists()) {
-                    throw "Card no longer exists!";
-                }
-
-                // 1. Remove from Market
-                transaction.delete(cardRef);
-
-                // 2. Read User Doc
                 const userRef = doc(db, 'users', auth.currentUser!.uid);
+
+                // 1. READS
+                const cardDoc = await transaction.get(cardRef);
                 const userDoc = await transaction.get(userRef);
+                
+                if (!cardDoc.exists()) throw "Card no longer exists!";
                 if (!userDoc.exists()) throw "User not found";
 
+                const currentCardData = cardDoc.data() as MarketCard;
                 const userData = userDoc.data() as GameState;
-                if (userData.coins < marketCard.price) throw "Insufficient funds (server check)";
 
-                // 3. Update Buyer (Remove coins, add card)
-                const { marketId, sellerId, price, createdAt, ...cardData } = marketCard;
-                const newCard = { ...cardData, id: `${cardData.id}-${Date.now()}` };
+                // Validate Funds
+                if (userData.coins < cost) throw "Insufficient funds (server check)";
+
+                // -- AUTO-RESET LOGIC CHECK --
+                // If expired + no bidder + trying to interact -> Treat as reset first
+                const now = Date.now();
+                const currentExpiry = currentCardData.expiresAt || 0;
+                const durationMs = (currentCardData.durationHours || 24) * 3600000;
                 
-                const newStorage = [...userData.storage, newCard];
-                const newCoins = userData.coins - price;
+                if (now > currentExpiry && !currentCardData.highestBidderId) {
+                    // It's expired and nobody bid. Reset it.
+                    // But if user is trying to bid NOW, we should probably allow it on the 'reset' cycle?
+                    // Let's assume the reset happens instantly before their bid applies.
+                    // The new expiry would be:
+                    const cycles = Math.ceil((now - currentExpiry) / durationMs);
+                    const newExpiry = currentExpiry + (cycles * durationMs);
+                    
+                    // We update the local variable to proceed with logic as if it's live
+                    currentCardData.expiresAt = newExpiry;
+                    // And queue the update
+                    transaction.update(cardRef, { expiresAt: newExpiry });
+                }
 
-                transaction.update(userRef, {
-                    storage: newStorage,
-                    coins: newCoins
-                });
+                // If expired AND has bidder -> Auction Closed (Buying/Bidding blocked unless you are the winner claiming it - but we handle claiming automatically via payout usually)
+                if (now > currentCardData.expiresAt && currentCardData.highestBidderId) {
+                    throw "Auction has ended.";
+                }
 
-                // 4. Create Payout for Seller (Add to payouts collection)
-                // We use a new doc reference. The Payout Listener on the seller's client will pick this up.
-                const newPayoutRef = doc(collection(db, 'payouts'));
-                transaction.set(newPayoutRef, {
-                    receiverId: sellerId,
-                    amount: price,
-                    cardName: cardData.name,
-                    timestamp: Date.now()
-                });
+                // Logic Branch: BUY NOW vs BID
+                if (actionType === 'buy') {
+                    // --- BUY NOW LOGIC ---
+                    
+                    // 1. Check if price changed
+                    if (currentCardData.buyNowPrice !== marketCard.buyNowPrice) throw "Price has changed.";
+
+                    // 2. Refund Previous Highest Bidder (if exists)
+                    if (currentCardData.highestBidderId) {
+                        const prevBidderRef = doc(db, 'users', currentCardData.highestBidderId);
+                        // We assume prev bidder exists. If safely handled, we use increment.
+                        // Note: Writing to another user document requires permissive rules or backend function.
+                        // With client SDK, we rely on Rules allowing write to specific fields or open rules for MVP.
+                        transaction.update(prevBidderRef, {
+                            coins:  { toMillis: () => 0, isEqual: () => false, valueOf: () => 0 } as any || 0 // Hack for increment type safety in raw TS without import?
+                            // Actually, let's read the doc to be safe if rules allow
+                        });
+                        // Better approach: Read prev bidder doc
+                        const prevBidderDoc = await transaction.get(prevBidderRef);
+                        if (prevBidderDoc.exists()) {
+                            const prevData = prevBidderDoc.data();
+                            transaction.update(prevBidderRef, { coins: (prevData.coins || 0) + currentCardData.bidPrice });
+                        }
+                    }
+
+                    // 3. Delete from Market
+                    transaction.delete(cardRef);
+
+                    // 4. Update Buyer (Remove coins, Add Card)
+                    const { marketId, sellerId, price, buyNowPrice, bidPrice, startingPrice, highestBidderId, expiresAt, durationHours, createdAt, ...cardData } = currentCardData;
+                    const newCard = { ...cardData, id: `${cardData.id}-${Date.now()}` };
+                    
+                    transaction.update(userRef, {
+                        storage: [...userData.storage, newCard],
+                        coins: userData.coins - cost
+                    });
+
+                    // 5. Pay Seller
+                    const newPayoutRef = doc(collection(db, 'payouts'));
+                    transaction.set(newPayoutRef, {
+                        receiverId: currentCardData.sellerId,
+                        amount: cost,
+                        cardName: currentCardData.name,
+                        timestamp: Date.now()
+                    });
+
+                } else {
+                    // --- BID LOGIC ---
+                    
+                    // 1. Validate Bid (Must be > current highest bid)
+                    if (cost <= currentCardData.bidPrice && currentCardData.highestBidderId) throw "Bid too low.";
+                    if (cost < currentCardData.startingPrice) throw "Bid below starting price.";
+
+                    // 2. Refund Previous Highest Bidder
+                    if (currentCardData.highestBidderId) {
+                        const prevBidderRef = doc(db, 'users', currentCardData.highestBidderId);
+                        const prevBidderDoc = await transaction.get(prevBidderRef);
+                        if (prevBidderDoc.exists()) {
+                            const prevData = prevBidderDoc.data();
+                            transaction.update(prevBidderRef, { coins: (prevData.coins || 0) + currentCardData.bidPrice });
+                        }
+                    }
+
+                    // 3. Update Market Card
+                    transaction.update(cardRef, {
+                        bidPrice: cost,
+                        highestBidderId: auth.currentUser!.uid
+                    });
+
+                    // 4. Deduct Coins from New Bidder
+                    transaction.update(userRef, {
+                        coins: userData.coins - cost
+                    });
+                }
             });
 
-            // If transaction succeeds:
+            // Optimistic Updates
             playSfx('purchase');
-            // Optimistic Update
-            const { marketId, sellerId, price, createdAt, ...cardData } = marketCard;
-            const newCard = { ...cardData, id: `${cardData.id}-${Date.now()}` };
-            
-            setGameState(prev => ({
-                ...prev,
-                coins: prev.coins - price,
-                storage: [...prev.storage, newCard]
-            }));
-            setMessageModal({ title: 'Success', message: `You bought ${marketCard.name}!` });
+            if (actionType === 'buy') {
+                const { marketId, ...cardData } = marketCard;
+                setGameState(prev => ({
+                    ...prev,
+                    coins: prev.coins - cost,
+                    storage: [...prev.storage, { ...cardData, id: `${cardData.id}-${Date.now()}` } as GameCard]
+                }));
+                setMessageModal({ title: 'Success', message: `You bought ${marketCard.name}!` });
+            } else {
+                setGameState(prev => ({ ...prev, coins: prev.coins - cost }));
+                setMessageModal({ title: 'Bid Placed', message: `You are winning ${marketCard.name}!` });
+            }
 
         } catch (e) {
-            console.error("Buy Transaction Failed:", e);
-            setMessageModal({ title: 'Error', message: 'Purchase failed. Someone else might have bought it.' });
+            console.error("Transaction Failed:", e);
+            setMessageModal({ title: 'Error', message: typeof e === 'string' ? e : 'Transaction failed. Please try again.' });
         }
     };
 
-    const handleListCard = async (card: GameCard, price: number) => {
+    const handleListCard = async (card: GameCard, startPrice: number, buyNowPrice: number, durationHours: number) => {
         if (!firebaseUser) {
             setMessageModal({ title: 'Login Required', message: 'You must be logged in to use the market.' });
             return;
@@ -492,7 +593,13 @@ const App: React.FC = () => {
         try {
             await addDoc(collection(db, 'market'), {
                 ...card,
-                price,
+                price: buyNowPrice, // Legacy support
+                buyNowPrice,
+                bidPrice: 0, // Starts at 0, first bid must be >= startingPrice
+                startingPrice: startPrice,
+                highestBidderId: null,
+                expiresAt: Date.now() + (durationHours * 3600000),
+                durationHours,
                 sellerId: firebaseUser.uid,
                 createdAt: Date.now()
             });
@@ -527,8 +634,10 @@ const App: React.FC = () => {
          try {
              const cardRef = doc(db, 'market', marketCard.marketId!);
              await deleteDoc(cardRef);
-             const { marketId, sellerId, price, createdAt, ...cardData } = marketCard;
-             updateGameState({ storage: [...gameState.storage, cardData] });
+             // Note: In a real app, verify no bids exist or refund bidder before deleting.
+             // Our UI blocks cancelling if bids exist, but rules should enforce it.
+             const { marketId, sellerId, price, buyNowPrice, bidPrice, startingPrice, highestBidderId, expiresAt, durationHours, createdAt, ...cardData } = marketCard;
+             updateGameState({ storage: [...gameState.storage, cardData as GameCard] });
          } catch(e) {
              console.error("Cancel listing error:", e);
          }
@@ -804,6 +913,10 @@ const App: React.FC = () => {
                 setRankUpModalData({ newRank: nextRank, rewards });
                 playSfx('success');
                 updates.rank = nextRank;
+                
+                // Set rank value immediately for updates
+                const rankMap: Record<Rank, number> = { 'Legend': 4, 'Gold': 3, 'Silver': 2, 'Bronze': 1 };
+                updates.rankValue = rankMap[nextRank];
             }
             updates.rankWins = newRankWins;
         }
@@ -1023,11 +1136,12 @@ const App: React.FC = () => {
                                 />
                             )}
                             {view === 'collection' && <Collection gameState={gameState} setGameState={updateGameState} setCardForOptions={setCardOptions} t={t} />}
-                            {view === 'market' && <Market market={gameState.market} onBuyCard={handleBuyCard} onCancelListing={handleCancelListing} currentUserId={currentUser?.username || ''} t={t} userCoins={gameState.coins} />}
+                            {view === 'market' && <Market market={gameState.market} onBuyCard={handleMarketAction} onCancelListing={handleCancelListing} currentUserId={currentUser?.username || ''} t={t} userCoins={gameState.coins} />}
                             {view === 'battle' && <Battle gameState={gameState} onBattleWin={handleBattleResult} t={t} playSfx={playSfx} musicVolume={settings.musicVolume} musicOn={settings.musicOn} />}
                             {view === 'fbc' && <FBC gameState={gameState} onFbcSubmit={handleFbcSubmit} t={t} playSfx={playSfx} />}
                             {view === 'evo' && <Evo gameState={gameState} onStartEvo={handleStartEvo} onClaimEvo={handleClaimEvo} t={t} playSfx={playSfx} />}
                             {view === 'objectives' && <Objectives gameState={gameState} onClaimReward={handleClaimObjective} t={t} />}
+                            {view === 'social' && <Social gameState={gameState} currentUser={currentUser} t={t} />}
                         </div>
                     </div>
                 </>
@@ -1045,7 +1159,8 @@ const App: React.FC = () => {
                 isOpen={modals.signup} 
                 onClose={() => setModals({...modals, signup: false})} 
                 onSignUp={(creds) => createUserWithEmailAndPassword(auth, creds.email!, creds.password!).then((u) => {
-                     setDoc(doc(db, 'users', u.user.uid), { userProfile: { username: creds.username, email: creds.email, avatar: creds.avatar }, ...initialState });
+                     // Ensure rankValue is set on creation
+                     setDoc(doc(db, 'users', u.user.uid), { userProfile: { username: creds.username, email: creds.email, avatar: creds.avatar }, ...initialState, rankValue: 1 });
                      setModals({...modals, signup: false});
                 }).catch(e => alert(e.message))} 
                 error={null} 

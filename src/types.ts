@@ -3,7 +3,7 @@
 
 export type Rarity = 'bronze' | 'silver' | 'gold' | 'icon' | 'rotm' | 'legend' | 'event';
 
-export type GameView = 'store' | 'collection' | 'market' | 'battle' | 'fbc' | 'evo' | 'objectives';
+export type GameView = 'store' | 'collection' | 'market' | 'battle' | 'fbc' | 'evo' | 'objectives' | 'social';
 
 export type PackType = 'free' | 'bronze' | 'builder' | 'special' | 'legendary';
 
@@ -33,7 +33,15 @@ export interface Card {
 }
 
 export interface MarketCard extends Card {
-  price: number;
+  // Auction Fields
+  price: number; // Kept for backwards compatibility, treated as Buy Now
+  buyNowPrice: number;
+  bidPrice: number;
+  startingPrice: number;
+  highestBidderId: string | null;
+  expiresAt: number;
+  durationHours: number;
+  
   sellerId: string;
   marketId?: string; // Firestore Document ID
   createdAt?: number; // Timestamp for sorting
@@ -132,13 +140,32 @@ export interface Settings {
   animationsOn: boolean;
 }
 
+export interface FriendRequest {
+    id: string;
+    fromUid: string;
+    fromName: string;
+    fromAvatar?: string;
+    toUid: string;
+    toName: string;
+    status: 'pending' | 'accepted' | 'rejected';
+    timestamp: number;
+}
+
+export interface Friend {
+    uid: string;
+    username: string;
+    avatar?: string;
+}
+
 export interface GameState {
   version?: number;
   userId: string;
+  userProfile?: User; // Synced profile
   coins: number;
   battlePoints: number; // New currency
   xp: number;
   rank: Rank;
+  rankValue?: number; // Numeric value for sorting (Legend=4, Gold=3...)
   rankWins: number; // Wins towards next rank
   pendingEarnings: number; // For offline market sales
   formation: Record<string, Card | null>;
@@ -161,6 +188,7 @@ export interface GameState {
   ownedPacks: PackType[];
   ownedPlayerPicks: PlayerPickConfig[];
   activePlayerPick: PlayerPickConfig | null;
+  friends: Friend[];
 }
 
 export interface Deal {
