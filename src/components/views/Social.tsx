@@ -12,6 +12,8 @@ interface SocialProps {
     gameState: GameState;
     currentUser: User | null;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
+    unreadFromFriends: Set<string>; // New prop: Set of Friend UIDs who sent unread messages
+    hasPendingRequests: boolean; // New prop for badge
 }
 
 type Tab = 'leaderboard' | 'friends';
@@ -26,7 +28,7 @@ interface LeaderboardEntry {
     fullState?: GameState;
 }
 
-const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
+const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFriends, hasPendingRequests }) => {
     const [activeTab, setActiveTab] = useState<Tab>('leaderboard');
     const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
     const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
@@ -199,6 +201,8 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
         }
     };
 
+    const showFriendsBadge = unreadFromFriends.size > 0 || hasPendingRequests;
+
     return (
         <div className="animate-fadeIn max-w-4xl mx-auto">
             <h2 className="font-header text-4xl text-white text-center mb-6 [text-shadow:0_0_5px_#00c7e2,0_0_10px_#00c7e2]">{t('header_social')}</h2>
@@ -212,9 +216,12 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
                 </button>
                 <button 
                     onClick={() => setActiveTab('friends')} 
-                    className={`px-6 py-2 rounded-full font-bold transition-all ${activeTab === 'friends' ? 'bg-gold-light text-black shadow-gold-glow' : 'bg-gray-800 text-gray-400'}`}
+                    className={`relative px-6 py-2 rounded-full font-bold transition-all ${activeTab === 'friends' ? 'bg-gold-light text-black shadow-gold-glow' : 'bg-gray-800 text-gray-400'}`}
                 >
                     {t('social_friends')}
+                    {showFriendsBadge && (
+                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-600 rounded-full animate-pulse"></span>
+                    )}
                 </button>
             </div>
 
@@ -305,21 +312,30 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
                         <h3 className="font-header text-2xl text-gold-light mb-4">{t('social_my_friends')}</h3>
                         {gameState.friends && gameState.friends.length > 0 ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {gameState.friends.map((friend, idx) => (
-                                    <div key={idx} className="flex flex-col bg-darker-gray p-4 rounded-lg border border-gray-700 hover:border-gold-light transition-all">
-                                        <div className="flex items-center justify-between mb-3">
-                                            <div className="flex items-center gap-3">
-                                                <img src={friend.avatar || 'https://api.dicebear.com/8.x/bottts/svg?seed=friend'} className="w-10 h-10 rounded-full bg-gray-600" />
-                                                <span className="text-white font-bold">{friend.username}</span>
+                                {gameState.friends.map((friend, idx) => {
+                                    const hasMessage = unreadFromFriends.has(friend.uid);
+                                    return (
+                                        <div key={idx} className={`flex flex-col bg-darker-gray p-4 rounded-lg border transition-all ${hasMessage ? 'border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-gray-700 hover:border-gold-light'}`}>
+                                            <div className="flex items-center justify-between mb-3">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="relative">
+                                                        <img src={friend.avatar || 'https://api.dicebear.com/8.x/bottts/svg?seed=friend'} className="w-10 h-10 rounded-full bg-gray-600" />
+                                                        {hasMessage && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border border-black"></span>}
+                                                    </div>
+                                                    <span className="text-white font-bold">{friend.username}</span>
+                                                </div>
+                                                {hasMessage && <span className="text-xs text-blue-400 font-bold animate-pulse">New Message!</span>}
+                                            </div>
+                                            <div className="flex justify-between gap-2">
+                                                <button onClick={() => setChatFriend(friend)} className={`flex-1 py-1 text-xs rounded border transition ${hasMessage ? 'bg-blue-600 text-white border-blue-400 shadow-blue-glow' : 'bg-blue-600/20 text-blue-300 border-blue-600/50 hover:bg-blue-600 hover:text-white'}`}>
+                                                    Message
+                                                </button>
+                                                <button onClick={() => handleInviteBattle(friend)} className="flex-1 py-1 bg-red-600/20 text-red-300 text-xs rounded border border-red-600/50 hover:bg-red-600 hover:text-white transition">Battle</button>
+                                                <button onClick={() => handleInspectFriend(friend)} className="flex-1 py-1 bg-gray-600/20 text-gray-300 text-xs rounded border border-gray-600/50 hover:bg-gray-600 hover:text-white transition">Inspect</button>
                                             </div>
                                         </div>
-                                        <div className="flex justify-between gap-2">
-                                            <button onClick={() => setChatFriend(friend)} className="flex-1 py-1 bg-blue-600/20 text-blue-300 text-xs rounded border border-blue-600/50 hover:bg-blue-600 hover:text-white transition">Message</button>
-                                            <button onClick={() => handleInviteBattle(friend)} className="flex-1 py-1 bg-red-600/20 text-red-300 text-xs rounded border border-red-600/50 hover:bg-red-600 hover:text-white transition">Battle</button>
-                                            <button onClick={() => handleInspectFriend(friend)} className="flex-1 py-1 bg-gray-600/20 text-gray-300 text-xs rounded border border-gray-600/50 hover:bg-gray-600 hover:text-white transition">Inspect</button>
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         ) : (
                             <p className="text-gray-500 italic text-center">{t('social_no_friends')}</p>

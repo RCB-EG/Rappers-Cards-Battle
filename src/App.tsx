@@ -96,6 +96,8 @@ const App: React.FC = () => {
     // Social Notification States
     const [friendRequestCount, setFriendRequestCount] = useState(0);
     const [incomingInvite, setIncomingInvite] = useState<BattleInvite | null>(null);
+    const [unreadChatCount, setUnreadChatCount] = useState(0);
+    const [unreadFromFriends, setUnreadFromFriends] = useState<Set<string>>(new Set());
     
     // Special Battle Override
     const [directBattleId, setDirectBattleId] = useState<string | null>(null);
@@ -231,7 +233,7 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
-    // 2. Global Social Listeners (Invites & Requests)
+    // 2. Global Social Listeners (Invites, Requests, CHATS)
     useEffect(() => {
         if (!firebaseUser) return;
 
@@ -262,9 +264,37 @@ const App: React.FC = () => {
             }
         });
 
+        // Chats Listener (For Notifications)
+        const chatsQuery = query(
+            collection(db, 'chats'),
+            where('participants', 'array-contains', firebaseUser.uid)
+        );
+        const unsubChats = onSnapshot(chatsQuery, (snap) => {
+            let totalUnread = 0;
+            const senders = new Set<string>();
+
+            snap.forEach(doc => {
+                const data = doc.data();
+                // If the last message was NOT sent by me
+                if (data.lastSenderId && data.lastSenderId !== firebaseUser.uid) {
+                    const myReadTime = data.readStatus?.[firebaseUser.uid] || 0;
+                    const lastMsgTime = data.lastMessageTime || 0;
+                    
+                    if (lastMsgTime > myReadTime) {
+                        totalUnread++;
+                        const friendUid = data.participants.find((p: string) => p !== firebaseUser.uid);
+                        if (friendUid) senders.add(friendUid);
+                    }
+                }
+            });
+            setUnreadChatCount(totalUnread);
+            setUnreadFromFriends(senders);
+        });
+
         return () => {
             unsubReqs();
             unsubInvites();
+            unsubChats();
         };
     }, [firebaseUser, playSfx]);
 
@@ -299,12 +329,6 @@ const App: React.FC = () => {
                 attacksRemaining: 1
             }));
 
-            // Prepare their team (simplified since we might not have their full structure here, usually server does this or they join)
-            // Actually, usually in P2P, the CREATOR makes the room. But here the ACCEPTOR makes it?
-            // Better: When accepted, update invite status. The SENDER listens to invite status change, then creates room?
-            // OR: We just make the room now.
-            // Let's make the room now.
-            
             const opponentTeamCards = (Object.values(opponentData.formation || {}) as GameCard[]).filter(Boolean);
             const opponentTeam = opponentTeamCards.map((card, i) => ({
                 ...card,
@@ -334,8 +358,6 @@ const App: React.FC = () => {
             await setDoc(battleRef, initialState);
             
             // Update Invite to 'accepted' and store battleId so sender knows where to go (if they were listening)
-            // But since we are forcing navigation, we just need to ensure the other person joins.
-            // Simplified: Update invite status to accepted AND add battleId to it.
             await updateDoc(doc(db, 'battle_invites', incomingInvite.id), { status: 'accepted', battleId: newBattleId });
 
             // Start Game Locally
@@ -1279,7 +1301,7 @@ const App: React.FC = () => {
         evo: gameState.activeEvolution && evoData.find(e => e.id === gameState.activeEvolution?.evoId)?.tasks.every(t => (gameState.activeEvolution?.tasks[t.id] || 0) >= t.target) ? 1 : 0,
         fbc: 0,
         store: gameState.ownedPacks.length + gameState.ownedPlayerPicks.length,
-        social: friendRequestCount + (incomingInvite ? 1 : 0)
+        social: friendRequestCount + (incomingInvite ? 1 : 0) + unreadChatCount
     };
 
     return (
@@ -1307,8 +1329,8 @@ const App: React.FC = () => {
                     />
 
                     <div className="container mx-auto px-4 pt-4">
-                        {/* Hide nav in Battle for focus */}
-                        {view !== 'battle' && (
+                        {/* Only hide nav when BATTLE is actually ACTIVE */}
+                        {!isBattleActive && (
                             <Navigation 
                                 currentView={view} 
                                 setCurrentView={setView} 
@@ -1357,7 +1379,15 @@ const App: React.FC = () => {
                             {view === 'fbc' && <FBC gameState={gameState} onFbcSubmit={handleFbcSubmit} t={t} playSfx={playSfx} />}
                             {view === 'evo' && <Evo gameState={gameState} onStartEvo={handleStartEvo} onClaimEvo={handleClaimEvo} t={t} playSfx={playSfx} />}
                             {view === 'objectives' && <Objectives gameState={gameState} onClaimReward={handleClaimObjective} t={t} />}
-                            {view === 'social' && <Social gameState={gameState} currentUser={currentUser} t={t} />}
+                            {view === 'social' && (
+                                <Social 
+                                    gameState={gameState} 
+                                    currentUser={currentUser} 
+                                    t={t} 
+                                    unreadFromFriends={unreadFromFriends}
+                                    hasPendingRequests={friendRequestCount > 0}
+                                />
+                            )}
                         </div>
                     </div>
                 </>

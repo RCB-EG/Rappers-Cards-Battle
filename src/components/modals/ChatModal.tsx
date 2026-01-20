@@ -4,7 +4,7 @@ import Modal from './Modal';
 import Button from '../Button';
 import { Friend, ChatMessage } from '../../types';
 import { db, auth } from '../../firebaseConfig';
-import { collection, addDoc, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, limit, doc, setDoc } from 'firebase/firestore';
 
 interface ChatModalProps {
     isOpen: boolean;
@@ -18,15 +18,26 @@ const ChatModal: React.FC<ChatModalProps> = ({ isOpen, onClose, friend }) => {
     const [chatId, setChatId] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
+    // 1. Setup Chat ID and Listen for Messages
     useEffect(() => {
         if (!isOpen || !friend || !auth.currentUser) return;
 
-        // 1. Resolve Chat ID (simple combination of UIDs alphabetically sorted)
+        // Resolve Chat ID
         const participants = [auth.currentUser.uid, friend.uid].sort();
         const resolvedChatId = `${participants[0]}_${participants[1]}`;
         setChatId(resolvedChatId);
 
-        // 2. Listen to Messages
+        // Mark as Read immediately upon opening
+        // Fix: Use nested object structure for readStatus so it merges correctly as a map
+        const chatRef = doc(db, 'chats', resolvedChatId);
+        setDoc(chatRef, {
+            participants: participants,
+            readStatus: {
+                [auth.currentUser.uid]: Date.now()
+            }
+        }, { merge: true }).catch(console.error);
+
+        // Listen to Messages Subcollection
         const q = query(
             collection(db, 'chats', resolvedChatId, 'messages'),
             orderBy('timestamp', 'asc'),
@@ -50,14 +61,31 @@ const ChatModal: React.FC<ChatModalProps> = ({ isOpen, onClose, friend }) => {
 
     const handleSend = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!message.trim() || !chatId || !auth.currentUser) return;
+        if (!message.trim() || !chatId || !auth.currentUser || !friend) return;
+
+        const timestamp = Date.now();
+        const text = message.trim();
 
         try {
+            // 1. Add to messages subcollection
             await addDoc(collection(db, 'chats', chatId, 'messages'), {
-                text: message,
+                text: text,
                 senderId: auth.currentUser.uid,
-                timestamp: Date.now()
+                timestamp: timestamp
             });
+
+            // 2. Update parent document for notifications
+            // Fix: Use nested object structure for readStatus
+            await setDoc(doc(db, 'chats', chatId), {
+                participants: [auth.currentUser.uid, friend.uid].sort(),
+                lastMessage: text,
+                lastMessageTime: timestamp,
+                lastSenderId: auth.currentUser.uid,
+                readStatus: {
+                    [auth.currentUser.uid]: timestamp // I read my own message
+                }
+            }, { merge: true });
+
             setMessage('');
         } catch (error) {
             console.error("Error sending message:", error);
