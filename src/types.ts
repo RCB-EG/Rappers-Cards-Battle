@@ -32,6 +32,49 @@ export interface Card {
   isPackable?: boolean;
 }
 
+// --- BATTLE TYPES ---
+export type BattleMode = 'attack' | 'defense';
+
+export interface ActiveEffect {
+    type: 'poison' | 'stun' | 'taunt' | 'untargetable' | 'silence' | 'buff';
+    duration: number;
+    val?: number;
+    sourceId?: string;
+}
+
+export interface BattleCard extends Card {
+    instanceId: string; // Unique ID for battle logic (e.g. player-0-cardId)
+    maxHp: number;
+    currentHp: number;
+    atk: number;
+    mode: BattleMode;
+    owner: 'player' | 'cpu' | 'opponent'; // 'opponent' used in PvP
+    specialSlots: number;
+    availableSuperpowers: string[];
+    activeEffects: ActiveEffect[];
+    attacksRemaining: number;
+}
+
+export interface OnlineBattleState {
+    id: string;
+    player1: {
+        uid: string;
+        username: string;
+        team: BattleCard[];
+    };
+    player2: {
+        uid: string;
+        username: string;
+        team: BattleCard[];
+    };
+    turn: string; // uid of the current turn
+    winner: string | null; // uid of winner
+    lastMoveTimestamp: number;
+    logs: string[];
+    status: 'waiting' | 'active' | 'finished';
+}
+// --------------------
+
 export interface MarketCard extends Card {
   // Auction Fields
   price: number; // Kept for backwards compatibility, treated as Buy Now

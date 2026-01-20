@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GameState, Card as CardType, Rarity, PackType, Rank } from '../../types';
+import { GameState, Card as CardType, Rarity, PackType, Rank, BattleCard, ActiveEffect, BattleMode } from '../../types';
 import Card from '../Card';
 import Button from '../Button';
 import Modal from '../modals/Modal';
@@ -8,6 +8,8 @@ import { allCards, superpowerIcons, rankSystem, playerPickConfigs } from '../../
 import { TranslationKey } from '../../utils/translations';
 import { sfx } from '../../data/sounds';
 import { playBattleTheme, stopBattleTheme } from '../../utils/sound';
+import BattleCardRender from '../battle/BattleCardRender';
+import PvPBattle from './PvPBattle';
 
 interface BattleProps {
     gameState: GameState;
@@ -16,28 +18,6 @@ interface BattleProps {
     playSfx: (key: keyof typeof sfx) => void;
     musicVolume: number;
     musicOn: boolean;
-}
-
-type BattleMode = 'attack' | 'defense';
-
-interface ActiveEffect {
-    type: 'poison' | 'stun' | 'taunt' | 'untargetable' | 'silence' | 'buff';
-    duration: number;
-    val?: number;
-    sourceId?: string;
-}
-
-interface BattleCard extends CardType {
-    instanceId: string;
-    maxHp: number;
-    currentHp: number;
-    atk: number;
-    mode: BattleMode;
-    owner: 'player' | 'cpu';
-    specialSlots: number;
-    availableSuperpowers: string[];
-    activeEffects: ActiveEffect[];
-    attacksRemaining: number;
 }
 
 interface Projectile {
@@ -119,111 +99,8 @@ const packImages: Record<PackType, string> = {
     legendary: 'https://i.postimg.cc/63Fm6md7/Legendary.png',
 };
 
-const BattleCardRender: React.FC<{
-    card: BattleCard;
-    isInteractable: boolean;
-    isSelected?: boolean;
-    onClick?: () => void;
-    shakeIntensity: number;
-    onRef: (el: HTMLDivElement | null) => void;
-    smallScale?: boolean;
-}> = ({ card, isInteractable, isSelected, onClick, shakeIntensity, onRef, smallScale = false }) => {
-    const isDead = card.currentHp <= 0;
-    const isDefending = card.mode === 'defense';
-    const isPoisoned = card.activeEffects.some(e => e.type === 'poison');
-    const isStunned = card.activeEffects.some(e => e.type === 'stun');
-    const isSilenced = card.activeEffects.some(e => e.type === 'silence');
-    const isTaunting = card.activeEffects.some(e => e.type === 'taunt');
-    const isUntargetable = card.activeEffects.some(e => e.type === 'untargetable');
-    const isBuffed = card.activeEffects.some(e => e.type === 'buff');
-
-    const hpPercent = (card.currentHp / card.maxHp) * 100;
-    const hpColor = hpPercent > 50 ? 'bg-green-500 shadow-[0_0_10px_#22c55e]' : hpPercent > 20 ? 'bg-yellow-500 shadow-[0_0_10px_#eab308]' : 'bg-red-600 shadow-[0_0_10px_#dc2626]';
-
-    const shakeClass = 
-        shakeIntensity >= 3 ? 'animate-shake-extreme' : 
-        shakeIntensity === 2 ? 'animate-shake-heavy' : 
-        shakeIntensity === 1 ? 'animate-shake-mild' : '';
-
-    // Responsive Sizing:
-    // Mobile: w-[80px] h-[120px] (approx w-20 h-28)
-    // Desktop Standard: w-[120px] h-[180px]
-    // Desktop Small (8v8): w-[100px] h-[150px]
-    const sizeClass = smallScale 
-        ? "w-[80px] h-[120px] md:w-[100px] md:h-[150px]" 
-        : "w-[80px] h-[120px] md:w-[120px] md:h-[180px]";
-
-    return (
-        <div 
-            ref={onRef}
-            onClick={() => !isDead && isInteractable && onClick && onClick()}
-            className={`
-                relative transition-all duration-300
-                ${isDead ? 'opacity-0 scale-75 pointer-events-none grayscale blur-sm' : 'opacity-100'}
-                ${!isDead && !isInteractable ? 'opacity-70 filter grayscale-[0.6]' : ''}
-                ${isInteractable ? 'cursor-pointer hover:scale-105 hover:brightness-110 hover:z-20' : ''}
-                ${isSelected ? 'ring-4 ring-gold-light scale-110 z-10 shadow-[0_0_20px_#FFD700]' : ''}
-                ${sizeClass}
-                ${shakeClass}
-            `}
-        >
-            <div className={`w-full h-full relative transition-transform duration-500 rounded-lg overflow-hidden ${isDefending ? 'rotate-90 scale-90' : ''}`}>
-                <Card card={card} className="!w-full !h-full" />
-                
-                {/* Hit Flash Overlay */}
-                {shakeIntensity > 0 && (
-                    <div className="absolute inset-0 bg-white/50 mix-blend-overlay animate-flash-hit pointer-events-none z-30" />
-                )}
-
-                {isDefending && (
-                    <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none bg-blue-900/30">
-                        <div className="bg-black/60 p-2 rounded-full border-2 border-blue-400 shadow-[0_0_25px_#60a5fa] animate-pulse">
-                            <span className="text-3xl filter drop-shadow-[0_0_5px_blue]">🛡️</span>
-                        </div>
-                    </div>
-                )}
-                {isStunned && (
-                    <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/50 backdrop-blur-[2px] animate-pulse">
-                        <span className="text-5xl filter drop-shadow-[0_0_10px_yellow]">💫</span>
-                    </div>
-                )}
-                {isUntargetable && (
-                    <div className="absolute inset-0 bg-blue-400/20 border-2 border-blue-400/50 z-20 pointer-events-none animate-ghost-float backdrop-opacity-50" />
-                )}
-                {isBuffed && !isDead && (
-                    <div className="absolute bottom-0 inset-x-0 h-2/3 bg-gradient-to-t from-yellow-500/30 to-transparent z-10 animate-pulse pointer-events-none" />
-                )}
-            </div>
-            
-            {/* Status Icons */}
-            <div className="absolute -top-4 left-0 right-0 flex justify-center gap-1 z-40 pointer-events-none perspective-[500px]">
-                {isPoisoned && <span className="bg-green-900 text-green-200 text-xs px-1.5 py-0.5 rounded border border-green-500 animate-bounce shadow-lg">☠️</span>}
-                {isSilenced && <span className="bg-gray-800 text-gray-200 text-xs px-1.5 py-0.5 rounded border border-gray-500 shadow-lg">🤐</span>}
-                {isTaunting && <span className="bg-red-900 text-red-200 text-xs px-1.5 py-0.5 rounded border border-red-500 animate-pulse shadow-lg">💢</span>}
-                {isBuffed && <span className="bg-yellow-900 text-yellow-200 text-xs px-1.5 py-0.5 rounded border border-yellow-500 shadow-lg">💪</span>}
-            </div>
-
-            {/* Health & Stats */}
-            <div className="absolute -bottom-8 left-0 right-0 z-30 flex flex-col items-center pointer-events-none">
-                <div className="w-full h-4 bg-gray-900 rounded-full border border-gray-600 overflow-hidden relative mb-1 shadow-md">
-                    <div className={`h-full ${hpColor} transition-all duration-300 relative`} style={{ width: `${hpPercent}%` }}>
-                        <div className="absolute inset-0 bg-white/20 animate-shimmer" style={{ backgroundSize: '200% 100%' }} />
-                    </div>
-                    <span className="absolute inset-0 text-[9px] font-bold flex items-center justify-center text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] tracking-wider">
-                        {card.currentHp}/{card.maxHp}
-                    </span>
-                </div>
-                <div className={`px-3 py-0.5 rounded-full border flex items-center gap-1 shadow-lg ${isBuffed ? 'bg-green-900/90 border-green-500' : 'bg-black/80 border-gray-600'}`}>
-                    <span className="text-[9px] text-gray-400 uppercase tracking-widest">ATK</span>
-                    <span className={`text-sm font-bold ${isBuffed ? 'text-green-400' : 'text-white'}`}>{card.atk}</span>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, musicVolume, musicOn }) => {
-    const [phase, setPhase] = useState<'mode_select' | 'selection' | 'tactics' | 'battle' | 'result'>('mode_select');
+    const [phase, setPhase] = useState<'mode_select' | 'selection' | 'tactics' | 'battle' | 'result' | 'pvp'>('mode_select');
     const [subMode, setSubMode] = useState<'ranked' | 'challenge'>('ranked');
     const [playerTeam, setPlayerTeam] = useState<BattleCard[]>([]);
     const [cpuTeam, setCpuTeam] = useState<BattleCard[]>([]);
@@ -242,7 +119,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     const [shakeIntensity, setShakeIntensity] = useState<number>(0);
     const [showRankRewards, setShowRankRewards] = useState(false);
     const [teamSize, setTeamSize] = useState(5);
-    const [forcedCpuAttackerId, setForcedCpuAttackerId] = useState<string | null>(null); // For AI Flow Switcher
+    const [forcedCpuAttackerId, setForcedCpuAttackerId] = useState<string | null>(null); 
     const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const animationFrameRef = useRef<number | null>(null);
     
@@ -426,158 +303,106 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                     const x = rect.left + rect.width / 2;
                     const y = rect.top + rect.height / 2;
                     
-                    // Epic visual impact
                     triggerSpecialEffect('impact-burst', x, y, crit ? 1.5 : 1);
                     spawnParticles(x, y, crit ? '#ff0000' : '#ffffff', crit ? 30 : 15, crit ? 'debris' : 'spark');
-                    
                     showFloatText(x, y - 50, `-${dmg}`, crit ? '#ff4444' : '#ffffff', crit ? 2 : 1.2);
-                    
                     setShakeCardId(card.instanceId);
                     setShakeIntensity(crit ? 3 : dmg > 50 ? 2 : 1);
                 }
                 return { ...card, currentHp: Math.max(0, card.currentHp - dmg) };
             };
 
-            // Non-Targeted Moves (AoE / Buffs / Self)
+            // Non-Targeted Moves logic same as before...
             if (isChopper || isShowMaker || isNotesMaster || isStoryteller || isArtist) {
                 if (isChopper) {
                     playSfx('battleAttackUltimate');
-                    triggerSpecialEffect('shockwave'); // Full screen ripple
+                    triggerSpecialEffect('shockwave'); 
                     const dmg = Math.floor(baseDmg * 0.6);
                     addToLog(`${attacker.name} uses Chopper! AoE ${dmg} damage!`);
-                    
-                    await new Promise(r => setTimeout(r, 400)); // Sync damage with ripple expansion
-
-                    const hitAll = (team: BattleCard[]) => team.map(c => { 
-                        if (c.currentHp > 0) return applyDamageToCard(c, dmg, true); 
-                        return c; 
-                    });
-                    
-                    if (attacker.owner === 'player') setCpuTeam(prev => hitAll(prev)); 
-                    else setPlayerTeam(prev => hitAll(prev));
-
+                    await new Promise(r => setTimeout(r, 400)); 
+                    const hitAll = (team: BattleCard[]) => team.map(c => { if (c.currentHp > 0) return applyDamageToCard(c, dmg, true); return c; });
+                    if (attacker.owner === 'player') setCpuTeam(prev => hitAll(prev)); else setPlayerTeam(prev => hitAll(prev));
                 } else if (isShowMaker) {
                     playSfx('battleBuff');
                     triggerSpecialEffect('spotlight');
                     const buffAmt = Math.floor(attacker.atk * 0.3);
                     const buffTeam = (team: BattleCard[]) => team.map(c => c.currentHp > 0 && c.instanceId !== attacker.instanceId ? { ...c, atk: c.atk + buffAmt, activeEffects: [...c.activeEffects, { type: 'buff', duration: 99 } as ActiveEffect] } : c);
-                    
                     if (attacker.owner === 'player') setPlayerTeam(prev => buffTeam(prev)); else setCpuTeam(prev => buffTeam(prev));
                     addToLog(`${attacker.name} hypes up the crew! (+${buffAmt} ATK)`);
-                    
                 } else if (isNotesMaster) {
                     playSfx('battleBuff');
                     if (startRect) triggerSpecialEffect('notes', startRect.left + startRect.width/2, startRect.top);
-                    // Updated to 2 turns
                     const addTaunt = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { ...c, activeEffects: [...c.activeEffects, { type: 'taunt', duration: 2 } as ActiveEffect] } : c);
-                    
                     if (attacker.owner === 'player') setPlayerTeam(prev => addTaunt(prev)); else setCpuTeam(prev => addTaunt(prev));
                     addToLog(`${attacker.name} demands attention! (2 turns)`);
-                    
                 } else if (isStoryteller) {
                     playSfx('battleBuff');
                     const addUntarget = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { ...c, activeEffects: [...c.activeEffects, { type: 'untargetable', duration: 1 } as ActiveEffect] } : c);
-                    
                     if (attacker.owner === 'player') setPlayerTeam(prev => addUntarget(prev)); else setCpuTeam(prev => addUntarget(prev));
                     addToLog(`${attacker.name} fades...`);
-                    
                 } else if (isArtist) {
                     const enemyTeam = attacker.owner === 'player' ? cpuTeam : playerTeam;
                     const aliveEnemies = enemyTeam.filter(c => c.currentHp > 0);
                     const targetPool = aliveEnemies.length > 0 ? aliveEnemies : enemyTeam;
-                    
                     if (targetPool.length > 0) {
                         playSfx('battleBuff');
                         const strongest = targetPool.reduce((prev, curr) => (curr.atk > prev.atk ? curr : prev), targetPool[0]);
-                        
-                        const transform = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { 
-                            ...c, 
-                            atk: strongest.atk, 
-                            maxHp: Math.max(c.maxHp, strongest.maxHp), 
-                            currentHp: Math.max(c.currentHp, strongest.currentHp) 
-                        } : c);
-                        
+                        const transform = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { ...c, atk: strongest.atk, maxHp: Math.max(c.maxHp, strongest.maxHp), currentHp: Math.max(c.currentHp, strongest.currentHp) } : c);
                         if (attacker.owner === 'player') setPlayerTeam(prev => transform(prev)); else setCpuTeam(prev => transform(prev));
                         addToLog(`${attacker.name} becomes ${strongest.name}! (${strongest.atk} ATK)`);
-                    } else {
-                        addToLog(`${attacker.name} has no one to copy!`);
-                    }
+                    } else { addToLog(`${attacker.name} has no one to copy!`); }
                 }
             }
             // Targeted Moves
             else {
-                if (!target) {
-                    setIsAnimating(false);
-                    return;
-                }
-                
+                if (!target) { setIsAnimating(false); return; }
                 let multiplier = (0.9 + Math.random() * 0.2);
                 isCrit = Math.random() < 0.15;
                 if (actionName === 'Freestyler') {
                     if (Math.random() < 0.5) { multiplier = 3.0; isCrit = true; addToLog(`${attacker.name} Freestyles... IT'S FIRE!`); } 
                     else { multiplier = 0; addToLog(`${attacker.name} Freestyles... and chokes.`); }
                 } else if (isCrit) multiplier = 1.5;
-                
                 dealtDamage = Math.max(1, Math.floor(baseDmg * multiplier));
                 if (multiplier === 0) dealtDamage = 0;
                 
                 if (isCareerKiller && target.currentHp < target.maxHp * 0.3) { 
                     dealtDamage = target.currentHp; isCrit = true; 
                     addToLog(`${attacker.name} ends ${target.name}'s career!`);
-                    // Immediate slash effect
                     const tr = cardRefs.current[target.instanceId]?.getBoundingClientRect();
                     if (tr) triggerSpecialEffect('slash', tr.left + tr.width/2, tr.top + tr.height/2, 2);
                 }
 
-                // --- Projectile Visual ---
                 if (startRect && target) {
                     const endNode = cardRefs.current[target.instanceId];
                     if (endNode) {
                         const endRect = endNode.getBoundingClientRect();
                         const pid = Date.now();
-                        
-                        // Sync visual timing
                         if (isPunchline) {
-                             // Lightning strikes instantly
                              triggerSpecialEffect('lightning', endRect.left + endRect.width/2, endRect.top + endRect.height/2);
                              playSfx('battleStun');
                              await new Promise(r => setTimeout(r, 300));
                         } else if (isCareerKiller) {
-                             // Slash happens instantly, small delay for dramatic effect
                              playSfx('battleAttackUltimate');
                              await new Promise(r => setTimeout(r, 200));
                         } else { 
-                             // Standard Projectile logic
                              let projType: Projectile['type'] = 'orb';
                              if (attacker.rarity === 'rotm' || attacker.rarity === 'icon') projType = 'beam';
-                             
-                             setProjectiles(prev => [...prev, { 
-                                 id: pid, 
-                                 startX: startRect.left + startRect.width/2, 
-                                 startY: startRect.top + startRect.height/2, 
-                                 endX: endRect.left + endRect.width/2, 
-                                 endY: endRect.top + endRect.height/2, 
-                                 rarity: attacker.rarity, 
-                                 isCrit,
-                                 type: projType
-                             }]);
+                             setProjectiles(prev => [...prev, { id: pid, startX: startRect.left + startRect.width/2, startY: startRect.top + startRect.height/2, endX: endRect.left + endRect.width/2, endY: endRect.top + endRect.height/2, rarity: attacker.rarity, isCrit, type: projType }]);
                              playSfx('battleShot');
-                             // Travel time must match CSS animation
                              await new Promise<void>(r => setTimeout(r, 450)); 
                              setProjectiles(prev => prev.filter(p => p.id !== pid));
                         }
                     }
                 }
 
-                // --- Impact Sound ---
                 if (dealtDamage > 0) {
-                    if (isCareerKiller) { /* sound played */ }
-                    else if (isCrit || dealtDamage > 80) playSfx('battleAttackHeavy');
-                    else if (dealtDamage > 40) playSfx('battleAttackMedium');
-                    else playSfx('battleAttackLight');
+                    if (!isCareerKiller) {
+                        if (isCrit || dealtDamage > 80) playSfx('battleAttackHeavy');
+                        else if (dealtDamage > 40) playSfx('battleAttackMedium');
+                        else playSfx('battleAttackLight');
+                    }
                 }
 
-                // --- Apply State Changes ---
                 const updateTeam = (team: BattleCard[]) => team.map(c => c.instanceId === target.instanceId ? applyDamageToCard(c, dealtDamage, isCrit) : c);
                 if (target.owner === 'player') setPlayerTeam(prev => updateTeam(prev)); else setCpuTeam(prev => updateTeam(prev));
 
@@ -597,7 +422,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                     addToLog(`${target.name} is poisoned!`); 
                 }
                 else if (isPunchline) { 
-                    setSkipNextTurn(target.owner); 
+                    setSkipNextTurn(target.owner as 'player' | 'cpu'); 
                     applyEffectToTarget({ type: 'stun', duration: 2 }); 
                     addToLog(`${target.name} is stunned!`); 
                 }
@@ -616,29 +441,24 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                 }
             }
 
-            // --- Reset UI & Handle Turn Switching ---
             setSelectedAttackerId(null); 
             setSelectedAction('standard');
 
-            // Handle Flow Switcher (Attack Again)
             if (isFlowSwitcher) {
                  addToLog(`${attacker.name} strikes again!`);
                  if (attacker.owner === 'player') {
                      setSelectedAttackerId(attacker.instanceId); 
                      setSelectedAction('standard');
                  } else {
-                     // For CPU: Force the same card to attack next
                      setForcedCpuAttackerId(attacker.instanceId);
                  }
                  setIsAnimating(false);
-                 return; // Do NOT switch turn
+                 return;
             }
 
             await new Promise<void>(r => setTimeout(r, 800));
             setShakeCardId(null); 
             setShakeIntensity(0);
-            
-            // Switch Turn
             setTurn(prev => prev === 'player' ? 'cpu' : 'player');
             
         } catch (error) { 
@@ -694,24 +514,23 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
 
         if (!playerAlive) {
             setPhase('result');
-            stopBattleTheme(musicVolume, musicOn); // Stop battle music on loss
-            onBattleWin(0, false, subMode, playerTeam); // Loss
+            stopBattleTheme(musicVolume, musicOn); 
+            onBattleWin(0, false, subMode, playerTeam); 
         } else if (!cpuAlive) {
             const cpuStrength = cpuTeam.reduce((sum, c) => sum + c.ovr, 0);
             const basePoints = Math.floor(cpuStrength * 0.6);
             const survivorBonus = playerTeam.filter(c => c.currentHp > 0).length * 25;
             let calculatedReward = Math.min(420, Math.max(80, basePoints + survivorBonus));
             
-            // Adjust Reward based on Mode
             if (subMode === 'ranked') {
                 calculatedReward = Math.floor(calculatedReward * 0.5);
             }
 
             setReward(calculatedReward);
             setPhase('result');
-            stopBattleTheme(musicVolume, musicOn); // Stop battle music on win
+            stopBattleTheme(musicVolume, musicOn); 
             playSfx('success');
-            onBattleWin(calculatedReward, true, subMode, playerTeam); // Win
+            onBattleWin(calculatedReward, true, subMode, playerTeam); 
         }
     }, [playerTeam, cpuTeam, phase, subMode]);
 
@@ -725,45 +544,26 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         }
 
         const timer = setTimeout(() => {
-            // Determine Attacker
             let attacker: BattleCard | undefined;
-            
             if (forcedCpuAttackerId) {
-                // If Flow Switcher triggered, use the forced attacker
                 attacker = cpuTeam.find(c => c.instanceId === forcedCpuAttackerId && c.currentHp > 0);
-                if (!attacker) {
-                    // Forced attacker died or is invalid
-                    setForcedCpuAttackerId(null);
-                }
+                if (!attacker) setForcedCpuAttackerId(null);
             } 
-            
             if (!attacker) {
                 const aiAttackers = cpuTeam.filter(c => c.currentHp > 0 && c.mode === 'attack');
                 const capableAttackers = aiAttackers.filter(c => !c.activeEffects.some(e => e.type === 'stun'));
-                
-                if (capableAttackers.length === 0) { 
-                    addToLog("CPU has no capable attackers!"); 
-                    setTurn('player'); 
-                    return; 
-                }
-
+                if (capableAttackers.length === 0) { addToLog("CPU has no capable attackers!"); setTurn('player'); return; }
                 if (difficulty === 'expert') {
                     attacker = capableAttackers.reduce((prev, curr) => (curr.atk > prev.atk ? curr : prev));
                 } else {
                     attacker = capableAttackers[Math.floor(Math.random() * capableAttackers.length)];
                 }
             }
-            
-            // If we successfully picked an attacker (forced or new)
             if (attacker) {
-                // Clear forced ID after picking it to prevent infinite loop if action doesn't consume it (though Flow Switcher logic handles re-setting it)
                 if (forcedCpuAttackerId) setForcedCpuAttackerId(null);
-
                 let action = 'standard';
                 const availableSupers = attacker.availableSuperpowers;
                 const isSilenced = attacker.activeEffects.some(e => e.type === 'silence');
-                
-                // Only use superpower if not silenced and random chance passes
                 if (availableSupers.length > 0 && !isSilenced) {
                     if (difficulty === 'dumb') {
                         if (Math.random() < 0.1) action = availableSupers[0];
@@ -773,28 +573,20 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                         if (Math.random() < 0.3) action = availableSupers[0];
                     }
                 }
-                
                 const validTargets = playerTeam.filter(c => isTargetable(c, playerTeam));
                 const isNonTargeted = ['Chopper', 'Show Maker', 'ShowMaker', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller', 'The Artist'].includes(action);
-                
                 if (validTargets.length > 0 || isNonTargeted) {
                     let target = null;
                     if (validTargets.length > 0) {
                         if (difficulty === 'expert' || difficulty === 'smart') {
-                            target = validTargets.find(t => t.currentHp < attacker!.atk) || 
-                                     validTargets.sort((a,b) => a.currentHp - b.currentHp)[0];
+                            target = validTargets.find(t => t.currentHp < attacker!.atk) || validTargets.sort((a,b) => a.currentHp - b.currentHp)[0];
                         } else {
                             target = validTargets[Math.floor(Math.random() * validTargets.length)];
                         }
                     }
                     executeAction(attacker, target, action);
-                } else { 
-                    setTurn('player'); 
-                }
-            } else {
-                setTurn('player');
-            }
-
+                } else { setTurn('player'); }
+            } else { setTurn('player'); }
         }, 1200);
         return () => clearTimeout(timer);
     }, [turn, isAnimating, phase, subMode, skipNextTurn, forcedCpuAttackerId]);
@@ -828,16 +620,11 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     const startBattle = () => {
         const cTeam: BattleCard[] = [];
         const usedTemplateNames = new Set<string>();
-        
         let minOvr = 60;
         let maxOvr = 70;
-
         if (subMode === 'ranked') {
             const rankConfig = rankSystem[gameState.rank];
-            // Dynamic difficulty: Increase stats based on current win streak in this rank
-            // +1 OVR range shift for every win you have towards promotion
             const difficultyBuff = (gameState.rankWins || 0) * 1;
-            
             minOvr = rankConfig.cpuOvrRange[0] + difficultyBuff;
             maxOvr = rankConfig.cpuOvrRange[1] + difficultyBuff;
         } else {
@@ -845,14 +632,12 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
             minOvr = Math.max(55, Math.floor(playerAvg - 2));
             maxOvr = Math.min(99, Math.ceil(playerAvg + 2));
         }
-        
         for (let i = 0; i < teamSize; i++) {
             const targetOvr = Math.floor(minOvr + Math.random() * (maxOvr - minOvr));
             const candidates = allCards.filter(c => !usedTemplateNames.has(c.name));
             const pool = candidates.length > 0 ? candidates : allCards;
             const sorted = [...pool].sort((a, b) => Math.abs(a.ovr - targetOvr) - Math.abs(b.ovr - targetOvr));
             const candidate = sorted[Math.floor(Math.random() * Math.min(5, sorted.length))];
-            
             usedTemplateNames.add(candidate.name);
             const mode: BattleMode = Math.random() < 0.4 ? 'defense' : 'attack';
             cTeam.push(calculateStats({ ...candidate, id: `cpu-${candidate.id}` }, mode, 'cpu', i));
@@ -864,7 +649,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         setBattleLog([`Battle Start! (${subMode === 'ranked' ? 'Ranked' : 'Challenge'})`]);
         setPhase('battle');
         playSfx('packBuildup');
-        playBattleTheme(musicVolume, musicOn); // START MUSIC
+        playBattleTheme(musicVolume, musicOn); 
     };
 
     const restartSameTactics = () => {
@@ -873,19 +658,34 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         setTimeout(startBattle, 0); 
     };
 
-    // Render Logic ...
+    // --- RENDER ---
+
+    if (phase === 'pvp') {
+        return (
+            <PvPBattle 
+                gameState={gameState}
+                onBattleEnd={(reward, isWin) => onBattleWin(reward, isWin, 'challenge', [])} 
+                onExit={() => { setPhase('mode_select'); stopBattleTheme(musicVolume, musicOn); }}
+                playSfx={playSfx}
+                musicVolume={musicVolume}
+                musicOn={musicOn}
+            />
+        );
+    }
 
     if (phase === 'mode_select') {
-        // ... (Keep existing mode_select render)
         return (
             <div className="animate-fadeIn flex flex-col items-center justify-center min-h-[60vh] gap-8">
                 <h2 className="font-header text-5xl text-white mb-6 drop-shadow-[0_0_10px_#00c7e2]">Choose Your Path</h2>
-                <div className="flex flex-col md:flex-row gap-8 w-full max-w-4xl justify-center px-4">
+                <div className="flex flex-col md:flex-row gap-8 w-full max-w-5xl justify-center px-4">
+                    {/* Ranked */}
                     <div className="flex-1 flex flex-col items-center gap-4">
-                        <div onClick={() => { setSubMode('ranked'); setPhase('selection'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-gold-dark/50 hover:border-gold-light rounded-xl p-8 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(255,215,0,0.1)] hover:shadow-[0_0_30px_rgba(255,215,0,0.3)]">
-                            <div className="text-6xl mb-4">🏆</div>
-                            <h3 className="font-header text-3xl text-gold-light mb-2">Ranked Battle</h3>
-                            <p className="text-gray-400 mb-4 h-12">Climb the ladder from Bronze to Legend. Prove your worth!</p>
+                        <div onClick={() => { setSubMode('ranked'); setPhase('selection'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-gold-dark/50 hover:border-gold-light rounded-xl p-8 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(255,215,0,0.1)] hover:shadow-[0_0_30px_rgba(255,215,0,0.3)] h-full justify-between">
+                            <div>
+                                <div className="text-6xl mb-4">🏆</div>
+                                <h3 className="font-header text-3xl text-gold-light mb-2">Ranked Battle</h3>
+                                <p className="text-gray-400 mb-4">Climb the ladder from Bronze to Legend. Prove your worth!</p>
+                            </div>
                             <div className="bg-black/40 w-full p-3 rounded-lg border border-gray-700 space-y-2">
                                 <p className="text-red-400 font-bold text-sm">⚠️ 50% Battle Points</p>
                                 <p className="text-green-400 font-bold text-sm">✅ Rank Progression</p>
@@ -895,11 +695,14 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                         </div>
                         <Button variant="default" onClick={() => setShowRankRewards(true)} className="py-2 text-sm">{t('view_rank_rewards')}</Button>
                     </div>
+                    {/* Challenge */}
                     <div className="flex-1 flex flex-col items-center gap-4">
-                        <div onClick={() => { setSubMode('challenge'); setPhase('selection'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-blue-900/50 hover:border-blue-400 rounded-xl p-8 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(0,199,226,0.1)] hover:shadow-[0_0_30px_rgba(0,199,226,0.3)]">
-                            <div className="text-6xl mb-4">⚔️</div>
-                            <h3 className="font-header text-3xl text-blue-glow mb-2">Challenge Battle</h3>
-                            <p className="text-gray-400 mb-4 h-12">Casual matches against opponents of your power level.</p>
+                        <div onClick={() => { setSubMode('challenge'); setPhase('selection'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-blue-900/50 hover:border-blue-400 rounded-xl p-8 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(0,199,226,0.1)] hover:shadow-[0_0_30px_rgba(0,199,226,0.3)] h-full justify-between">
+                            <div>
+                                <div className="text-6xl mb-4">⚔️</div>
+                                <h3 className="font-header text-3xl text-blue-glow mb-2">Challenge Battle</h3>
+                                <p className="text-gray-400 mb-4">Casual matches against opponents of your power level.</p>
+                            </div>
                             <div className="bg-black/40 w-full p-3 rounded-lg border border-gray-700 space-y-2">
                                 <p className="text-green-400 font-bold text-sm">✅ 100% Battle Points</p>
                                 <p className="text-blue-300 font-bold text-sm">⚖️ Fair Matchmaking</p>
@@ -908,7 +711,24 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                             <div className="mt-4 text-sm text-gray-500">Practice Mode</div>
                         </div>
                     </div>
+                    {/* Online PvP */}
+                    <div className="flex-1 flex flex-col items-center gap-4">
+                        <div onClick={() => { setPhase('pvp'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-green-900/50 hover:border-green-400 rounded-xl p-8 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(34,197,94,0.1)] hover:shadow-[0_0_30px_rgba(34,197,94,0.3)] h-full justify-between">
+                            <div>
+                                <div className="text-6xl mb-4">🌍</div>
+                                <h3 className="font-header text-3xl text-green-400 mb-2">Casual Online</h3>
+                                <p className="text-gray-400 mb-4">Battle real players or friends in real-time!</p>
+                            </div>
+                            <div className="bg-black/40 w-full p-3 rounded-lg border border-gray-700 space-y-2">
+                                <p className="text-green-400 font-bold text-sm">✅ Real PvP Action</p>
+                                <p className="text-blue-300 font-bold text-sm">⚖️ Winner: 25% BP</p>
+                                <p className="text-gray-500 font-bold text-sm">❌ Loser: 10% BP</p>
+                            </div>
+                            <div className="mt-4 text-sm text-gray-500">Online Mode</div>
+                        </div>
+                    </div>
                 </div>
+                {/* ... (Modal code remains same) */}
                 <Modal isOpen={showRankRewards} onClose={() => setShowRankRewards(false)} title={t('rank_rewards_title')} size="lg">
                     {/* ... (Keep existing rank rewards modal content) */}
                     <div className="space-y-6 max-h-[70vh] overflow-y-auto p-2">
@@ -1008,7 +828,6 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     }
 
     if (phase === 'tactics') {
-        // ... (Keep existing tactics render)
         return (
             <div className="animate-fadeIn">
                 <h2 className="font-header text-4xl text-white text-center mb-2">Battle Tactics</h2>
@@ -1017,7 +836,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                     {playerTeam.map((card) => (
                         <div key={card.instanceId} className="flex flex-col items-center gap-3 bg-black/40 p-4 rounded-lg border border-gray-700 w-[120px] md:w-auto">
                             <div className={`transition-transform duration-300 ${card.mode === 'defense' ? 'rotate-90 scale-90' : ''}`}>
-                                <Card card={card} className="!w-[80px] !h-[120px] md:!w-[100px] md:!h-[150px]" />
+                                <BattleCardRender card={card} isInteractable={false} shakeIntensity={0} onRef={()=>{}} smallScale={true} />
                             </div>
                             <div className="flex flex-col items-center w-full">
                                 <div className="text-sm mb-2 font-bold text-gold-light">{card.mode === 'defense' ? `HP: ${card.maxHp} (2x)` : `ATK: ${card.atk}`}</div>
@@ -1062,6 +881,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         );
     }
 
+    // PvE Battle Render
     const activeAttacker = selectedAttackerId ? playerTeam.find(c => c.instanceId === selectedAttackerId) : null;
 
     return (
