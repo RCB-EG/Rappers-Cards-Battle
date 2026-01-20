@@ -81,6 +81,8 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
     const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const animationFrameRef = useRef<number | null>(null);
     const lastProcessedMoveRef = useRef<number>(0);
+    // Track if we have processed the "Start of Turn" effects for the current turn ID
+    const turnStartProcessedRef = useRef<string | null>(null);
 
     // Initial Team Setup
     const myTeam = React.useMemo(() => {
@@ -263,6 +265,79 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         return () => { if (unsubscribe) unsubscribe(); }
     }, [status]);
 
+    // --- GAME LOOP & TURN PROCESSING ---
+    // This effect runs whenever battleState changes to process "Start of Turn" logic (DoT, Durations)
+    useEffect(() => {
+        if (!battleState || !auth.currentUser || battleState.winner) return;
+
+        const isMyTurn = battleState.turn === auth.currentUser.uid;
+        
+        // Only process if it's MY turn and I haven't processed THIS specific turn state yet
+        // We use lastMoveTimestamp as a unique signature for the turn state
+        const turnSignature = `${battleState.turn}-${battleState.lastMoveTimestamp}`;
+
+        if (isMyTurn && turnStartProcessedRef.current !== turnSignature) {
+            turnStartProcessedRef.current = turnSignature;
+            
+            const imPlayer1 = battleState.player1.uid === auth.currentUser.uid;
+            const mySquad = imPlayer1 ? battleState.player1.team : battleState.player2.team;
+            
+            let stateChanged = false;
+            let diedFromPoison = false;
+
+            const processedTeam = mySquad.map(card => {
+                if (card.currentHp <= 0) return card;
+
+                let newHp = card.currentHp;
+                const newEffects: ActiveEffect[] = [];
+                
+                card.activeEffects.forEach(effect => {
+                    // Poison Logic
+                    if (effect.type === 'poison' && effect.val) {
+                        newHp -= effect.val;
+                        if (newHp <= 0) diedFromPoison = true;
+                    }
+                    
+                    // Duration Logic
+                    if (effect.duration > 1) {
+                        newEffects.push({ ...effect, duration: effect.duration - 1 });
+                    }
+                });
+
+                if (newHp !== card.currentHp || newEffects.length !== card.activeEffects.length) {
+                    stateChanged = true;
+                }
+
+                return { ...card, currentHp: Math.max(0, newHp), activeEffects: newEffects };
+            });
+
+            // Check Stun to auto-skip? 
+            // Simplified: If all active cards are stunned, skip turn. 
+            // For now, let the user manually pass or click inactive cards (which are blocked).
+
+            if (stateChanged) {
+                const battleRef = doc(db, 'battles', battleState.id);
+                const updateData: Partial<OnlineBattleState> = {};
+                
+                if (imPlayer1) updateData.player1 = { ...battleState.player1, team: processedTeam };
+                else updateData.player2 = { ...battleState.player2, team: processedTeam };
+
+                // If someone died from poison, check win condition immediately
+                const alive = processedTeam.some(c => c.currentHp > 0);
+                if (!alive) {
+                    updateData.winner = imPlayer1 ? battleState.player2.uid : battleState.player1.uid;
+                    updateData.status = 'finished';
+                }
+
+                if (diedFromPoison) playSfx('battleDebuff');
+                
+                // Write the processed state back so opponent sees the poison damage
+                updateDoc(battleRef, updateData).catch(console.error);
+            }
+        }
+    }, [battleState, auth.currentUser]);
+
+
     // Sync Battle State
     useEffect(() => {
         if (!battleId) return;
@@ -278,8 +353,8 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 if (data.lastMoveTimestamp > lastProcessedMoveRef.current) {
                     lastProcessedMoveRef.current = data.lastMoveTimestamp;
                     const lastLog = data.logs[0] || '';
-                    if (lastLog.includes('hit') || lastLog.includes('damage')) playSfx('battleAttackMedium');
-                    else if (lastLog.includes('uses') || lastLog.includes('superpower')) playSfx('battleAttackUltimate');
+                    if (lastLog.includes('hit') || lastLog.includes('damage') || lastLog.includes('drained')) playSfx('battleAttackMedium');
+                    else if (lastLog.includes('used') || lastLog.includes('superpower') || lastLog.includes('ended')) playSfx('battleAttackUltimate');
                 }
 
                 if (data.winner) {
@@ -323,6 +398,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         let newEnemySquad = [...enemySquad];
         let newMySquad = [...mySquad];
         let logMsg = '';
+        let nextTurn = imPlayer1 ? battleState.player2.uid : battleState.player1.uid;
         
         // Remove Superpower Charge (if using one)
         if (actionName !== 'standard') {
@@ -353,7 +429,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
             }
         } 
         // --- AoE / Global Specials ---
-        else if (['Chopper'].includes(actionName)) {
+        else if (actionName === 'Chopper') {
             playSfx('battleAttackUltimate');
             triggerSpecialEffect('shockwave');
             const damage = Math.floor(attacker.atk * 0.6);
@@ -383,27 +459,54 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
             }
             logMsg = `${attacker.name} fades into the background...`;
         }
+        else if (actionName === 'The Artist') {
+            playSfx('battleBuff');
+            const aliveEnemies = enemySquad.filter(c => c.currentHp > 0);
+            if (aliveEnemies.length > 0) {
+                const strongest = aliveEnemies.reduce((prev, curr) => (curr.atk > prev.atk ? curr : prev));
+                const attackerIdx = newMySquad.findIndex(c => c.instanceId === attacker.instanceId);
+                if (attackerIdx > -1) {
+                    newMySquad[attackerIdx] = { 
+                        ...newMySquad[attackerIdx], 
+                        atk: strongest.atk, 
+                        maxHp: Math.max(newMySquad[attackerIdx].maxHp, strongest.maxHp), 
+                        currentHp: Math.max(newMySquad[attackerIdx].currentHp, strongest.currentHp) 
+                    };
+                }
+                logMsg = `${attacker.name} copied ${strongest.name}'s stats!`;
+            } else {
+                logMsg = `${attacker.name} tried to copy stats but no enemies found!`;
+            }
+        }
         // --- Targeted Specials ---
         else if (targetId) {
             const targetIndex = enemySquad.findIndex(c => c.instanceId === targetId);
             if (targetIndex > -1) {
                 if (actionName.includes('Rhyme')) {
+                    // Deal 50% ATK immediately THEN apply poison
+                    const initialDmg = Math.floor(attacker.atk * 0.5);
+                    newEnemySquad[targetIndex] = { ...newEnemySquad[targetIndex], currentHp: Math.max(0, newEnemySquad[targetIndex].currentHp - initialDmg) };
                     newEnemySquad[targetIndex].activeEffects.push({ type: 'poison', duration: 3, val: 50 });
-                    logMsg = `${attacker.name} poisoned ${newEnemySquad[targetIndex].name}!`;
+                    
+                    logMsg = `${attacker.name} hit & poisoned ${newEnemySquad[targetIndex].name}!`;
                     playSfx('battleDebuff');
+                    const targetNode = cardRefs.current[targetId];
+                    if (targetNode) {
+                        const rect = targetNode.getBoundingClientRect();
+                        showFloatText(rect.left, rect.top, `-${initialDmg}`, '#ff00ff');
+                        triggerSpecialEffect('poison-cloud', rect.left + rect.width/2, rect.top + rect.height/2);
+                    }
                 } else if (actionName.includes('Punchline')) {
                     newEnemySquad[targetIndex].activeEffects.push({ type: 'stun', duration: 2 });
                     logMsg = `${attacker.name} stunned ${newEnemySquad[targetIndex].name}!`;
                     playSfx('battleStun');
                 } else if (actionName === 'Career Killer') {
-                    // Instakill if < 30%
                     const target = newEnemySquad[targetIndex];
                     if (target.currentHp < target.maxHp * 0.3) {
                         newEnemySquad[targetIndex] = { ...target, currentHp: 0 };
                         logMsg = `${attacker.name} ENDED ${target.name}'s career!`;
                         playSfx('battleAttackUltimate');
                     } else {
-                        // Failover damage
                         const damage = Math.floor(attacker.atk * 1.5);
                         newEnemySquad[targetIndex] = { ...target, currentHp: Math.max(0, target.currentHp - damage) };
                         logMsg = `${attacker.name} hit ${target.name} hard for ${damage}!`;
@@ -413,7 +516,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     logMsg = `${attacker.name} silenced ${newEnemySquad[targetIndex].name}!`;
                     playSfx('battleDebuff');
                 } else if (['Words Bender', 'Word Bender'].includes(actionName)) {
-                    // Life Drain
                     const damage = Math.floor(attacker.atk * 0.8);
                     newEnemySquad[targetIndex] = { ...newEnemySquad[targetIndex], currentHp: Math.max(0, newEnemySquad[targetIndex].currentHp - damage) };
                     const attackerIdx = newMySquad.findIndex(c => c.instanceId === attacker.instanceId);
@@ -422,6 +524,25 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     }
                     logMsg = `${attacker.name} drained ${damage} HP from ${newEnemySquad[targetIndex].name}!`;
                     playSfx('battleHeal');
+                } else if (actionName === 'Freestyler') {
+                    // 50% chance for 3x damage, 50% fail
+                    const isSuccess = Math.random() > 0.5;
+                    if (isSuccess) {
+                        const damage = attacker.atk * 3;
+                        newEnemySquad[targetIndex] = { ...newEnemySquad[targetIndex], currentHp: Math.max(0, newEnemySquad[targetIndex].currentHp - damage) };
+                        logMsg = `${attacker.name} spit FIRE! Critical Hit (${damage})!`;
+                        playSfx('battleAttackHeavy');
+                    } else {
+                        logMsg = `${attacker.name} choked the freestyle... (0 Dmg)`;
+                    }
+                } else if (actionName === 'Flow Switcher') {
+                    // Attack normally, but DO NOT switch turn
+                    const damage = Math.floor(attacker.atk);
+                    newEnemySquad[targetIndex] = { ...newEnemySquad[targetIndex], currentHp: Math.max(0, newEnemySquad[targetIndex].currentHp - damage) };
+                    logMsg = `${attacker.name} uses Flow Switcher! Extra Turn!`;
+                    playSfx('battleBuff');
+                    // KEEP TURN
+                    nextTurn = auth.currentUser.uid;
                 }
                 else {
                     // Generic damage for unhandled specials
@@ -432,8 +553,8 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 }
                 
                 // Visuals for targeted hit
-                const targetNode = cardRefs.current[targetId!];
-                if (targetNode) {
+                const targetNode = cardRefs.current[targetId];
+                if (targetNode && actionName !== 'Flow Switcher' && actionName !== 'Freestyler') {
                     const rect = targetNode.getBoundingClientRect();
                     triggerSpecialEffect('impact-burst', rect.left + rect.width/2, rect.top + rect.height/2);
                 }
@@ -441,8 +562,9 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         }
 
         const enemyAlive = newEnemySquad.some(c => c.currentHp > 0);
-        const nextTurn = enemyAlive ? (imPlayer1 ? battleState.player2.uid : battleState.player1.uid) : battleState.turn;
+        // If enemy is dead, no next turn, just winner logic
         const winner = enemyAlive ? null : auth.currentUser.uid;
+        if (!enemyAlive) nextTurn = auth.currentUser.uid; // Doesn't matter, game ends
 
         const battleRef = doc(db, 'battles', battleState.id);
         const updateData: Partial<OnlineBattleState> = {
@@ -535,7 +657,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                             const isTarget = isTargetable(card, enemySquad);
                             // Can interact if: My Turn AND Attacker Selected AND (Standard Attack OR Targeted Superpower) AND Card is a Valid Target
                             const canClick = isMyTurn && !!selectedAttackerId && 
-                                             (selectedAction === 'standard' || !['Chopper', 'Show Maker', 'ShowMaker', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller'].includes(selectedAction)) &&
+                                             (selectedAction === 'standard' || !['Chopper', 'Show Maker', 'ShowMaker', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller', 'The Artist'].includes(selectedAction)) &&
                                              isTarget;
 
                             return (
@@ -566,7 +688,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                             )}
                             <button onClick={() => setSelectedAction('standard')} className={`px-3 py-1 rounded border-2 font-bold text-sm ${selectedAction === 'standard' ? 'bg-white text-black border-gold-light' : 'bg-transparent text-gray-300 border-gray-600'}`}>Attack</button>
                             {activeAttacker.availableSuperpowers.map(sp => {
-                                const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller'].includes(sp);
+                                const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller', 'The Artist'].includes(sp);
                                 return (
                                     <button key={sp} onClick={() => { setSelectedAction(sp); if (isImmediate) handleAttack(null, sp); }} className={`px-3 py-1 rounded border-2 font-bold text-sm flex items-center gap-1 ${selectedAction === sp ? 'bg-blue-600 text-white border-blue-300' : 'bg-transparent text-blue-300 border-blue-800'}`}>
                                         {sp}
