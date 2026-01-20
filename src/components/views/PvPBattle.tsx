@@ -129,8 +129,11 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, onBattleEnd, onExit, p
                     });
                 }
             });
-        } catch (e) {
+        } catch (e: any) {
             console.error("Matchmaking error:", e);
+            if (e.code === 'permission-denied') {
+                alert("Online Play requires Database Permissions. Please update Firestore Rules in Firebase Console.");
+            }
             setStatus('lobby');
         }
     };
@@ -148,6 +151,9 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, onBattleEnd, onExit, p
                     setBattleId(docData.id);
                     // Switch to active handled in next effect
                 }
+            }, (error) => {
+                console.error("Match listener error:", error);
+                // Don't alert here to avoid spamming, just log
             });
         }
 
@@ -187,6 +193,12 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, onBattleEnd, onExit, p
                     }
                     onBattleEnd(reward, amIWinner);
                 }
+            }
+        }, (error) => {
+            console.error("Battle sync error:", error);
+            if (error.code === 'permission-denied') {
+                alert("Connection lost due to permissions. Check Firebase Rules.");
+                onExit();
             }
         });
 
@@ -244,7 +256,11 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, onBattleEnd, onExit, p
             updateData.player1 = { ...battleState.player1, team: newEnemySquad };
         }
 
-        await updateDoc(battleRef, updateData);
+        try {
+            await updateDoc(battleRef, updateData);
+        } catch(e) {
+            console.error("Attack failed", e);
+        }
         
         setSelectedAttackerId(null);
         setIsAnimating(false);
