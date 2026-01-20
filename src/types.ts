@@ -239,6 +239,16 @@ export interface BattleCard extends Card {
     attacksRemaining: number;
 }
 
+export interface BattleAction {
+    attackerId: string;
+    targetId: string | null;
+    actionType: string;
+    damage: number;
+    isCrit: boolean;
+    timestamp: number;
+    rarity: Rarity; // Add rarity for projectile coloring
+}
+
 export interface OnlineBattleState {
     id: string;
     player1: {
@@ -256,6 +266,7 @@ export interface OnlineBattleState {
     turn: string; // uid of the current turn
     winner: string | null; // uid of winner
     lastMoveTimestamp: number;
+    lastAction?: BattleAction | null; // Detailed action data for visuals
     logs: string[];
     status: 'waiting' | 'preparing' | 'active' | 'finished';
 }

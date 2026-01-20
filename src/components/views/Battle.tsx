@@ -204,13 +204,20 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     };
 
     const resetPlayerTeam = (team: BattleCard[]) => {
-        return team.map(c => ({
-            ...c,
-            currentHp: c.maxHp,
-            activeEffects: [],
-            attacksRemaining: 1,
-            availableSuperpowers: [...c.superpowers]
-        }));
+        return team.map(c => {
+            // Recalculate max HP based on current mode to ensure sync
+            const hpBase = HP_MULTIPLIERS[c.rarity] || 10;
+            const hpTotal = Math.floor(c.ovr * (hpBase / 10) * (c.mode === 'defense' ? 2 : 1));
+            
+            return {
+                ...c,
+                maxHp: hpTotal,
+                currentHp: hpTotal, // Full heal
+                activeEffects: [],
+                attacksRemaining: 1,
+                availableSuperpowers: [...c.superpowers] // Reset cooldowns
+            };
+        });
     };
 
     const addToLog = (msg: string) => setBattleLog(prev => [msg, ...prev].slice(0, 5));
@@ -692,6 +699,11 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         setPlayerTeam(prev => resetPlayerTeam(prev));
         startBattle();
     };
+    
+    const handleReturnToTactics = () => {
+        setPlayerTeam(prev => resetPlayerTeam(prev));
+        setPhase('tactics');
+    };
 
     const handleCardSelect = (id: string) => {
         if (selectedCardIds.includes(id)) setSelectedCardIds(prev => prev.filter(c => c !== id));
@@ -918,19 +930,19 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                     <div className="bg-black/40 p-6 rounded-xl border border-gold-dark/50 flex flex-col items-center gap-2 animate-bounce">
                         <span className="text-gray-300 uppercase tracking-widest text-sm">Reward</span>
                         <div className="flex items-center gap-2">
-                            <span className="text-4xl">💰</span>
-                            <span className="font-header text-5xl text-gold-light">{reward}</span>
+                            <span className="text-4xl">⚔️</span>
+                            <span className="font-header text-5xl text-blue-glow">{reward} BP</span>
                         </div>
+                        <span className="text-xs text-gray-400 mt-1">Battle Points</span>
                     </div>
                 )}
 
                 <div className="flex flex-col gap-3 mt-8 w-full max-w-xs">
-                    {/* Only show "Same Tactics" for PvE Challenge mode */}
-                    {subMode === 'challenge' && (
+                    {(subMode === 'challenge' || subMode === 'ranked') && (
                         <Button variant="keep" onClick={restartSameTactics} className="w-full">{t('battle_opt_same_tactics')}</Button>
                     )}
                     
-                    <Button variant="default" onClick={() => setPhase('tactics')} className="w-full">{t('battle_opt_change_tactics')}</Button>
+                    <Button variant="default" onClick={handleReturnToTactics} className="w-full">{t('battle_opt_change_tactics')}</Button>
                     <Button variant="default" onClick={() => { setPhase('selection'); setSelectedCardIds([]); }} className="w-full">{t('battle_opt_new_squad')}</Button>
                     <Button variant="sell" onClick={() => setPhase('mode_select')} className="w-full mt-4">{t('battle_opt_change_mode')}</Button>
                 </div>

@@ -332,6 +332,7 @@ const App: React.FC = () => {
                 turn: incomingInvite.fromUid, // Challenger starts
                 winner: null,
                 lastMoveTimestamp: Date.now(),
+                lastAction: null,
                 logs: ['Players preparing...'],
                 status: 'preparing' // Waiting for both to submit teams
             };
