@@ -18,6 +18,7 @@ interface PvPBattleProps {
     playSfx: (key: keyof typeof sfx) => void;
     musicVolume: number;
     musicOn: boolean;
+    initialBattleId?: string; // New prop for friend invites
 }
 
 // Animation Types
@@ -62,10 +63,10 @@ interface SpecialEffect {
     scale?: number;
 }
 
-const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattleEnd, onExit, playSfx, musicVolume, musicOn }) => {
-    const [battleId, setBattleId] = useState<string | null>(null);
+const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattleEnd, onExit, playSfx, musicVolume, musicOn, initialBattleId }) => {
+    const [battleId, setBattleId] = useState<string | null>(initialBattleId || null);
     const [battleState, setBattleState] = useState<OnlineBattleState | null>(null);
-    const [status, setStatus] = useState<'lobby' | 'searching' | 'active' | 'finished'>('lobby');
+    const [status, setStatus] = useState<'lobby' | 'searching' | 'active' | 'finished'>(initialBattleId ? 'active' : 'lobby');
     const [selectedAttackerId, setSelectedAttackerId] = useState<string | null>(null);
     const [selectedAction, setSelectedAction] = useState<string>('standard');
     const [searchTime, setSearchTime] = useState(0);

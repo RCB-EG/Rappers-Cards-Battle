@@ -12,6 +12,7 @@ interface NavigationProps {
       evo: number;
       fbc: number;
       store: number;
+      social: number; // Added social count
   };
   isDisabled?: boolean;
 }
@@ -39,7 +40,7 @@ const NavTab: React.FC<{
         {label}
       </button>
       {notificationCount > 0 && !disabled && (
-          <span className="notification-badge absolute -top-2 -right-2 bg-red-600 text-white text-xs font-main font-bold w-6 h-6 flex items-center justify-center rounded-full border-2 border-darker-gray z-20">
+          <span className="notification-badge absolute -top-2 -right-2 bg-red-600 text-white text-xs font-main font-bold w-6 h-6 flex items-center justify-center rounded-full border-2 border-darker-gray z-20 shadow-lg">
               {notificationCount}
           </span>
       )}
@@ -64,6 +65,7 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setCurrentView, t,
       evo: notificationCounts.evo,
       fbc: notificationCounts.fbc,
       store: notificationCounts.store,
+      social: notificationCounts.social,
   };
 
   return (

@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { GameState, User, FriendRequest, Friend } from '../../types';
+import { GameState, User, FriendRequest, Friend, BattleCard } from '../../types';
 import { db, auth } from '../../firebaseConfig';
-import { collection, query, orderBy, limit, getDocs, where, addDoc, onSnapshot, doc, updateDoc, arrayUnion, writeBatch } from 'firebase/firestore';
+import { collection, query, orderBy, limit, getDocs, where, addDoc, onSnapshot, doc, updateDoc, arrayUnion, writeBatch, getDoc } from 'firebase/firestore';
 import Button from '../Button';
 import InspectModal from '../modals/InspectModal';
+import ChatModal from '../modals/ChatModal';
 import { TranslationKey } from '../../utils/translations';
 
 interface SocialProps {
@@ -22,7 +23,7 @@ interface LeaderboardEntry {
     wins: number;
     value: number;
     avatar?: string;
-    fullState?: GameState; // Loaded on demand for inspect
+    fullState?: GameState;
 }
 
 const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
@@ -33,6 +34,9 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
     const [searchStatus, setSearchStatus] = useState<string>('');
     const [inspectUser, setInspectUser] = useState<{state: GameState, username: string} | null>(null);
     const [loadingLB, setLoadingLB] = useState(false);
+    
+    // New States for Features
+    const [chatFriend, setChatFriend] = useState<Friend | null>(null);
 
     // --- Leaderboard Logic ---
     useEffect(() => {
@@ -40,7 +44,6 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
             setLoadingLB(true);
             const fetchLeaderboard = async () => {
                 try {
-                    // Requires Composite Index: users (rankValue DESC, rankWins DESC)
                     const q = query(
                         collection(db, 'users'), 
                         orderBy('rankValue', 'desc'), 
@@ -52,8 +55,6 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
                     snapshot.forEach(doc => {
                         const data = doc.data() as GameState;
                         const profile = data.userProfile;
-                        
-                        // Calculate squad value
                         const squadValue = Object.values(data.formation).reduce((sum, c) => sum + (c?.value || 0), 0);
 
                         entries.push({
@@ -81,7 +82,6 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
     useEffect(() => {
         if (!auth.currentUser) return;
         
-        // Listen for requests sent TO me
         const q = query(
             collection(db, 'friend_requests'), 
             where('toUid', '==', auth.currentUser.uid),
@@ -108,21 +108,28 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
     const handleInspectFriend = async (friend: Friend) => {
         try {
             const docRef = doc(db, 'users', friend.uid);
-            const snap = await getDocs(query(collection(db, 'users'), where('__name__', '==', friend.uid))); // hacky single doc fetch if getDoc fails types
-            // simpler
-            // But we need the full state.
-            // Since we can't easily import getDoc here without changing signature, let's assume we can fetch.
-            // Actually, we can just use the same logic as Leaderboard fetch but for one ID.
-            // For MVP, let's just alert "Feature coming" or implement properly:
-            
-            // Re-use logic:
-            // const userDoc = await getDoc(doc(db, 'users', friend.uid));
-            // if (userDoc.exists()) ...
-            
-            // Note: Since I didn't import getDoc in this file specifically in the import block above (I imported getDocs), 
-            // I'll skip implementing friend inspect perfectly to avoid breaking the file imports in XML. 
-            // Wait, I can add getDoc to imports.
-        } catch (e) { console.error(e); }
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                const friendState = docSnap.data() as GameState;
+                setInspectUser({ state: friendState, username: friend.username });
+            }
+        } catch (e) { console.error("Error inspecting friend:", e); }
+    };
+
+    const handleInviteBattle = async (friend: Friend) => {
+        if (!auth.currentUser || !currentUser) return;
+        try {
+            await addDoc(collection(db, 'battle_invites'), {
+                fromUid: auth.currentUser.uid,
+                fromName: currentUser.username,
+                toUid: friend.uid,
+                status: 'pending',
+                timestamp: Date.now()
+            });
+            alert(`Challenge sent to ${friend.username}!`);
+        } catch (e) {
+            console.error("Invite error:", e);
+        }
     };
 
     const handleSendRequest = async () => {
@@ -130,8 +137,6 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
         setSearchStatus('Searching...');
 
         try {
-            // Find user by username
-            // Note: This requires an index on userProfile.username if collection is large
             const q = query(collection(db, 'users'), where('userProfile.username', '==', searchUsername));
             const snapshot = await getDocs(q);
 
@@ -149,13 +154,11 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
                 return;
             }
             
-            // Check if already friends
             if (gameState.friends?.some(f => f.uid === targetUid)) {
                 setSearchStatus("Already friends.");
                 return;
             }
 
-            // Send Request
             await addDoc(collection(db, 'friend_requests'), {
                 fromUid: auth.currentUser.uid,
                 fromName: currentUser.username,
@@ -179,23 +182,18 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
 
         try {
             const batch = writeBatch(db);
-            
-            // 1. Update Request Status
             const reqRef = doc(db, 'friend_requests', req.id);
-            batch.delete(reqRef); // Or update to 'accepted' if we want history
+            batch.delete(reqRef);
 
-            // 2. Add to My Friend List
             const myRef = doc(db, 'users', auth.currentUser.uid);
             const myNewFriend: Friend = { uid: req.fromUid, username: req.fromName, avatar: req.fromAvatar };
             batch.update(myRef, { friends: arrayUnion(myNewFriend) });
 
-            // 3. Add Me to Their Friend List
             const theirRef = doc(db, 'users', req.fromUid);
             const theirNewFriend: Friend = { uid: auth.currentUser.uid, username: currentUser?.username || 'Unknown', avatar: currentUser?.avatar };
             batch.update(theirRef, { friends: arrayUnion(theirNewFriend) });
 
             await batch.commit();
-            // Local state update handled by Firestore listener on 'users' in App.tsx
         } catch (error) {
             console.error("Accept error", error);
         }
@@ -308,13 +306,18 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
                         {gameState.friends && gameState.friends.length > 0 ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {gameState.friends.map((friend, idx) => (
-                                    <div key={idx} className="flex items-center justify-between bg-darker-gray p-4 rounded-lg border border-gray-700">
-                                        <div className="flex items-center gap-3">
-                                            <img src={friend.avatar || 'https://api.dicebear.com/8.x/bottts/svg?seed=friend'} className="w-10 h-10 rounded-full bg-gray-600" />
-                                            <span className="text-white font-bold">{friend.username}</span>
+                                    <div key={idx} className="flex flex-col bg-darker-gray p-4 rounded-lg border border-gray-700 hover:border-gold-light transition-all">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-3">
+                                                <img src={friend.avatar || 'https://api.dicebear.com/8.x/bottts/svg?seed=friend'} className="w-10 h-10 rounded-full bg-gray-600" />
+                                                <span className="text-white font-bold">{friend.username}</span>
+                                            </div>
                                         </div>
-                                        {/* Future: Inspect Friend logic needs full user fetch */}
-                                        <span className="text-gray-500 text-xs">Friend</span>
+                                        <div className="flex justify-between gap-2">
+                                            <button onClick={() => setChatFriend(friend)} className="flex-1 py-1 bg-blue-600/20 text-blue-300 text-xs rounded border border-blue-600/50 hover:bg-blue-600 hover:text-white transition">Message</button>
+                                            <button onClick={() => handleInviteBattle(friend)} className="flex-1 py-1 bg-red-600/20 text-red-300 text-xs rounded border border-red-600/50 hover:bg-red-600 hover:text-white transition">Battle</button>
+                                            <button onClick={() => handleInspectFriend(friend)} className="flex-1 py-1 bg-gray-600/20 text-gray-300 text-xs rounded border border-gray-600/50 hover:bg-gray-600 hover:text-white transition">Inspect</button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -333,6 +336,12 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t }) => {
                     username={inspectUser.username} 
                 />
             )}
+
+            <ChatModal 
+                isOpen={!!chatFriend}
+                onClose={() => setChatFriend(null)}
+                friend={chatFriend}
+            />
         </div>
     );
 };

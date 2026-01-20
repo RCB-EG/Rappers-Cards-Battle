@@ -200,6 +200,25 @@ export interface Friend {
     avatar?: string;
 }
 
+// --- CHAT & INVITE TYPES ---
+export interface ChatMessage {
+    id: string;
+    senderId: string;
+    text: string;
+    timestamp: number;
+}
+
+export interface BattleInvite {
+    id: string;
+    fromUid: string;
+    fromName: string;
+    toUid: string;
+    status: 'pending' | 'accepted' | 'rejected';
+    timestamp: number;
+    battleId?: string; // If accepted, this will exist
+}
+// ---------------------------
+
 export interface GameState {
   version?: number;
   userId: string;

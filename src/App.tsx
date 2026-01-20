@@ -10,7 +10,10 @@ import {
     GameView, 
     ObjectiveProgress, 
     PlayerPickConfig,
-    Rank
+    Rank,
+    BattleInvite,
+    OnlineBattleState,
+    BattleCard
 } from './types';
 import { initialState } from './data/initialState';
 import { packs, allCards, objectivesData, evoData, fbcData, playerPickConfigs, rankSystem } from './data/gameData';
@@ -70,6 +73,8 @@ import PackResultsModal from './components/modals/PackResultsModal';
 import PlayerPickModal from './components/modals/PlayerPickModal';
 import RankUpModal from './components/modals/RankUpModal';
 import RewardModal, { RewardData } from './components/modals/RewardModal';
+import BattleInviteModal from './components/modals/BattleInviteModal';
+import PvPBattle from './components/views/PvPBattle';
 import { calculateQuickSellValue } from './utils/cardUtils';
 
 const App: React.FC = () => {
@@ -87,6 +92,14 @@ const App: React.FC = () => {
     const [showWelcome, setShowWelcome] = useState(true);
     const [showIntro, setShowIntro] = useState(false);
     const [isBattleActive, setIsBattleActive] = useState(false); // New state to lock nav
+    
+    // Social Notification States
+    const [friendRequestCount, setFriendRequestCount] = useState(0);
+    const [incomingInvite, setIncomingInvite] = useState<BattleInvite | null>(null);
+    
+    // Special Battle Override
+    const [directBattleId, setDirectBattleId] = useState<string | null>(null);
+
     const [modals, setModals] = useState({
         login: false,
         signup: false,
@@ -218,7 +231,158 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
-    // 2. Data Saver & Rank Value Calculation
+    // 2. Global Social Listeners (Invites & Requests)
+    useEffect(() => {
+        if (!firebaseUser) return;
+
+        // Friend Requests Listener
+        const reqQuery = query(
+            collection(db, 'friend_requests'), 
+            where('toUid', '==', firebaseUser.uid), 
+            where('status', '==', 'pending')
+        );
+        const unsubReqs = onSnapshot(reqQuery, (snap) => {
+            setFriendRequestCount(snap.size);
+        });
+
+        // Battle Invites Listener
+        const inviteQuery = query(
+            collection(db, 'battle_invites'),
+            where('toUid', '==', firebaseUser.uid),
+            where('status', '==', 'pending')
+        );
+        const unsubInvites = onSnapshot(inviteQuery, (snap) => {
+            // Just take the first one for simplicity
+            if (!snap.empty) {
+                const doc = snap.docs[0];
+                setIncomingInvite({ id: doc.id, ...doc.data() } as BattleInvite);
+                playSfx('packBuildup'); // Alert sound
+            } else {
+                setIncomingInvite(null);
+            }
+        });
+
+        return () => {
+            unsubReqs();
+            unsubInvites();
+        };
+    }, [firebaseUser, playSfx]);
+
+    const handleAcceptInvite = async () => {
+        if (!incomingInvite || !firebaseUser) return;
+        
+        try {
+            // Create the Battle Room immediately
+            const newBattleId = `battle_${Date.now()}_invite`;
+            const battleRef = doc(db, 'battles', newBattleId);
+            
+            // Need opponent data, fetch briefly
+            const opponentDoc = await getDoc(doc(db, 'users', incomingInvite.fromUid));
+            if (!opponentDoc.exists()) {
+                alert("Opponent data missing.");
+                return;
+            }
+            const opponentData = opponentDoc.data();
+            
+            // Prepare my team stats
+            const myTeam = Object.values(gameStateRef.current.formation).filter((c): c is GameCard => !!c).map((card, i) => ({
+                ...card,
+                instanceId: `${firebaseUser.uid}-${i}-${card.id}`,
+                maxHp: card.ovr * 10, // Simple calc for now, Battle component recalculates usually but we need initial structure
+                currentHp: card.ovr * 10,
+                atk: card.ovr,
+                mode: 'attack' as any,
+                owner: 'player' as any,
+                specialSlots: 1,
+                availableSuperpowers: [...card.superpowers],
+                activeEffects: [],
+                attacksRemaining: 1
+            }));
+
+            // Prepare their team (simplified since we might not have their full structure here, usually server does this or they join)
+            // Actually, usually in P2P, the CREATOR makes the room. But here the ACCEPTOR makes it?
+            // Better: When accepted, update invite status. The SENDER listens to invite status change, then creates room?
+            // OR: We just make the room now.
+            // Let's make the room now.
+            
+            const opponentTeamCards = (Object.values(opponentData.formation || {}) as GameCard[]).filter(Boolean);
+            const opponentTeam = opponentTeamCards.map((card, i) => ({
+                ...card,
+                instanceId: `${incomingInvite.fromUid}-${i}-${card.id}`,
+                maxHp: card.ovr * 10,
+                currentHp: card.ovr * 10,
+                atk: card.ovr,
+                mode: 'attack' as any,
+                owner: 'player' as any,
+                specialSlots: 1,
+                availableSuperpowers: [...card.superpowers],
+                activeEffects: [],
+                attacksRemaining: 1
+            }));
+
+            const initialState: OnlineBattleState = {
+                id: newBattleId,
+                player1: { uid: incomingInvite.fromUid, username: incomingInvite.fromName, team: opponentTeam },
+                player2: { uid: firebaseUser.uid, username: gameStateRef.current.userProfile?.username || 'P2', team: myTeam },
+                turn: incomingInvite.fromUid, // Challenger starts
+                winner: null,
+                lastMoveTimestamp: Date.now(),
+                logs: ['Friend Battle Started!'],
+                status: 'active'
+            };
+
+            await setDoc(battleRef, initialState);
+            
+            // Update Invite to 'accepted' and store battleId so sender knows where to go (if they were listening)
+            // But since we are forcing navigation, we just need to ensure the other person joins.
+            // Simplified: Update invite status to accepted AND add battleId to it.
+            await updateDoc(doc(db, 'battle_invites', incomingInvite.id), { status: 'accepted', battleId: newBattleId });
+
+            // Start Game Locally
+            setIncomingInvite(null);
+            setDirectBattleId(newBattleId);
+            setView('battle');
+            
+        } catch (e) {
+            console.error("Error accepting invite", e);
+        }
+    };
+
+    const handleRejectInvite = async () => {
+        if (!incomingInvite) return;
+        await deleteDoc(doc(db, 'battle_invites', incomingInvite.id));
+        setIncomingInvite(null);
+    };
+
+    // If I sent an invite, I should listen if it gets accepted to join the battle
+    useEffect(() => {
+        if (!firebaseUser) return;
+        // Listen for my sent invites that become accepted
+        const q = query(
+            collection(db, 'battle_invites'),
+            where('fromUid', '==', firebaseUser.uid),
+            where('status', '==', 'accepted')
+        );
+        
+        const unsub = onSnapshot(q, (snap) => {
+            snap.docChanges().forEach((change) => {
+                if (change.type === 'added' || change.type === 'modified') {
+                    const data = change.doc.data();
+                    if (data.battleId) {
+                        // My invite was accepted! Join the battle.
+                        setDirectBattleId(data.battleId);
+                        setView('battle');
+                        // Clean up invite
+                        deleteDoc(change.doc.ref); 
+                    }
+                }
+            });
+        });
+        return () => unsub();
+    }, [firebaseUser]);
+
+
+    // 3. Data Saver & Rank Value Calculation
     const saveGameData = useCallback(async (stateToSave: Partial<GameState>) => {
         if (!auth.currentUser) {
             try {
@@ -246,7 +410,7 @@ const App: React.FC = () => {
         }
     }, []); // No dependencies needed due to gameStateRef
 
-    // 3. State Update Wrapper
+    // 4. State Update Wrapper
     const updateGameState = useCallback((updates: Partial<GameState>) => {
         setGameState(prev => {
             const newState = { ...prev, ...updates };
@@ -255,7 +419,7 @@ const App: React.FC = () => {
         });
     }, [saveGameData]);
 
-    // 4. Market Listener (Global Data)
+    // 5. Market Listener (Global Data)
     useEffect(() => {
         // Market is public read, so this should work for guests too if rules allow `read: if true`
         const q = query(collection(db, 'market'), orderBy('createdAt', 'desc'), limit(50));
@@ -271,7 +435,7 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
-    // 5. Payout Listener (Seller Logic)
+    // 6. Payout Listener (Seller Logic)
     useEffect(() => {
         if (!firebaseUser) return;
 
@@ -884,6 +1048,9 @@ const App: React.FC = () => {
     };
     
     const handleBattleResult = (amount: number, isWin: boolean, mode: 'ranked' | 'challenge', squad: GameCard[]) => {
+        // Reset direct battle ID if active
+        if (directBattleId) setDirectBattleId(null);
+
         const updates: Partial<GameState> = {};
         const xpGain = isWin ? 150 : 25;
         updates.battlePoints = (gameState.battlePoints || 0) + amount;
@@ -1111,7 +1278,8 @@ const App: React.FC = () => {
         }).length,
         evo: gameState.activeEvolution && evoData.find(e => e.id === gameState.activeEvolution?.evoId)?.tasks.every(t => (gameState.activeEvolution?.tasks[t.id] || 0) >= t.target) ? 1 : 0,
         fbc: 0,
-        store: gameState.ownedPacks.length + gameState.ownedPlayerPicks.length
+        store: gameState.ownedPacks.length + gameState.ownedPlayerPicks.length,
+        social: friendRequestCount + (incomingInvite ? 1 : 0)
     };
 
     return (
@@ -1139,13 +1307,16 @@ const App: React.FC = () => {
                     />
 
                     <div className="container mx-auto px-4 pt-4">
-                        <Navigation 
-                            currentView={view} 
-                            setCurrentView={setView} 
-                            t={t}
-                            notificationCounts={notificationCounts}
-                            isDisabled={isBattleActive}
-                        />
+                        {/* Hide nav in Battle for focus */}
+                        {view !== 'battle' && (
+                            <Navigation 
+                                currentView={view} 
+                                setCurrentView={setView} 
+                                t={t}
+                                notificationCounts={notificationCounts}
+                                isDisabled={isBattleActive}
+                            />
+                        )}
 
                         <div className="view-content min-h-[60vh]">
                             {view === 'store' && (
@@ -1160,15 +1331,28 @@ const App: React.FC = () => {
                             {view === 'collection' && <Collection gameState={gameState} setGameState={updateGameState} setCardForOptions={setCardOptions} t={t} />}
                             {view === 'market' && <Market market={gameState.market} onBuyCard={handleMarketAction} onCancelListing={handleCancelListing} currentUserId={currentUser?.username || ''} t={t} userCoins={gameState.coins} />}
                             {view === 'battle' && (
-                                <Battle 
-                                    gameState={gameState} 
-                                    onBattleWin={handleBattleResult} 
-                                    t={t} 
-                                    playSfx={playSfx} 
-                                    musicVolume={settings.musicVolume} 
-                                    musicOn={settings.musicOn} 
-                                    setIsBattleActive={setIsBattleActive} 
-                                />
+                                directBattleId ? (
+                                    <PvPBattle
+                                        gameState={gameState}
+                                        preparedTeam={Object.values(gameState.formation).filter(Boolean) as any}
+                                        onBattleEnd={(reward, isWin) => handleBattleResult(reward, isWin, 'challenge', [])}
+                                        onExit={() => { setDirectBattleId(null); setView('social'); }}
+                                        playSfx={playSfx}
+                                        musicVolume={settings.musicVolume}
+                                        musicOn={settings.musicOn}
+                                        initialBattleId={directBattleId}
+                                    />
+                                ) : (
+                                    <Battle 
+                                        gameState={gameState} 
+                                        onBattleWin={handleBattleResult} 
+                                        t={t} 
+                                        playSfx={playSfx} 
+                                        musicVolume={settings.musicVolume} 
+                                        musicOn={settings.musicOn} 
+                                        setIsBattleActive={setIsBattleActive} 
+                                    />
+                                )
                             )}
                             {view === 'fbc' && <FBC gameState={gameState} onFbcSubmit={handleFbcSubmit} t={t} playSfx={playSfx} />}
                             {view === 'evo' && <Evo gameState={gameState} onStartEvo={handleStartEvo} onClaimEvo={handleClaimEvo} t={t} playSfx={playSfx} />}
@@ -1280,6 +1464,12 @@ const App: React.FC = () => {
                 card={duplicateCard} 
                 onSell={() => { handleQuickSell(duplicateCard!); }} 
                 t={t} 
+            />
+
+            <BattleInviteModal 
+                invite={incomingInvite}
+                onAccept={handleAcceptInvite}
+                onReject={handleRejectInvite}
             />
         </div>
     );
