@@ -132,6 +132,7 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
             const isOwner = card.sellerId === currentUserId;
             const timeLeft = Math.max(0, (card.displayExpiresAt || 0) - now);
             const isWinning = card.highestBidderId === currentUserId;
+            const hasBids = !!card.highestBidderId;
             const displayBuyPrice = card.buyNowPrice || card.price || 0;
 
             return (
@@ -156,8 +157,8 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
                         ) : (
                             <>
                                 <div className="flex justify-between w-full px-3 text-xs">
-                                    <span className="text-gray-400">Bid</span>
-                                    <span className="text-blue-300 font-bold">{card.bidPrice}</span>
+                                    <span className="text-gray-400">{hasBids ? "Bid" : "Start"}</span>
+                                    <span className="text-blue-300 font-bold">{hasBids ? card.bidPrice : card.startingPrice}</span>
                                 </div>
                                 <div className="flex justify-between w-full px-3 text-xs">
                                     <span className="text-gray-400">Buy</span>

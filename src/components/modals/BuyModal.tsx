@@ -38,11 +38,21 @@ const BuyModal: React.FC<BuyModalProps> = ({ cardToBuy, onClose, onAction, t, us
   React.useEffect(() => {
       if (cardToBuy) {
           const currentBid = cardToBuy.bidPrice || 0;
-          // Minimum bid is current bid + 5% or +50 coins
-          const minIncrement = Math.max(50, Math.floor(currentBid * 0.05));
-          setBidAmount(currentBid + minIncrement);
-          // Default tab
-          if (cardToBuy.highestBidderId) setActiveTab('bid');
+          const startPrice = cardToBuy.startingPrice || 0;
+          const hasBids = !!cardToBuy.highestBidderId;
+
+          let nextMinBid = 0;
+          
+          if (hasBids) {
+              const minIncrement = Math.max(50, Math.floor(currentBid * 0.05));
+              nextMinBid = currentBid + minIncrement;
+          } else {
+              nextMinBid = startPrice;
+          }
+
+          setBidAmount(nextMinBid);
+          
+          if (hasBids) setActiveTab('bid');
       }
   }, [cardToBuy]);
 
@@ -50,10 +60,20 @@ const BuyModal: React.FC<BuyModalProps> = ({ cardToBuy, onClose, onAction, t, us
 
   // Safe accessors for legacy data
   const currentBid = cardToBuy.bidPrice || 0;
+  const startPrice = cardToBuy.startingPrice || 0;
+  const hasBids = !!cardToBuy.highestBidderId;
+  
   // Fallback to legacy 'price' field if buyNowPrice is missing
   const buyNowPrice = cardToBuy.buyNowPrice || cardToBuy.price || 0;
 
-  const minBid = Math.max(50, Math.floor(currentBid * 0.05)) + currentBid;
+  // Calculate minimum allowed bid based on whether there are existing bids
+  let minBid = 0;
+  if (hasBids) {
+      minBid = Math.max(50, Math.floor(currentBid * 0.05)) + currentBid;
+  } else {
+      minBid = startPrice;
+  }
+
   const canAffordBuyNow = userCoins >= buyNowPrice;
   const canAffordBid = userCoins >= bidAmount;
   const isValidBid = bidAmount >= minBid;
@@ -91,8 +111,12 @@ const BuyModal: React.FC<BuyModalProps> = ({ cardToBuy, onClose, onAction, t, us
                     {isOwner ? (
                         <div className="flex flex-col gap-4">
                             <p className="text-white text-center">
-                                Current Bid: <span className="text-gold-light font-bold">{currentBid}</span>
-                                {cardToBuy.highestBidderId ? <span className="block text-xs text-green-400">(Active Bidder)</span> : <span className="block text-xs text-gray-500">(No Bids)</span>}
+                                {hasBids ? (
+                                    <>Current Bid: <span className="text-gold-light font-bold">{currentBid}</span></>
+                                ) : (
+                                    <>Starting Price: <span className="text-gold-light font-bold">{startPrice}</span></>
+                                )}
+                                {hasBids ? <span className="block text-xs text-green-400">(Active Bidder)</span> : <span className="block text-xs text-gray-500">(No Bids)</span>}
                             </p>
                             <Button 
                                 variant="sell" 
@@ -123,8 +147,8 @@ const BuyModal: React.FC<BuyModalProps> = ({ cardToBuy, onClose, onAction, t, us
                             {activeTab === 'bid' ? (
                                 <div className="flex flex-col gap-3">
                                     <div className="flex justify-between text-sm text-gray-300">
-                                        <span>Current Bid:</span>
-                                        <span className="text-white font-bold">{currentBid}</span>
+                                        <span>{hasBids ? "Current Bid:" : "Start Price:"}</span>
+                                        <span className="text-white font-bold">{hasBids ? currentBid : startPrice}</span>
                                     </div>
                                     <div className="flex gap-2 items-center">
                                         <input 

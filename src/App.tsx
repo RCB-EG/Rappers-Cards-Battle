@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
     GameState, 
     Card as GameCard, 
@@ -104,6 +104,10 @@ const App: React.FC = () => {
     const [rankUpModalData, setRankUpModalData] = useState<{ newRank: Rank, rewards: { coins: number, packs: PackType[], picks: string[] } } | null>(null);
     const [rewardModal, setRewardModal] = useState<{ isOpen: boolean, reward: RewardData | null, title?: string }>({ isOpen: false, reward: null });
 
+    // Use a ref to access current gameState inside callbacks without adding it to dependency array (avoid loops)
+    const gameStateRef = useRef(gameState);
+    useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
+
     // --- Asset Preloading ---
     useEffect(() => {
         const loadAssets = async () => {
@@ -163,17 +167,28 @@ const App: React.FC = () => {
                             };
                             setCurrentUser(profile);
                             
+                            // Ensure rankValue is set in state if missing in DB
+                            const rankMap: Record<Rank, number> = { 'Legend': 4, 'Gold': 3, 'Silver': 2, 'Bronze': 1 };
+                            const calculatedRankValue = rankMap[userData.rank as Rank] || 1;
+
                             setGameState(prev => ({ 
                                 ...initialState, 
                                 ...userData, 
+                                rankValue: userData.rankValue || calculatedRankValue, // Use DB value or calc fallback
                                 userId: user.uid, 
                                 market: prev.market 
                             }));
+                            
+                            // Fix: If rankValue was missing in DB, write it now to ensure leaderboard visibility
+                            if (!userData.rankValue) {
+                                updateDoc(userRef, { rankValue: calculatedRankValue }).catch(console.error);
+                            }
+
                         } else {
                             // First time creation logic if direct listen fails or new user
                             const newProfile: User = { username: user.email?.split('@')[0] || 'User', email: user.email || '' };
                             setCurrentUser(newProfile);
-                            const newState = { ...initialState, userId: user.uid, userProfile: newProfile };
+                            const newState = { ...initialState, userId: user.uid, userProfile: newProfile, rankValue: 1 };
                             const { market, ...stateToSave } = newState;
                             setDoc(userRef, stateToSave); // No await needed to block
                             setGameState(prev => ({ ...newState, market: prev.market }));
@@ -218,17 +233,17 @@ const App: React.FC = () => {
             const { market, ...cleanState } = stateToSave as GameState; 
             const sanitized = JSON.parse(JSON.stringify(cleanState)); 
             
-            // Auto-calculate rankValue for leaderboard sorting if rank changed
-            if (sanitized.rank) {
-                const rankMap: Record<Rank, number> = { 'Legend': 4, 'Gold': 3, 'Silver': 2, 'Bronze': 1 };
-                sanitized.rankValue = rankMap[sanitized.rank as Rank] || 1;
-            }
+            // Fix: Always ensure rankValue matches the current rank (from state or update)
+            // Use the updated rank if present, otherwise fall back to current state
+            const effectiveRank = (sanitized.rank || gameStateRef.current.rank) as Rank;
+            const rankMap: Record<Rank, number> = { 'Legend': 4, 'Gold': 3, 'Silver': 2, 'Bronze': 1 };
+            sanitized.rankValue = rankMap[effectiveRank] || 1;
 
             await updateDoc(userRef, sanitized);
         } catch (error) {
             console.error("Error saving game data:", error);
         }
-    }, []);
+    }, []); // No dependencies needed due to gameStateRef
 
     // 3. State Update Wrapper
     const updateGameState = useCallback((updates: Partial<GameState>) => {
