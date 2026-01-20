@@ -66,7 +66,7 @@ interface SpecialEffect {
 const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattleEnd, onExit, playSfx, musicVolume, musicOn, initialBattleId }) => {
     const [battleId, setBattleId] = useState<string | null>(initialBattleId || null);
     const [battleState, setBattleState] = useState<OnlineBattleState | null>(null);
-    const [status, setStatus] = useState<'lobby' | 'searching' | 'active' | 'finished'>(initialBattleId ? 'active' : 'lobby');
+    const [status, setStatus] = useState<'lobby' | 'searching' | 'preparing' | 'active' | 'finished'>(initialBattleId ? 'preparing' : 'lobby');
     const [selectedAttackerId, setSelectedAttackerId] = useState<string | null>(null);
     const [selectedAction, setSelectedAction] = useState<string>('standard');
     const [searchTime, setSearchTime] = useState(0);
@@ -337,11 +337,14 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 const data = docSnap.data() as OnlineBattleState;
                 setBattleState(data);
                 
-                if (status === 'lobby' || status === 'searching') {
+                // Transition logic
+                if (data.status === 'active' && status !== 'active' && status !== 'finished') {
                     setStatus('active');
+                } else if (data.status === 'preparing' && status !== 'preparing') {
+                    setStatus('preparing');
                 }
 
-                if (data.lastMoveTimestamp > lastProcessedMoveRef.current) {
+                if (data.status === 'active' && data.lastMoveTimestamp > lastProcessedMoveRef.current) {
                     lastProcessedMoveRef.current = data.lastMoveTimestamp;
                     const lastLog = data.logs[0] || '';
                     if (lastLog.includes('hit') || lastLog.includes('damage') || lastLog.includes('drained')) playSfx('battleAttackMedium');
@@ -640,6 +643,31 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 <h3 className="font-header text-3xl text-white">Searching for Opponent...</h3>
                 <p className="text-xl text-gray-400 font-mono">{searchTime}s</p>
                 <Button variant="sell" onClick={() => setStatus('lobby')}>Cancel</Button>
+            </div>
+        );
+    }
+
+    // New Preparing Status
+    if (status === 'preparing') {
+        const isMyTeamReady = battleState?.player1.uid === auth.currentUser?.uid 
+            ? (battleState?.player1.team?.length || 0) > 0 
+            : (battleState?.player2.team?.length || 0) > 0;
+
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-8 animate-fadeIn">
+                <div className="relative">
+                    <div className="w-24 h-24 border-4 border-gold-light/30 border-t-gold-light rounded-full animate-spin"></div>
+                    <div className="absolute inset-0 flex items-center justify-center font-header text-2xl text-gold-light animate-pulse">VS</div>
+                </div>
+                <h3 className="font-header text-3xl text-white text-center">
+                    {isMyTeamReady ? "Waiting for Opponent..." : "Prepare your Squad!"}
+                </h3>
+                <p className="text-gray-400 max-w-md text-center">
+                    {isMyTeamReady 
+                        ? "Your team is ready. The battle will start automatically when your opponent is ready."
+                        : "Please finish your setup."}
+                </p>
+                <Button variant="sell" onClick={onExit}>Cancel</Button>
             </div>
         );
     }

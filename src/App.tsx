@@ -299,87 +299,100 @@ const App: React.FC = () => {
         };
     }, [firebaseUser, playSfx]);
 
-    // Called when user clicks "Accept" on invite modal
-    const handleAcceptInvite = () => {
-        if (!incomingInvite) return;
-        setIncomingInvite(null);
-        setSetupInvite(incomingInvite);
-        setView('battle'); // Go to battle view to start setup (selection/tactics)
-    };
-
-    // Called by Battle component when user finishes setup and clicks "Start"
-    const handleFinalizeInviteStart = async (selectedTeam: BattleCard[]) => {
-        if (!setupInvite || !firebaseUser) return;
-
+    // Called when user clicks "Accept" on invite modal (Player B)
+    const handleAcceptInvite = async () => {
+        if (!incomingInvite || !firebaseUser) return;
+        
         try {
+            // 1. Create the battle document in 'preparing' state immediately
+            // This ensures both players have a battle ID to join
             const newBattleId = `battle_${Date.now()}_invite`;
             const battleRef = doc(db, 'battles', newBattleId);
             
-            // Need opponent data for avatar/username
-            const opponentDoc = await getDoc(doc(db, 'users', setupInvite.fromUid));
-            if (!opponentDoc.exists()) {
-                alert("Opponent data missing.");
-                setSetupInvite(null);
-                return;
-            }
+            // Fetch opponent profile data
+            const opponentDoc = await getDoc(doc(db, 'users', incomingInvite.fromUid));
             const opponentData = opponentDoc.data() as GameState;
-            const opponentProfile = opponentData.userProfile;
+            const opponentProfile = opponentData?.userProfile;
             const myProfile = gameStateRef.current.userProfile;
-
-            // My Team (Player 2)
-            const myTeam = selectedTeam.map((card, i) => ({
-                ...card,
-                instanceId: `${firebaseUser.uid}-${i}-${card.id}`,
-            }));
-
-            // Opponent Team (Player 1) - Currently grabs their active formation
-            // Ideally, the invite sender would have 'locked in' a team, but for now we pull their current formation
-            const opponentTeamCards = (Object.values(opponentData.formation || {}) as GameCard[]).filter(Boolean);
-            const opponentTeam = opponentTeamCards.map((card, i) => ({
-                ...card,
-                instanceId: `${setupInvite.fromUid}-${i}-${card.id}`,
-                maxHp: card.ovr * 10,
-                currentHp: card.ovr * 10,
-                atk: card.ovr,
-                mode: 'attack' as any,
-                owner: 'player' as any,
-                specialSlots: 1,
-                availableSuperpowers: [...card.superpowers],
-                activeEffects: [],
-                attacksRemaining: 1
-            }));
 
             const initialState: OnlineBattleState = {
                 id: newBattleId,
                 player1: { 
-                    uid: setupInvite.fromUid, 
+                    uid: incomingInvite.fromUid, 
                     username: opponentProfile?.username || 'Opponent', 
                     avatar: opponentProfile?.avatar || null,
-                    team: opponentTeam 
+                    team: [] // Empty team initially, they must select
                 },
                 player2: { 
                     uid: firebaseUser.uid, 
                     username: myProfile?.username || 'Me', 
                     avatar: myProfile?.avatar || null,
-                    team: myTeam 
+                    team: [] // Empty team initially
                 },
-                turn: setupInvite.fromUid, // Challenger starts
+                turn: incomingInvite.fromUid, // Challenger starts
                 winner: null,
                 lastMoveTimestamp: Date.now(),
-                logs: ['Friend Battle Started!'],
-                status: 'active'
+                logs: ['Players preparing...'],
+                status: 'preparing' // Waiting for both to submit teams
             };
 
             await setDoc(battleRef, initialState);
             
-            // Update Invite to 'accepted' and store battleId so sender knows where to go
-            await updateDoc(doc(db, 'battle_invites', setupInvite.id), { status: 'accepted', battleId: newBattleId });
+            // 2. Update Invite to 'accepted' with battle ID
+            await updateDoc(doc(db, 'battle_invites', incomingInvite.id), { status: 'accepted', battleId: newBattleId });
 
+            // 3. Move Receiver to Setup View
+            setIncomingInvite(null);
+            setSetupInvite({ ...incomingInvite, battleId: newBattleId }); // Store battleId in local invite state
+            setView('battle');
+
+        } catch (e) {
+            console.error("Error accepting invite", e);
+        }
+    };
+
+    // Called by Battle component when user finishes setup and clicks "Ready"
+    const handleFinalizeInviteStart = async (selectedTeam: BattleCard[]) => {
+        if (!setupInvite || !setupInvite.battleId || !firebaseUser) return;
+
+        try {
+            const battleRef = doc(db, 'battles', setupInvite.battleId);
+            
+            await runTransaction(db, async (transaction) => {
+                const battleDoc = await transaction.get(battleRef);
+                if (!battleDoc.exists()) throw "Battle not found";
+                
+                const battleData = battleDoc.data() as OnlineBattleState;
+                const isPlayer1 = battleData.player1.uid === firebaseUser.uid;
+                
+                // Prepare my team with instance IDs
+                const myTeam = selectedTeam.map((card, i) => ({
+                    ...card,
+                    instanceId: `${firebaseUser.uid}-${i}-${card.id}`,
+                }));
+
+                // Update my team in the document
+                if (isPlayer1) {
+                    transaction.update(battleRef, { 'player1.team': myTeam });
+                    // Check if Player 2 is already ready
+                    if (battleData.player2.team && battleData.player2.team.length > 0) {
+                        transaction.update(battleRef, { status: 'active', logs: ['Battle Started!'] });
+                    }
+                } else {
+                    transaction.update(battleRef, { 'player2.team': myTeam });
+                    // Check if Player 1 is already ready
+                    if (battleData.player1.team && battleData.player1.team.length > 0) {
+                        transaction.update(battleRef, { status: 'active', logs: ['Battle Started!'] });
+                    }
+                }
+            });
+
+            // Move to PvP View (Waiting Room or Battle)
+            setDirectBattleId(setupInvite.battleId);
             setSetupInvite(null);
-            setDirectBattleId(newBattleId);
             
         } catch (e) {
-            console.error("Error starting invite battle", e);
+            console.error("Error finalizing invite setup", e);
             setSetupInvite(null);
         }
     };
@@ -390,7 +403,7 @@ const App: React.FC = () => {
         setIncomingInvite(null);
     };
 
-    // If I sent an invite, I should listen if it gets accepted to join the battle
+    // Sender Listener: Move to Setup when invite is accepted (Player A)
     useEffect(() => {
         if (!firebaseUser) return;
         // Listen for my sent invites that become accepted
@@ -403,19 +416,22 @@ const App: React.FC = () => {
         const unsub = onSnapshot(q, (snap) => {
             snap.docChanges().forEach((change) => {
                 if (change.type === 'added' || change.type === 'modified') {
-                    const data = change.doc.data();
+                    const data = change.doc.data() as BattleInvite;
                     if (data.battleId) {
-                        // My invite was accepted! Join the battle.
-                        setDirectBattleId(data.battleId);
-                        setView('battle');
-                        // Clean up invite
-                        deleteDoc(change.doc.ref); 
+                        // My invite was accepted! 
+                        // Instead of going straight to battle, go to setup first.
+                        if (!directBattleId && !setupInvite) { // Avoid infinite loop or double set
+                            setSetupInvite(data); 
+                            setView('battle');
+                            // Clean up invite doc as we have the battleId now
+                            deleteDoc(change.doc.ref).catch(console.error); 
+                        }
                     }
                 }
             });
         });
         return () => unsub();
-    }, [firebaseUser]);
+    }, [firebaseUser, directBattleId, setupInvite]);
 
 
     // 3. Data Saver & Rank Value Calculation

@@ -1,6 +1,4 @@
 
-// Fix: Define and export all shared types for the application.
-
 export type Rarity = 'bronze' | 'silver' | 'gold' | 'icon' | 'rotm' | 'legend' | 'event';
 
 export type GameView = 'store' | 'collection' | 'market' | 'battle' | 'fbc' | 'evo' | 'objectives' | 'social';
@@ -8,8 +6,6 @@ export type GameView = 'store' | 'collection' | 'market' | 'battle' | 'fbc' | 'e
 export type PackType = 'free' | 'bronze' | 'builder' | 'special' | 'legendary';
 
 export type FormationLayoutId = '4-4-2' | '4-3-3' | '5-3-2' | '3-4-3';
-
-export type Rank = 'Bronze' | 'Silver' | 'Gold' | 'Legend';
 
 export interface Stats {
     lyrc: number;
@@ -32,69 +28,23 @@ export interface Card {
   isPackable?: boolean;
 }
 
-// --- BATTLE TYPES ---
-export type BattleMode = 'attack' | 'defense';
-
-export interface ActiveEffect {
-    type: 'poison' | 'stun' | 'taunt' | 'untargetable' | 'silence' | 'buff';
-    duration: number;
-    val?: number;
-    sourceId?: string;
-}
-
-export interface BattleCard extends Card {
-    instanceId: string; // Unique ID for battle logic (e.g. player-0-cardId)
-    maxHp: number;
-    currentHp: number;
-    atk: number;
-    mode: BattleMode;
-    owner: 'player' | 'cpu' | 'opponent'; // 'opponent' used in PvP
-    specialSlots: number;
-    availableSuperpowers: string[];
-    activeEffects: ActiveEffect[];
-    attacksRemaining: number;
-}
-
-export interface OnlineBattleState {
-    id: string;
-    player1: {
-        uid: string;
-        username: string;
-        avatar?: string;
-        team: BattleCard[];
-    };
-    player2: {
-        uid: string;
-        username: string;
-        avatar?: string;
-        team: BattleCard[];
-    };
-    turn: string; // uid of the current turn
-    winner: string | null; // uid of winner
-    lastMoveTimestamp: number;
-    logs: string[];
-    status: 'waiting' | 'active' | 'finished';
-}
-// --------------------
-
 export interface MarketCard extends Card {
-  // Auction Fields
-  price: number; // Kept for backwards compatibility, treated as Buy Now
-  buyNowPrice: number;
+  marketId?: string;
+  price: number; // Legacy
+  buyNowPrice?: number;
+  startingPrice?: number;
   bidPrice: number;
-  startingPrice: number;
-  highestBidderId: string | null;
-  expiresAt: number;
-  durationHours: number;
-  
+  highestBidderId?: string | null;
+  expiresAt?: number;
+  durationHours?: number;
   sellerId: string;
-  marketId?: string; // Firestore Document ID
-  createdAt?: number; // Timestamp for sorting
+  createdAt?: number;
+  displayExpiresAt?: number;
 }
 
 export interface PackData {
   cost: number;
-  bpCost: number; // Cost in Battle Points
+  bpCost: number;
   rarityChances: {
     [key in Rarity]?: number;
   };
@@ -107,7 +57,7 @@ export interface FBCChallenge {
     prerequisiteId?: string;
     groupId?: string;
     groupFinalRewardCardId?: string;
-    repeatable?: 'daily'; // New property for daily resets
+    repeatable?: 'daily';
     requirements: {
         cardCount: number;
         exactRarityCount?: { [key in Rarity]?: number };
@@ -116,10 +66,10 @@ export interface FBCChallenge {
         minRarityCount?: { [key in Rarity]?: number };
     };
     reward: {
-        type: 'coins' | 'pack' | 'card';
-        amount?: number;
+        type: 'pack' | 'card' | 'coins';
         details?: PackType;
         cardId?: string;
+        amount?: number;
         bypassLimit?: boolean;
     };
 }
@@ -129,8 +79,8 @@ export interface Evolution {
     title: string;
     description: string;
     eligibility: {
-        cardName: string;
-        rarity: Rarity;
+        cardName?: string;
+        rarity?: Rarity;
         maxOvr?: number;
     };
     tasks: {
@@ -147,15 +97,6 @@ export interface ObjectiveTask {
     target: number;
 }
 
-export interface PlayerPickConfig {
-    id: string;
-    nameKey: string; // Translation key
-    pickCount: number; // How many cards the user keeps (e.g., 1)
-    totalOptions: number; // How many options are shown (e.g., 3)
-    minOvr: number; // Minimum OVR for generated cards
-    rarityGuarantee?: Rarity; // Optional rarity filter
-}
-
 export interface Objective {
   id: string;
   type: 'daily' | 'weekly' | 'milestone';
@@ -170,12 +111,10 @@ export interface Objective {
   };
 }
 
-
 export interface ObjectiveProgress {
-    tasks: Record<string, number>; // Track progress for each task by its ID
+    tasks: Record<string, number>; 
     claimed: boolean;
 }
-
 
 export interface Settings {
   musicOn: boolean;
@@ -183,6 +122,32 @@ export interface Settings {
   sfxOn: boolean;
   sfxVolume: number;
   animationsOn: boolean;
+}
+
+export interface User {
+    username: string;
+    email?: string;
+    password?: string;
+    avatar?: string;
+}
+
+export type CurrentUser = User | null;
+
+export type Rank = 'Bronze' | 'Silver' | 'Gold' | 'Legend';
+
+export interface PlayerPickConfig {
+    id: string;
+    nameKey: string;
+    pickCount: number;
+    totalOptions: number;
+    minOvr: number;
+    rarityGuarantee?: Rarity;
+}
+
+export interface Friend {
+    uid: string;
+    username: string;
+    avatar?: string;
 }
 
 export interface FriendRequest {
@@ -196,46 +161,38 @@ export interface FriendRequest {
     timestamp: number;
 }
 
-export interface Friend {
-    uid: string;
-    username: string;
-    avatar?: string;
-}
-
-// --- CHAT & INVITE TYPES ---
-export interface ChatMessage {
-    id: string;
-    senderId: string;
-    text: string;
-    timestamp: number;
-}
-
 export interface BattleInvite {
     id: string;
     fromUid: string;
     fromName: string;
     toUid: string;
     status: 'pending' | 'accepted' | 'rejected';
+    battleId?: string;
     timestamp: number;
-    battleId?: string; // If accepted, this will exist
 }
-// ---------------------------
+
+export interface ChatMessage {
+    id: string;
+    text: string;
+    senderId: string;
+    timestamp: number;
+}
 
 export interface GameState {
-  version?: number;
+  version: number;
   userId: string;
-  userProfile?: User; // Synced profile
+  userProfile?: User;
   coins: number;
-  battlePoints: number; // New currency
-  xp: number;
+  battlePoints?: number;
+  xp?: number;
   rank: Rank;
-  rankValue?: number; // Numeric value for sorting (Legend=4, Gold=3...)
-  rankWins: number; // Wins towards next rank
-  pendingEarnings: number; // For offline market sales
+  rankValue: number;
+  rankWins: number;
+  pendingEarnings?: number;
   formation: Record<string, Card | null>;
   formationLayout: FormationLayoutId;
   storage: Card[];
-  market: MarketCard[]; // Local view of market
+  market: MarketCard[];
   completedFbcIds: string[];
   completedEvoIds: string[];
   activeEvolution: {
@@ -260,11 +217,45 @@ export interface Deal {
     message: string;
 }
 
-export interface User {
-    username: string;
-    email?: string;
-    password?: string;
-    avatar?: string;
+export type BattleMode = 'attack' | 'defense';
+
+export interface ActiveEffect {
+    type: 'poison' | 'stun' | 'silence' | 'taunt' | 'untargetable' | 'buff';
+    duration: number;
+    val?: number;
+    sourceId?: string;
 }
 
-export type CurrentUser = User | null;
+export interface BattleCard extends Card {
+    instanceId: string;
+    maxHp: number;
+    currentHp: number;
+    atk: number;
+    mode: BattleMode;
+    owner: 'player' | 'cpu' | 'opponent';
+    specialSlots: number;
+    availableSuperpowers: string[];
+    activeEffects: ActiveEffect[];
+    attacksRemaining: number;
+}
+
+export interface OnlineBattleState {
+    id: string;
+    player1: {
+        uid: string;
+        username: string;
+        avatar?: string;
+        team: BattleCard[];
+    };
+    player2: {
+        uid: string;
+        username: string;
+        avatar?: string;
+        team: BattleCard[];
+    };
+    turn: string; // uid of the current turn
+    winner: string | null; // uid of winner
+    lastMoveTimestamp: number;
+    logs: string[];
+    status: 'waiting' | 'preparing' | 'active' | 'finished';
+}
