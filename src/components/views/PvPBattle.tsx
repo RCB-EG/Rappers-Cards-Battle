@@ -432,7 +432,8 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
             playSfx('battleBuff');
             const attackerIdx = newMySquad.findIndex(c => c.instanceId === attacker.instanceId);
             if (attackerIdx > -1) {
-                newMySquad[attackerIdx].activeEffects.push({ type: 'untargetable', duration: 2 });
+                // FIXED: Duration should be 1 to match PvE and expire on next turn
+                newMySquad[attackerIdx].activeEffects.push({ type: 'untargetable', duration: 1 });
             }
             logMsg = `${attacker.name} fades into the background...`;
         }
@@ -571,26 +572,26 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
 
     if (showResultScreen && gameResult) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-8 animate-fadeIn relative">
+            <div className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center gap-8 animate-fadeIn">
                 {/* Result Animation Background */}
                 <div className={`absolute inset-0 z-0 ${gameResult.isWin ? 'bg-green-900/30' : 'bg-red-900/30'} pointer-events-none`}>
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#000_100%)]"></div>
                 </div>
 
-                <div className="z-10 flex flex-col items-center gap-6">
-                    <h2 className={`font-header text-8xl drop-shadow-[0_0_25px_rgba(0,0,0,0.8)] animate-bounce ${gameResult.isWin ? 'text-green-400 [text-shadow:0_0_20px_#4ade80]' : 'text-red-500 [text-shadow:0_0_20px_#ef4444]'}`}>
+                <div className="z-10 flex flex-col items-center gap-6 p-4">
+                    <h2 className={`font-header text-6xl md:text-8xl drop-shadow-[0_0_25px_rgba(0,0,0,0.8)] animate-bounce ${gameResult.isWin ? 'text-green-400 [text-shadow:0_0_20px_#4ade80]' : 'text-red-500 [text-shadow:0_0_20px_#ef4444]'}`}>
                         {gameResult.isWin ? "VICTORY" : "DEFEAT"}
                     </h2>
                     
-                    <div className="bg-black/60 p-8 rounded-2xl border-2 border-gold-dark/50 backdrop-blur-sm shadow-[0_0_50px_rgba(0,0,0,0.5)] transform hover:scale-105 transition-transform">
-                        <p className="text-3xl text-white mb-4 font-header">Reward Claimed</p>
+                    <div className="bg-black/60 p-6 md:p-8 rounded-2xl border-2 border-gold-dark/50 backdrop-blur-sm shadow-[0_0_50px_rgba(0,0,0,0.5)] transform hover:scale-105 transition-transform w-full max-w-sm">
+                        <p className="text-2xl md:text-3xl text-white mb-4 font-header text-center">Reward Claimed</p>
                         <div className="flex flex-col items-center gap-2">
-                            <span className="text-6xl text-blue-glow font-bold font-header drop-shadow-md">{gameResult.reward} BP</span>
+                            <span className="text-5xl md:text-6xl text-blue-glow font-bold font-header drop-shadow-md">{gameResult.reward} BP</span>
                             <span className="text-gray-400 text-sm uppercase tracking-widest border-t border-gray-600 pt-2 w-full text-center">Battle Points</span>
                         </div>
                     </div>
                     
-                    <Button variant={gameResult.isWin ? 'cta' : 'default'} onClick={onExit} className="px-16 py-4 text-2xl shadow-lg mt-8">
+                    <Button variant={gameResult.isWin ? 'cta' : 'default'} onClick={onExit} className="px-12 py-4 text-xl shadow-lg mt-4 w-full max-w-sm">
                         Return to Menu
                     </Button>
                 </div>
@@ -601,7 +602,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
     if (status === 'lobby') {
         return (
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-8 animate-fadeIn">
-                <h2 className="font-header text-5xl text-blue-glow mb-4 drop-shadow-[0_0_10px_#00c7e2]">Casual Online Battle</h2>
+                <h2 className="font-header text-5xl text-blue-glow mb-4 drop-shadow-[0_0_10px_#00c7e2] text-center">Casual Online Battle</h2>
                 <div className="bg-black/40 p-8 rounded-xl border-2 border-blue-900/50 max-w-md w-full text-center">
                     <p className="text-gray-300 mb-6">Battle real players. Ensure you have a strong connection.</p>
                     <div className="text-left mb-6 bg-black/30 p-4 rounded text-sm text-gray-400">
@@ -647,7 +648,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         const activeAttacker = selectedAttackerId ? mySquad.find(c => c.instanceId === selectedAttackerId) : null;
 
         return (
-            <div className="relative w-full max-w-6xl mx-auto min-h-[80vh] flex flex-col justify-between py-4 animate-fadeIn">
+            <div className="relative w-full max-w-6xl mx-auto h-[calc(100vh-80px)] flex flex-col justify-between py-2 animate-fadeIn overflow-hidden">
                 
                 {/* Custom Modal for Forfeit */}
                 <Modal isOpen={showForfeitModal} onClose={() => setShowForfeitModal(false)} title="Forfeit Match?">
@@ -659,7 +660,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 </Modal>
 
                 {/* Forfeit Button for PvP */}
-                <div className="absolute top-0 right-0 z-[60]">
+                <div className="absolute top-2 right-2 z-[60]">
                     <Button variant="sell" onClick={() => setShowForfeitModal(true)} className="py-1 px-3 text-xs bg-red-900/80 border-red-700 hover:bg-red-800">
                         Give Up
                     </Button>
@@ -675,13 +676,11 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 {floatingTexts.map(ft => <div key={ft.id} className="fixed text-4xl font-header font-bold z-50 pointer-events-none" style={{ left: ft.x, top: ft.y, color: ft.color, animation: 'floatUp 1.5s ease-out forwards' }}>{ft.text}</div>)}
 
                 {/* --- Top: Enemy --- */}
-                <div className="flex flex-col items-center">
-                    <div className="text-red-400 font-header text-xl mb-2">{enemyName}</div>
-                    <div className="flex justify-center gap-2 flex-wrap">
+                <div className="flex flex-col items-center flex-shrink-0">
+                    <div className="text-red-400 font-header text-xl mb-1 drop-shadow-md">{enemyName}</div>
+                    <div className="flex justify-center gap-1 md:gap-2 flex-wrap max-w-full">
                         {enemySquad.map(card => {
-                            // Determine interaction validity based on targeting rules
                             const isTarget = isTargetable(card, enemySquad);
-                            // Can interact if: My Turn AND Attacker Selected AND (Standard Attack OR Targeted Superpower) AND Card is a Valid Target
                             const canClick = isMyTurn && !!selectedAttackerId && 
                                              (selectedAction === 'standard' || !['Chopper', 'Show Maker', 'ShowMaker', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller', 'The Artist'].includes(selectedAction)) &&
                                              isTarget;
@@ -702,36 +701,36 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 </div>
 
                 {/* --- Middle: Controls --- */}
-                <div className="flex flex-col items-center justify-center my-4 gap-2 relative min-h-[100px]">
-                    <div className={`px-6 py-2 rounded-full font-header text-2xl border-2 transition-colors ${isMyTurn ? 'bg-blue-600/50 border-blue-400 text-white' : 'bg-red-600/50 border-red-400 text-white'}`}>
+                <div className="flex flex-col items-center justify-center my-1 gap-2 relative flex-grow min-h-[80px]">
+                    <div className={`px-6 py-1 md:py-2 rounded-full font-header text-xl md:text-2xl border-2 transition-colors shadow-lg z-20 ${isMyTurn ? 'bg-blue-600/80 border-blue-400 text-white' : 'bg-red-600/80 border-red-400 text-white'}`}>
                         {isMyTurn ? "YOUR TURN" : "ENEMY TURN"}
                     </div>
                     
                     {isMyTurn && activeAttacker ? (
-                        <div className="flex gap-2 flex-wrap justify-center animate-fadeIn bg-black/60 p-2 rounded-lg border border-gold-dark/50 z-20">
+                        <div className="flex gap-2 flex-wrap justify-center animate-fadeIn bg-black/80 p-2 rounded-lg border border-gold-dark/50 z-30 max-w-[95%]">
                             {selectedAction !== 'standard' && (
-                                <div className="absolute -top-12 left-0 right-0 text-center text-sm text-gold-light p-1 bg-black/80 rounded">{SUPERPOWER_DESC[selectedAction] || "Ability"}</div>
+                                <div className="absolute -top-10 left-0 right-0 text-center text-sm text-gold-light p-1 bg-black/90 rounded border border-gold-dark">{SUPERPOWER_DESC[selectedAction] || "Ability"}</div>
                             )}
-                            <button onClick={() => setSelectedAction('standard')} className={`px-3 py-1 rounded border-2 font-bold text-sm ${selectedAction === 'standard' ? 'bg-white text-black border-gold-light' : 'bg-transparent text-gray-300 border-gray-600'}`}>Attack</button>
+                            <button onClick={() => setSelectedAction('standard')} className={`px-3 py-1 rounded border-2 font-bold text-sm transition-all ${selectedAction === 'standard' ? 'bg-white text-black border-gold-light' : 'bg-transparent text-gray-300 border-gray-600'}`}>Attack</button>
                             {activeAttacker.availableSuperpowers.map(sp => {
                                 const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'Storyteller', 'StoryTeller', 'The Artist'].includes(sp);
                                 return (
-                                    <button key={sp} onClick={() => { setSelectedAction(sp); if (isImmediate) handleAttack(null, sp); }} className={`px-3 py-1 rounded border-2 font-bold text-sm flex items-center gap-1 ${selectedAction === sp ? 'bg-blue-600 text-white border-blue-300' : 'bg-transparent text-blue-300 border-blue-800'}`}>
+                                    <button key={sp} onClick={() => { setSelectedAction(sp); if (isImmediate) handleAttack(null, sp); }} className={`px-3 py-1 rounded border-2 font-bold text-sm flex items-center gap-1 transition-all ${selectedAction === sp ? 'bg-blue-600 text-white border-blue-300 shadow-blue-glow' : 'bg-transparent text-blue-300 border-blue-800'}`}>
                                         {sp}
                                     </button>
                                 );
                             })}
                         </div>
                     ) : (
-                        <div className="text-center text-gray-300 text-sm font-mono bg-black/40 p-2 rounded min-w-[300px]">
+                        <div className="text-center text-gray-300 text-xs md:text-sm font-mono bg-black/60 p-2 rounded min-w-[200px] border border-gray-700">
                             {battleState.logs[0] || "Match Started"}
                         </div>
                     )}
                 </div>
 
                 {/* --- Bottom: Me --- */}
-                <div className="flex flex-col items-center">
-                    <div className="flex justify-center gap-2 flex-wrap">
+                <div className="flex flex-col items-center flex-shrink-0 pb-safe">
+                    <div className="flex justify-center gap-1 md:gap-2 flex-wrap max-w-full">
                         {mySquad.map(card => {
                             const isStunned = card.activeEffects.some(e => e.type === 'stun');
                             const canAct = isMyTurn && card.currentHp > 0 && !isStunned && card.mode === 'attack';
@@ -749,7 +748,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                             );
                         })}
                     </div>
-                    <div className="text-blue-300 font-header text-xl mt-2">You</div>
+                    <div className="text-blue-300 font-header text-xl mt-1 drop-shadow-md">You</div>
                 </div>
             </div>
         );

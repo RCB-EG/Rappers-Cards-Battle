@@ -31,9 +31,10 @@ const BattleCardRender: React.FC<BattleCardRenderProps> = ({ card, isInteractabl
         shakeIntensity === 2 ? 'animate-shake-heavy' : 
         shakeIntensity === 1 ? 'animate-shake-mild' : '';
 
+    // Mobile-optimized sizing
     const sizeClass = smallScale 
-        ? "w-[80px] h-[120px] md:w-[100px] md:h-[150px]" 
-        : "w-[80px] h-[120px] md:w-[120px] md:h-[180px]";
+        ? "w-[65px] h-[98px] md:w-[100px] md:h-[150px]"  // Even smaller for 5+ cards/mobile
+        : "w-[75px] h-[112px] md:w-[120px] md:h-[180px]"; // Standard mobile/desktop sizes
 
     return (
         <div 
@@ -42,9 +43,9 @@ const BattleCardRender: React.FC<BattleCardRenderProps> = ({ card, isInteractabl
             className={`
                 relative transition-all duration-300
                 ${isDead ? 'opacity-0 scale-75 pointer-events-none grayscale blur-sm' : 'opacity-100'}
-                ${!isDead && !isInteractable ? 'opacity-70 filter grayscale-[0.6]' : ''}
+                ${!isDead && !isInteractable ? 'opacity-90 filter brightness-90' : ''}
                 ${isInteractable ? 'cursor-pointer hover:scale-105 hover:brightness-110 hover:z-20' : ''}
-                ${isSelected ? 'ring-4 ring-gold-light scale-110 z-10 shadow-[0_0_20px_#FFD700]' : ''}
+                ${isSelected ? 'ring-2 md:ring-4 ring-gold-light scale-105 z-10 shadow-[0_0_20px_#FFD700]' : ''}
                 ${sizeClass}
                 ${shakeClass}
             `}
@@ -59,14 +60,14 @@ const BattleCardRender: React.FC<BattleCardRenderProps> = ({ card, isInteractabl
 
                 {isDefending && (
                     <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none bg-blue-900/30">
-                        <div className="bg-black/60 p-2 rounded-full border-2 border-blue-400 shadow-[0_0_25px_#60a5fa] animate-pulse">
-                            <span className="text-3xl filter drop-shadow-[0_0_5px_blue]">🛡️</span>
+                        <div className="bg-black/60 p-1 md:p-2 rounded-full border-2 border-blue-400 shadow-[0_0_25px_#60a5fa] animate-pulse">
+                            <span className="text-xl md:text-3xl filter drop-shadow-[0_0_5px_blue]">🛡️</span>
                         </div>
                     </div>
                 )}
                 {isStunned && (
                     <div className="absolute inset-0 flex items-center justify-center z-30 bg-black/50 backdrop-blur-[2px] animate-pulse">
-                        <span className="text-5xl filter drop-shadow-[0_0_10px_yellow]">💫</span>
+                        <span className="text-3xl md:text-5xl filter drop-shadow-[0_0_10px_yellow]">💫</span>
                     </div>
                 )}
                 {isUntargetable && (
@@ -78,26 +79,26 @@ const BattleCardRender: React.FC<BattleCardRenderProps> = ({ card, isInteractabl
             </div>
             
             {/* Status Icons */}
-            <div className="absolute -top-4 left-0 right-0 flex justify-center gap-1 z-40 pointer-events-none perspective-[500px]">
-                {isPoisoned && <span className="bg-green-900 text-green-200 text-xs px-1.5 py-0.5 rounded border border-green-500 animate-bounce shadow-lg">☠️</span>}
-                {isSilenced && <span className="bg-gray-800 text-gray-200 text-xs px-1.5 py-0.5 rounded border border-gray-500 shadow-lg">🤐</span>}
-                {isTaunting && <span className="bg-red-900 text-red-200 text-xs px-1.5 py-0.5 rounded border border-red-500 animate-pulse shadow-lg">💢</span>}
-                {isBuffed && <span className="bg-yellow-900 text-yellow-200 text-xs px-1.5 py-0.5 rounded border border-yellow-500 shadow-lg">💪</span>}
+            <div className="absolute -top-3 md:-top-4 left-0 right-0 flex justify-center gap-0.5 md:gap-1 z-40 pointer-events-none perspective-[500px]">
+                {isPoisoned && <span className="bg-green-900 text-green-200 text-[10px] md:text-xs px-1 py-0.5 rounded border border-green-500 animate-bounce shadow-lg">☠️</span>}
+                {isSilenced && <span className="bg-gray-800 text-gray-200 text-[10px] md:text-xs px-1 py-0.5 rounded border border-gray-500 shadow-lg">🤐</span>}
+                {isTaunting && <span className="bg-red-900 text-red-200 text-[10px] md:text-xs px-1 py-0.5 rounded border border-red-500 animate-pulse shadow-lg">💢</span>}
+                {isBuffed && <span className="bg-yellow-900 text-yellow-200 text-[10px] md:text-xs px-1 py-0.5 rounded border border-yellow-500 shadow-lg">💪</span>}
             </div>
 
             {/* Health & Stats */}
-            <div className="absolute -bottom-8 left-0 right-0 z-30 flex flex-col items-center pointer-events-none">
-                <div className="w-full h-4 bg-gray-900 rounded-full border border-gray-600 overflow-hidden relative mb-1 shadow-md">
+            <div className="absolute -bottom-6 md:-bottom-8 left-0 right-0 z-30 flex flex-col items-center pointer-events-none">
+                <div className="w-full h-3 md:h-4 bg-gray-900 rounded-full border border-gray-600 overflow-hidden relative mb-0.5 md:mb-1 shadow-md">
                     <div className={`h-full ${hpColor} transition-all duration-300 relative`} style={{ width: `${hpPercent}%` }}>
                         <div className="absolute inset-0 bg-white/20 animate-shimmer" style={{ backgroundSize: '200% 100%' }} />
                     </div>
-                    <span className="absolute inset-0 text-[9px] font-bold flex items-center justify-center text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] tracking-wider">
-                        {Math.ceil(card.currentHp)}/{card.maxHp}
+                    <span className="absolute inset-0 text-[8px] md:text-[9px] font-bold flex items-center justify-center text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] tracking-wider">
+                        {Math.ceil(card.currentHp)}
                     </span>
                 </div>
-                <div className={`px-3 py-0.5 rounded-full border flex items-center gap-1 shadow-lg ${isBuffed ? 'bg-green-900/90 border-green-500' : 'bg-black/80 border-gray-600'}`}>
-                    <span className="text-[9px] text-gray-400 uppercase tracking-widest">ATK</span>
-                    <span className={`text-sm font-bold ${isBuffed ? 'text-green-400' : 'text-white'}`}>{card.atk}</span>
+                <div className={`px-2 md:px-3 py-0 md:py-0.5 rounded-full border flex items-center gap-1 shadow-lg ${isBuffed ? 'bg-green-900/90 border-green-500' : 'bg-black/80 border-gray-600'}`}>
+                    <span className="text-[8px] md:text-[9px] text-gray-400 uppercase tracking-widest hidden md:inline">ATK</span>
+                    <span className={`text-xs md:text-sm font-bold ${isBuffed ? 'text-green-400' : 'text-white'}`}>{card.atk}</span>
                 </div>
             </div>
         </div>
