@@ -426,8 +426,25 @@ const App: React.FC = () => {
             return;
         }
 
-        const actionType = marketCard.bidPrice >= marketCard.buyNowPrice ? 'buy' : 'bid';
-        const cost = marketCard.bidPrice; // This comes from the modal input or buy now click
+        if (!marketCard.marketId) {
+            setMessageModal({ title: 'Error', message: 'Invalid card data (missing ID).' });
+            return;
+        }
+
+        // --- Fix: Ensure bidPrice is defined (fallback to price if legacy) ---
+        if (marketCard.bidPrice === undefined) {
+             // If legacy data, fallback to using the price field logic
+             if (marketCard.price) {
+                 marketCard.bidPrice = marketCard.price; // Assume it's a Buy Now intent if passed this way
+             } else {
+                 setMessageModal({ title: 'Error', message: 'Invalid pricing data.' });
+                 return;
+             }
+        }
+
+        const safeBuyNowPrice = marketCard.buyNowPrice || marketCard.price || 0;
+        const actionType = marketCard.bidPrice >= safeBuyNowPrice ? 'buy' : 'bid';
+        const cost = marketCard.bidPrice; 
 
         if (gameState.coins < cost) {
              setMessageModal({ title: 'Insufficient Funds', message: 'You do not have enough coins.' });
@@ -449,7 +466,7 @@ const App: React.FC = () => {
                 const cardRef = doc(db, 'market', marketCard.marketId!);
                 const userRef = doc(db, 'users', auth.currentUser!.uid);
 
-                // 1. READS
+                // 1. READS (MUST come before any writes)
                 const cardDoc = await transaction.get(cardRef);
                 const userDoc = await transaction.get(userRef);
                 
@@ -463,59 +480,53 @@ const App: React.FC = () => {
                 if (userData.coins < cost) throw "Insufficient funds (server check)";
 
                 // -- AUTO-RESET LOGIC CHECK --
-                // If expired + no bidder + trying to interact -> Treat as reset first
                 const now = Date.now();
                 const currentExpiry = currentCardData.expiresAt || 0;
                 const durationMs = (currentCardData.durationHours || 24) * 3600000;
                 
                 if (now > currentExpiry && !currentCardData.highestBidderId) {
-                    // It's expired and nobody bid. Reset it.
-                    // But if user is trying to bid NOW, we should probably allow it on the 'reset' cycle?
-                    // Let's assume the reset happens instantly before their bid applies.
-                    // The new expiry would be:
                     const cycles = Math.ceil((now - currentExpiry) / durationMs);
                     const newExpiry = currentExpiry + (cycles * durationMs);
-                    
-                    // We update the local variable to proceed with logic as if it's live
                     currentCardData.expiresAt = newExpiry;
-                    // And queue the update
                     transaction.update(cardRef, { expiresAt: newExpiry });
                 }
 
-                // If expired AND has bidder -> Auction Closed (Buying/Bidding blocked unless you are the winner claiming it - but we handle claiming automatically via payout usually)
                 if (now > currentCardData.expiresAt && currentCardData.highestBidderId) {
                     throw "Auction has ended.";
                 }
 
-                // Logic Branch: BUY NOW vs BID
+                // 2. READ previous bidder data IF NEEDED (must be done before writes)
+                let prevBidderData = null;
+                let prevBidderRef = null;
+                
+                if (currentCardData.highestBidderId) {
+                    prevBidderRef = doc(db, 'users', currentCardData.highestBidderId);
+                    const prevBidderDoc = await transaction.get(prevBidderRef);
+                    if (prevBidderDoc.exists()) {
+                        prevBidderData = prevBidderDoc.data();
+                    }
+                }
+
+                // --- NOW we can perform WRITES ---
+
                 if (actionType === 'buy') {
                     // --- BUY NOW LOGIC ---
                     
-                    // 1. Check if price changed
-                    if (currentCardData.buyNowPrice !== marketCard.buyNowPrice) throw "Price has changed.";
+                    // Legacy support for price vs buyNowPrice
+                    const currentBuyPrice = currentCardData.buyNowPrice || currentCardData.price || 0;
+                    const intendedBuyPrice = marketCard.buyNowPrice || marketCard.price || 0;
 
-                    // 2. Refund Previous Highest Bidder (if exists)
-                    if (currentCardData.highestBidderId) {
-                        const prevBidderRef = doc(db, 'users', currentCardData.highestBidderId);
-                        // We assume prev bidder exists. If safely handled, we use increment.
-                        // Note: Writing to another user document requires permissive rules or backend function.
-                        // With client SDK, we rely on Rules allowing write to specific fields or open rules for MVP.
-                        transaction.update(prevBidderRef, {
-                            coins:  { toMillis: () => 0, isEqual: () => false, valueOf: () => 0 } as any || 0 // Hack for increment type safety in raw TS without import?
-                            // Actually, let's read the doc to be safe if rules allow
-                        });
-                        // Better approach: Read prev bidder doc
-                        const prevBidderDoc = await transaction.get(prevBidderRef);
-                        if (prevBidderDoc.exists()) {
-                            const prevData = prevBidderDoc.data();
-                            transaction.update(prevBidderRef, { coins: (prevData.coins || 0) + currentCardData.bidPrice });
-                        }
+                    if (currentBuyPrice !== intendedBuyPrice) throw "Price has changed.";
+
+                    // Refund Previous Highest Bidder (if exists)
+                    if (currentCardData.highestBidderId && prevBidderRef && prevBidderData) {
+                        transaction.update(prevBidderRef, { coins: (prevBidderData.coins || 0) + currentCardData.bidPrice });
                     }
 
-                    // 3. Delete from Market
+                    // Delete from Market
                     transaction.delete(cardRef);
 
-                    // 4. Update Buyer (Remove coins, Add Card)
+                    // Update Buyer
                     const { marketId, sellerId, price, buyNowPrice, bidPrice, startingPrice, highestBidderId, expiresAt, durationHours, createdAt, ...cardData } = currentCardData;
                     const newCard = { ...cardData, id: `${cardData.id}-${Date.now()}` };
                     
@@ -524,7 +535,7 @@ const App: React.FC = () => {
                         coins: userData.coins - cost
                     });
 
-                    // 5. Pay Seller
+                    // Pay Seller
                     const newPayoutRef = doc(collection(db, 'payouts'));
                     transaction.set(newPayoutRef, {
                         receiverId: currentCardData.sellerId,
@@ -536,27 +547,21 @@ const App: React.FC = () => {
                 } else {
                     // --- BID LOGIC ---
                     
-                    // 1. Validate Bid (Must be > current highest bid)
                     if (cost <= currentCardData.bidPrice && currentCardData.highestBidderId) throw "Bid too low.";
                     if (cost < currentCardData.startingPrice) throw "Bid below starting price.";
 
-                    // 2. Refund Previous Highest Bidder
-                    if (currentCardData.highestBidderId) {
-                        const prevBidderRef = doc(db, 'users', currentCardData.highestBidderId);
-                        const prevBidderDoc = await transaction.get(prevBidderRef);
-                        if (prevBidderDoc.exists()) {
-                            const prevData = prevBidderDoc.data();
-                            transaction.update(prevBidderRef, { coins: (prevData.coins || 0) + currentCardData.bidPrice });
-                        }
+                    // Refund Previous Highest Bidder
+                    if (currentCardData.highestBidderId && prevBidderRef && prevBidderData) {
+                        transaction.update(prevBidderRef, { coins: (prevBidderData.coins || 0) + currentCardData.bidPrice });
                     }
 
-                    // 3. Update Market Card
+                    // Update Market Card
                     transaction.update(cardRef, {
                         bidPrice: cost,
                         highestBidderId: auth.currentUser!.uid
                     });
 
-                    // 4. Deduct Coins from New Bidder
+                    // Deduct Coins from New Bidder
                     transaction.update(userRef, {
                         coins: userData.coins - cost
                     });

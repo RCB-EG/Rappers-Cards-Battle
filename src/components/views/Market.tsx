@@ -60,9 +60,12 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
     );
     
     filtered.sort((a, b) => {
+      const priceA = a.buyNowPrice || a.price || 0;
+      const priceB = b.buyNowPrice || b.price || 0;
+      
       switch (sortBy) {
-        case 'price-desc': return b.buyNowPrice - a.buyNowPrice;
-        case 'price-asc': return a.buyNowPrice - b.buyNowPrice;
+        case 'price-desc': return priceB - priceA;
+        case 'price-asc': return priceA - priceB;
         case 'bid-desc': return b.bidPrice - a.bidPrice;
         case 'ending_soon': return (a.displayExpiresAt || 0) - (b.displayExpiresAt || 0);
         case 'newest': return (b.createdAt || 0) - (a.createdAt || 0);
@@ -77,11 +80,9 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
     if (action === 'cancel') {
         onCancelListing(card);
     } else if (action === 'buy') {
-        // Trigger buy logic via main app handler (which detects it's a Buy Now via price matching)
-        // We pass a modified card object or handle it in App.tsx. 
-        // For now, onBuyCard in App.tsx needs to be smart.
-        // Actually, let's pass the intent implicitly.
-        onBuyCard({ ...card, bidPrice: card.buyNowPrice }); 
+        // Fix: Explicitly check for buyNowPrice, fallback to legacy price, ensure it's a number
+        const safePrice = card.buyNowPrice || card.price || 0;
+        onBuyCard({ ...card, bidPrice: safePrice }); 
     } else if (action === 'bid' && bidAmount) {
         onBuyCard({ ...card, bidPrice: bidAmount });
     }
@@ -131,6 +132,7 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
             const isOwner = card.sellerId === currentUserId;
             const timeLeft = Math.max(0, (card.displayExpiresAt || 0) - now);
             const isWinning = card.highestBidderId === currentUserId;
+            const displayBuyPrice = card.buyNowPrice || card.price || 0;
 
             return (
                 <div key={card.id} className="cursor-pointer relative group w-full max-w-[180px]" onClick={() => setCardToBuy(card)}>
@@ -159,7 +161,7 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
                                 </div>
                                 <div className="flex justify-between w-full px-3 text-xs">
                                     <span className="text-gray-400">Buy</span>
-                                    <span className="text-gold-light font-bold">{card.buyNowPrice}</span>
+                                    <span className="text-gold-light font-bold">{displayBuyPrice}</span>
                                 </div>
                             </>
                         )}
