@@ -18,6 +18,7 @@ interface BattleProps {
     playSfx: (key: keyof typeof sfx) => void;
     musicVolume: number;
     musicOn: boolean;
+    setIsBattleActive: (isActive: boolean) => void;
 }
 
 interface Projectile {
@@ -99,7 +100,7 @@ const packImages: Record<PackType, string> = {
     legendary: 'https://i.postimg.cc/63Fm6md7/Legendary.png',
 };
 
-const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, musicVolume, musicOn }) => {
+const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, musicVolume, musicOn, setIsBattleActive }) => {
     const [phase, setPhase] = useState<'mode_select' | 'selection' | 'tactics' | 'battle' | 'result' | 'pvp'>('mode_select');
     const [subMode, setSubMode] = useState<'ranked' | 'challenge' | 'online'>('ranked');
     const [playerTeam, setPlayerTeam] = useState<BattleCard[]>([]);
@@ -118,6 +119,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     const [shakeCardId, setShakeCardId] = useState<string | null>(null);
     const [shakeIntensity, setShakeIntensity] = useState<number>(0);
     const [showRankRewards, setShowRankRewards] = useState(false);
+    const [showForfeitModal, setShowForfeitModal] = useState(false);
     const [teamSize, setTeamSize] = useState(5);
     const [forcedCpuAttackerId, setForcedCpuAttackerId] = useState<string | null>(null); 
     const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -139,6 +141,13 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     }, [gameState.formation]);
 
     const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
+
+    // Lock navigation when in battle
+    useEffect(() => {
+        const active = phase === 'battle' || phase === 'pvp';
+        setIsBattleActive(active);
+        return () => setIsBattleActive(false);
+    }, [phase, setIsBattleActive]);
 
     // Cleanup music on unmount
     useEffect(() => {
@@ -678,6 +687,12 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         }
     };
 
+    const handleForfeit = () => {
+        // Kill all player cards to trigger game over logic naturally
+        setPlayerTeam(prev => prev.map(c => ({...c, currentHp: 0})));
+        setShowForfeitModal(false);
+    }
+
     if (phase === 'pvp') {
         return (
             <PvPBattle 
@@ -894,7 +909,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                     <Button variant="sell" onClick={() => { 
                         setPhase('mode_select'); 
                         setSelectedCardIds([]); 
-                        stopBattleTheme(musicVolume, musicOn); // Ensure stopped on exit
+                        stopBattleTheme(musicVolume, musicOn); 
                     }}>
                         {t('battle_opt_change_mode')}
                     </Button>
@@ -906,219 +921,239 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     // PvE Battle Render
     const activeAttacker = selectedAttackerId ? playerTeam.find(c => c.instanceId === selectedAttackerId) : null;
 
-    return (
-        <div className="animate-fadeIn relative w-full max-w-6xl mx-auto min-h-[80vh] flex flex-col justify-between py-4">
-            {/* Styles, Particles, Effects */}
-            <style>{`
-                /* Enhanced Projectiles */
-                @keyframes projectile-travel { 
-                    0% { transform: translate(var(--sx), var(--sy)) rotate(var(--angle)); opacity: 1; } 
-                    90% { opacity: 1; }
-                    100% { transform: translate(var(--ex), var(--ey)) rotate(var(--angle)); opacity: 0; } 
-                }
-                .projectile-container {
-                    position: fixed; top: 0; left: 0;
-                    width: 0; height: 0; z-index: 50; pointer-events: none;
-                    animation: projectile-travel 0.45s linear forwards;
-                }
-                .proj-head {
-                    position: absolute; top: -15px; left: -15px; width: 30px; height: 30px;
-                    background: radial-gradient(circle at 30% 30%, #fff, var(--p-color));
-                    border-radius: 50%;
-                    box-shadow: 0 0 15px var(--p-color), 0 0 30px var(--p-color);
-                    filter: brightness(1.5);
-                }
-                .proj-trail {
-                    position: absolute; top: -10px; left: -50px; width: 60px; height: 20px;
-                    background: linear-gradient(to left, var(--p-color), transparent);
-                    filter: blur(4px); opacity: 0.8;
-                    border-radius: 10px;
-                }
-                
-                /* Impact Burst */
-                @keyframes impact-explode {
-                    0% { transform: scale(0.2); opacity: 1; filter: brightness(2); }
-                    50% { opacity: 0.8; }
-                    100% { transform: scale(2.5); opacity: 0; }
-                }
-                .impact-burst {
-                    position: fixed; width: 100px; height: 100px;
-                    background: radial-gradient(circle, #fff 10%, var(--p-color) 60%, transparent 70%);
-                    border-radius: 50%;
-                    transform: translate(-50%, -50%);
-                    z-index: 60; pointer-events: none;
-                    animation: impact-explode 0.4s ease-out forwards;
-                    box-shadow: 0 0 20px var(--p-color);
-                }
+    if (phase === 'battle') {
+        return (
+            <div className="animate-fadeIn relative w-full max-w-6xl mx-auto min-h-[80vh] flex flex-col justify-between py-4">
+                {/* Forfeit Button for PvE */}
+                <div className="absolute top-0 right-0 z-[60]">
+                    <Button variant="sell" onClick={() => setShowForfeitModal(true)} className="py-1 px-3 text-xs bg-red-900/80 border-red-700 hover:bg-red-800">
+                        Give Up
+                    </Button>
+                </div>
 
-                /* Special Effects */
-                @keyframes shockwave-expand {
-                    0% { width: 0; height: 0; opacity: 0.8; border-width: 50px; }
-                    100% { width: 150vmax; height: 150vmax; opacity: 0; border-width: 0; }
-                }
-                .effect-shockwave {
-                    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                    border-radius: 50%; border: 20px solid #00c7e2;
-                    box-shadow: 0 0 50px #00c7e2;
-                    animation: shockwave-expand 0.8s ease-out forwards;
-                    z-index: 40; pointer-events: none;
-                }
-                
-                @keyframes lightning-strike {
-                    0% { opacity: 0; height: 0; }
-                    10% { opacity: 1; height: 100vh; }
-                    20% { opacity: 0; }
-                    30% { opacity: 1; }
-                    100% { opacity: 0; height: 100vh; }
-                }
-                .effect-lightning {
-                    position: fixed; top: 0; width: 10px; 
-                    background: #fff; box-shadow: 0 0 20px #fff, 0 0 40px #00c7e2;
-                    transform-origin: top;
-                    animation: lightning-strike 0.4s ease-out forwards;
-                    z-index: 55;
-                }
+                {/* Confirm Forfeit Modal */}
+                <Modal isOpen={showForfeitModal} onClose={() => setShowForfeitModal(false)} title="Give Up?">
+                    <p className="text-white mb-6">Are you sure you want to forfeit? This will count as a loss.</p>
+                    <div className="flex justify-center gap-4">
+                        <Button variant="sell" onClick={handleForfeit}>Yes, I Give Up</Button>
+                        <Button variant="default" onClick={() => setShowForfeitModal(false)}>Cancel</Button>
+                    </div>
+                </Modal>
 
-                @keyframes slash-anim {
-                    0% { width: 0; opacity: 0; transform: rotate(-45deg) translateX(-50%); }
-                    50% { width: 400px; opacity: 1; }
-                    100% { width: 400px; opacity: 0; transform: rotate(-45deg) translateX(50%); }
-                }
-                .effect-slash {
-                    position: fixed; height: 10px; background: #ff0000;
-                    box-shadow: 0 0 20px #ff0000;
-                    animation: slash-anim 0.3s ease-out forwards;
-                    z-index: 50; transform-origin: center;
-                }
+                {/* Styles, Particles, Effects */}
+                <style>{`
+                    /* Enhanced Projectiles */
+                    @keyframes projectile-travel { 
+                        0% { transform: translate(var(--sx), var(--sy)) rotate(var(--angle)); opacity: 1; } 
+                        90% { opacity: 1; }
+                        100% { transform: translate(var(--ex), var(--ey)) rotate(var(--angle)); opacity: 0; } 
+                    }
+                    .projectile-container {
+                        position: fixed; top: 0; left: 0;
+                        width: 0; height: 0; z-index: 50; pointer-events: none;
+                        animation: projectile-travel 0.45s linear forwards;
+                    }
+                    .proj-head {
+                        position: absolute; top: -15px; left: -15px; width: 30px; height: 30px;
+                        background: radial-gradient(circle at 30% 30%, #fff, var(--p-color));
+                        border-radius: 50%;
+                        box-shadow: 0 0 15px var(--p-color), 0 0 30px var(--p-color);
+                        filter: brightness(1.5);
+                    }
+                    .proj-trail {
+                        position: absolute; top: -10px; left: -50px; width: 60px; height: 20px;
+                        background: linear-gradient(to left, var(--p-color), transparent);
+                        filter: blur(4px); opacity: 0.8;
+                        border-radius: 10px;
+                    }
+                    
+                    /* Impact Burst */
+                    @keyframes impact-explode {
+                        0% { transform: scale(0.2); opacity: 1; filter: brightness(2); }
+                        50% { opacity: 0.8; }
+                        100% { transform: scale(2.5); opacity: 0; }
+                    }
+                    .impact-burst {
+                        position: fixed; width: 100px; height: 100px;
+                        background: radial-gradient(circle, #fff 10%, var(--p-color) 60%, transparent 70%);
+                        border-radius: 50%;
+                        transform: translate(-50%, -50%);
+                        z-index: 60; pointer-events: none;
+                        animation: impact-explode 0.4s ease-out forwards;
+                        box-shadow: 0 0 20px var(--p-color);
+                    }
 
-                @keyframes heal-float {
-                    0% { transform: translateY(0) scale(0.5); opacity: 1; }
-                    100% { transform: translateY(-100px) scale(1.2); opacity: 0; }
-                }
-                .effect-heal-aura {
-                    position: fixed; font-size: 3rem; color: #4ade80; text-shadow: 0 0 10px #22c55e;
-                    animation: heal-float 1.5s ease-out forwards;
-                    z-index: 45;
-                }
+                    /* Special Effects */
+                    @keyframes shockwave-expand {
+                        0% { width: 0; height: 0; opacity: 0.8; border-width: 50px; }
+                        100% { width: 150vmax; height: 150vmax; opacity: 0; border-width: 0; }
+                    }
+                    .effect-shockwave {
+                        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                        border-radius: 50%; border: 20px solid #00c7e2;
+                        box-shadow: 0 0 50px #00c7e2;
+                        animation: shockwave-expand 0.8s ease-out forwards;
+                        z-index: 40; pointer-events: none;
+                    }
+                    
+                    @keyframes lightning-strike {
+                        0% { opacity: 0; height: 0; }
+                        10% { opacity: 1; height: 100vh; }
+                        20% { opacity: 0; }
+                        30% { opacity: 1; }
+                        100% { opacity: 0; height: 100vh; }
+                    }
+                    .effect-lightning {
+                        position: fixed; top: 0; width: 10px; 
+                        background: #fff; box-shadow: 0 0 20px #fff, 0 0 40px #00c7e2;
+                        transform-origin: top;
+                        animation: lightning-strike 0.4s ease-out forwards;
+                        z-index: 55;
+                    }
 
-                @keyframes spotlight-sweep {
-                    0% { opacity: 0; transform: rotate(-30deg) scale(0.8); }
-                    50% { opacity: 0.5; transform: rotate(0deg) scale(1.5); }
-                    100% { opacity: 0; transform: rotate(30deg) scale(0.8); }
-                }
-                .effect-spotlight {
-                    position: fixed; top: -50%; left: 20%; width: 60%; height: 200%;
-                    background: linear-gradient(to bottom, rgba(255,215,0,0.3), transparent);
-                    animation: spotlight-sweep 1.2s ease-in-out;
-                    z-index: 10; pointer-events: none; filter: blur(20px);
-                }
+                    @keyframes slash-anim {
+                        0% { width: 0; opacity: 0; transform: rotate(-45deg) translateX(-50%); }
+                        50% { width: 400px; opacity: 1; }
+                        100% { width: 400px; opacity: 0; transform: rotate(-45deg) translateX(50%); }
+                    }
+                    .effect-slash {
+                        position: fixed; height: 10px; background: #ff0000;
+                        box-shadow: 0 0 20px #ff0000;
+                        animation: slash-anim 0.3s ease-out forwards;
+                        z-index: 50; transform-origin: center;
+                    }
 
-                @keyframes floatUp { 0% { transform: translateY(0) scale(var(--s)); opacity: 1; } 100% { transform: translateY(-80px) scale(var(--s)); opacity: 0; } }
-                
-                @keyframes flash-hit { 0% { opacity: 1; } 100% { opacity: 0; } }
-                .animate-flash-hit { animation: flash-hit 0.2s ease-out; }
+                    @keyframes heal-float {
+                        0% { transform: translateY(0) scale(0.5); opacity: 1; }
+                        100% { transform: translateY(-100px) scale(1.2); opacity: 0; }
+                    }
+                    .effect-heal-aura {
+                        position: fixed; font-size: 3rem; color: #4ade80; text-shadow: 0 0 10px #22c55e;
+                        animation: heal-float 1.5s ease-out forwards;
+                        z-index: 45;
+                    }
 
-                @keyframes shake-extreme { 0%, 100% { transform: translate(0, 0); } 10% { transform: translate(-15px, -15px) rotate(-10deg); filter: brightness(3) saturate(0); } 30% { transform: translate(15px, 15px) rotate(10deg); } 50% { transform: translate(-15px, 15px) rotate(-10deg); } 70% { transform: translate(15px, -15px) rotate(10deg); } 90% { transform: translate(0, 0) scale(1.2); } }
-                .animate-shake-extreme { animation: shake-extreme 0.4s ease-in-out; }
-            `}</style>
+                    @keyframes spotlight-sweep {
+                        0% { opacity: 0; transform: rotate(-30deg) scale(0.8); }
+                        50% { opacity: 0.5; transform: rotate(0deg) scale(1.5); }
+                        100% { opacity: 0; transform: rotate(30deg) scale(0.8); }
+                    }
+                    .effect-spotlight {
+                        position: fixed; top: -50%; left: 20%; width: 60%; height: 200%;
+                        background: linear-gradient(to bottom, rgba(255,215,0,0.3), transparent);
+                        animation: spotlight-sweep 1.2s ease-in-out;
+                        z-index: 10; pointer-events: none; filter: blur(20px);
+                    }
 
-            {hitParticles.map(p => (
-                <div 
-                    key={p.id} 
-                    className="fixed rounded-full pointer-events-none z-50" 
-                    style={{ 
-                        left: p.x, top: p.y, 
-                        width: p.size, height: p.size,
-                        backgroundColor: p.color, 
-                        boxShadow: `0 0 ${p.size*2}px ${p.color}`, 
-                        opacity: Math.min(1, p.life) 
-                    }} 
-                />
-            ))}
-            
-            {projectiles.map(p => {
-                let color = '#ccc';
-                if (p.rarity === 'gold') color = '#ffd700';
-                else if (p.rarity === 'icon') color = '#00c7e2';
-                else if (p.rarity === 'rotm') color = '#e364a7';
-                else if (p.rarity === 'legend' || p.rarity === 'event') color = '#ffffff';
+                    @keyframes floatUp { 0% { transform: translateY(0) scale(var(--s)); opacity: 1; } 100% { transform: translateY(-80px) scale(var(--s)); opacity: 0; } }
+                    
+                    @keyframes flash-hit { 0% { opacity: 1; } 100% { opacity: 0; } }
+                    .animate-flash-hit { animation: flash-hit 0.2s ease-out; }
 
-                const dx = p.endX - p.startX;
-                const dy = p.endY - p.startY;
-                const angle = Math.atan2(dy, dx) + 'rad';
+                    @keyframes shake-extreme { 0%, 100% { transform: translate(0, 0); } 10% { transform: translate(-15px, -15px) rotate(-10deg); filter: brightness(3) saturate(0); } 30% { transform: translate(15px, 15px) rotate(10deg); } 50% { transform: translate(-15px, 15px) rotate(-10deg); } 70% { transform: translate(15px, -15px) rotate(10deg); } 90% { transform: translate(0, 0) scale(1.2); } }
+                    .animate-shake-extreme { animation: shake-extreme 0.4s ease-in-out; }
+                `}</style>
 
-                return (
+                {hitParticles.map(p => (
                     <div 
                         key={p.id} 
-                        className="projectile-container" 
+                        className="fixed rounded-full pointer-events-none z-50" 
                         style={{ 
-                            '--sx': `${p.startX}px`, '--sy': `${p.startY}px`, 
-                            '--ex': `${p.endX}px`, '--ey': `${p.endY}px`, 
-                            '--angle': angle,
-                            '--p-color': color
-                        } as React.CSSProperties}
-                    >
-                        <div className="proj-head"></div>
-                        <div className="proj-trail"></div>
-                    </div>
-                );
-            })}
-
-            {specialEffects.map(eff => {
-                if (eff.type === 'impact-burst') return <div key={eff.id} className="impact-burst" style={{ left: eff.x, top: eff.y, '--p-color': '#fff' } as React.CSSProperties} />;
-                if (eff.type === 'shockwave') return <div key={eff.id} className="effect-shockwave" />;
-                if (eff.type === 'spotlight') return <div key={eff.id} className="effect-spotlight" />;
-                if (eff.type === 'lightning') return <div key={eff.id} className="effect-lightning" style={{ left: eff.x }} />;
-                if (eff.type === 'slash') return <div key={eff.id} className="effect-slash" style={{ left: (eff.x || 0), top: eff.y }} />;
-                if (eff.type === 'notes') return <div key={eff.id} className="effect-notes" style={{ left: eff.x, top: eff.y }}>🎵</div>;
-                if (eff.type === 'poison-cloud') return <div key={eff.id} className="effect-poison-cloud" style={{ left: (eff.x || 0) - 50, top: (eff.y || 0) - 50 }} />;
-                if (eff.type === 'heal-aura') return <div key={eff.id} className="effect-heal-aura" style={{ left: (eff.x || 0) - 20, top: (eff.y || 0) - 50 }}>💚</div>;
-                return null;
-            })}
-
-            {floatingTexts.map(ft => (<div key={ft.id} className="fixed text-5xl font-header font-bold z-50 pointer-events-none drop-shadow-[0_4px_4px_rgba(0,0,0,1)]" style={{ left: ft.x, top: ft.y, color: ft.color, '--s': ft.scale, animation: 'floatUp 1.5s ease-out forwards', textShadow: `0 0 10px ${ft.color}` } as React.CSSProperties}>{ft.text}</div>))}
-
-            <>
-                <div className="flex justify-center gap-2 md:gap-6 perspective-[1000px] flex-wrap">
-                    {cpuTeam.map(card => {
-                        const targetable = turn === 'player' && !!selectedAttackerId && isTargetable(card, cpuTeam);
-                        return (<BattleCardRender key={card.instanceId} card={card} isInteractable={targetable} shakeIntensity={shakeCardId === card.instanceId ? shakeIntensity : 0} onRef={(el) => cardRefs.current[card.instanceId] = el} onClick={() => { const attacker = playerTeam.find(c => c.instanceId === selectedAttackerId); if (attacker) executeAction(attacker, card); }} smallScale={teamSize > 5} />);
-                    })}
-                </div>
-
-                <div className="flex flex-col items-center justify-center gap-4 my-4 relative">
-                    <div className={`text-2xl md:text-3xl font-header px-6 md:px-8 py-2 rounded-full border-2 transition-colors ${turn === 'player' ? 'bg-blue-600/50 border-blue-400 text-white shadow-[0_0_20px_#2563eb]' : 'bg-red-600/50 border-red-400 text-white shadow-[0_0_20px_#dc2626]'}`}>{turn === 'player' ? "YOUR TURN" : "ENEMY TURN"}</div>
-                    <div className="relative w-full max-w-2xl flex justify-center items-start h-20">
-                        {activeAttacker && turn === 'player' ? (
-                            <div className="flex gap-2 animate-fadeIn z-50 relative flex-wrap justify-center">
-                                {selectedAction !== 'standard' && (<div className="absolute -top-12 left-0 right-0 bg-black/90 text-gold-light text-center text-sm p-2 rounded border border-gold-dark/50 animate-fadeIn z-50 shadow-lg whitespace-nowrap">{SUPERPOWER_DESC[selectedAction] || "Special Ability"}</div>)}
-                                <button onClick={() => setSelectedAction('standard')} className={`px-3 md:px-4 py-1 md:py-2 rounded border-2 font-bold transition-all ${selectedAction === 'standard' ? 'bg-white text-black border-gold-light scale-105' : 'bg-black/60 text-gray-300 border-gray-600'}`}>Attack</button>
-                                {activeAttacker.availableSuperpowers.map(sp => {
-                                    const isSilenced = activeAttacker.activeEffects.some(e => e.type === 'silence');
-                                    const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'The Artist', 'Storyteller', 'StoryTeller'].includes(sp);
-                                    return (
-                                        <button key={sp} onClick={() => { if (isSilenced) return; setSelectedAction(sp); if (isImmediate) executeAction(activeAttacker, null, sp); }} disabled={isSilenced} className={`px-3 md:px-4 py-1 md:py-2 rounded border-2 font-bold flex items-center gap-2 transition-all relative ${selectedAction === sp ? 'bg-blue-600 text-white border-blue-300 scale-105 shadow-[0_0_10px_#2563eb]' : 'bg-black/60 text-blue-300 border-blue-800'} ${isSilenced ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
-                                            <span className="text-xs uppercase">{sp}</span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        ) : (<div className="text-center text-gray-300 text-sm font-mono max-w-md bg-black/40 p-2 rounded">{battleLog[0]}</div>)}
-                    </div>
-                </div>
-
-                <div className="flex justify-center gap-2 md:gap-6 flex-wrap">
-                    {playerTeam.map(card => {
-                        const isStunned = card.activeEffects.some(e => e.type === 'stun');
-                        const canAttack = turn === 'player' && card.mode === 'attack' && card.currentHp > 0 && !isStunned;
-                        return (<BattleCardRender key={card.instanceId} card={card} isInteractable={canAttack} isSelected={selectedAttackerId === card.instanceId} shakeIntensity={shakeCardId === card.instanceId ? shakeIntensity : 0} onRef={(el) => cardRefs.current[card.instanceId] = el} onClick={() => { if (canAttack) { setSelectedAttackerId(card.instanceId); setSelectedAction('standard'); } }} smallScale={teamSize > 5} />);
-                    })}
-                </div>
+                            left: p.x, top: p.y, 
+                            width: p.size, height: p.size,
+                            backgroundColor: p.color, 
+                            boxShadow: `0 0 ${p.size*2}px ${p.color}`, 
+                            opacity: Math.min(1, p.life) 
+                        }} 
+                    />
+                ))}
                 
-                <div className="text-center mt-2 text-gray-400 text-sm h-6">{turn === 'player' ? selectedAttackerId ? selectedAction === 'standard' ? "Select a target to attack." : `Target specific card or use ability!` : "Select an active card to command." : "Enemy is plotting..."}</div>
-            </>
-        </div>
-    );
+                {projectiles.map(p => {
+                    let color = '#ccc';
+                    if (p.rarity === 'gold') color = '#ffd700';
+                    else if (p.rarity === 'icon') color = '#00c7e2';
+                    else if (p.rarity === 'rotm') color = '#e364a7';
+                    else if (p.rarity === 'legend' || p.rarity === 'event') color = '#ffffff';
+
+                    const dx = p.endX - p.startX;
+                    const dy = p.endY - p.startY;
+                    const angle = Math.atan2(dy, dx) + 'rad';
+
+                    return (
+                        <div 
+                            key={p.id} 
+                            className="projectile-container" 
+                            style={{ 
+                                '--sx': `${p.startX}px`, '--sy': `${p.startY}px`, 
+                                '--ex': `${p.endX}px`, '--ey': `${p.endY}px`, 
+                                '--angle': angle,
+                                '--p-color': color
+                            } as React.CSSProperties}
+                        >
+                            <div className="proj-head"></div>
+                            <div className="proj-trail"></div>
+                        </div>
+                    );
+                })}
+
+                {specialEffects.map(eff => {
+                    if (eff.type === 'impact-burst') return <div key={eff.id} className="impact-burst" style={{ left: eff.x, top: eff.y, '--p-color': '#fff' } as React.CSSProperties} />;
+                    if (eff.type === 'shockwave') return <div key={eff.id} className="effect-shockwave" />;
+                    if (eff.type === 'spotlight') return <div key={eff.id} className="effect-spotlight" />;
+                    if (eff.type === 'lightning') return <div key={eff.id} className="effect-lightning" style={{ left: eff.x }} />;
+                    if (eff.type === 'slash') return <div key={eff.id} className="effect-slash" style={{ left: (eff.x || 0), top: eff.y }} />;
+                    if (eff.type === 'notes') return <div key={eff.id} className="effect-notes" style={{ left: eff.x, top: eff.y }}>🎵</div>;
+                    if (eff.type === 'poison-cloud') return <div key={eff.id} className="effect-poison-cloud" style={{ left: (eff.x || 0) - 50, top: (eff.y || 0) - 50 }} />;
+                    if (eff.type === 'heal-aura') return <div key={eff.id} className="effect-heal-aura" style={{ left: (eff.x || 0) - 20, top: (eff.y || 0) - 50 }}>💚</div>;
+                    return null;
+                })}
+
+                {floatingTexts.map(ft => (<div key={ft.id} className="fixed text-5xl font-header font-bold z-50 pointer-events-none drop-shadow-[0_4px_4px_rgba(0,0,0,1)]" style={{ left: ft.x, top: ft.y, color: ft.color, '--s': ft.scale, animation: 'floatUp 1.5s ease-out forwards', textShadow: `0 0 10px ${ft.color}` } as React.CSSProperties}>{ft.text}</div>))}
+
+                <>
+                    <div className="flex justify-center gap-2 md:gap-6 perspective-[1000px] flex-wrap">
+                        {cpuTeam.map(card => {
+                            const targetable = turn === 'player' && !!selectedAttackerId && isTargetable(card, cpuTeam);
+                            return (<BattleCardRender key={card.instanceId} card={card} isInteractable={targetable} shakeIntensity={shakeCardId === card.instanceId ? shakeIntensity : 0} onRef={(el) => cardRefs.current[card.instanceId] = el} onClick={() => { const attacker = playerTeam.find(c => c.instanceId === selectedAttackerId); if (attacker) executeAction(attacker, card); }} smallScale={teamSize > 5} />);
+                        })}
+                    </div>
+
+                    <div className="flex flex-col items-center justify-center gap-4 my-4 relative">
+                        <div className={`text-2xl md:text-3xl font-header px-6 md:px-8 py-2 rounded-full border-2 transition-colors ${turn === 'player' ? 'bg-blue-600/50 border-blue-400 text-white shadow-[0_0_20px_#2563eb]' : 'bg-red-600/50 border-red-400 text-white shadow-[0_0_20px_#dc2626]'}`}>{turn === 'player' ? "YOUR TURN" : "ENEMY TURN"}</div>
+                        <div className="relative w-full max-w-2xl flex justify-center items-start h-20">
+                            {activeAttacker && turn === 'player' ? (
+                                <div className="flex gap-2 animate-fadeIn z-50 relative flex-wrap justify-center">
+                                    {selectedAction !== 'standard' && (<div className="absolute -top-12 left-0 right-0 bg-black/90 text-gold-light text-center text-sm p-2 rounded border border-gold-dark/50 animate-fadeIn z-50 shadow-lg whitespace-nowrap">{SUPERPOWER_DESC[selectedAction] || "Special Ability"}</div>)}
+                                    <button onClick={() => setSelectedAction('standard')} className={`px-3 md:px-4 py-1 md:py-2 rounded border-2 font-bold transition-all ${selectedAction === 'standard' ? 'bg-white text-black border-gold-light scale-105' : 'bg-black/60 text-gray-300 border-gray-600'}`}>Attack</button>
+                                    {activeAttacker.availableSuperpowers.map(sp => {
+                                        const isSilenced = activeAttacker.activeEffects.some(e => e.type === 'silence');
+                                        const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'The Artist', 'Storyteller', 'StoryTeller'].includes(sp);
+                                        return (
+                                            <button key={sp} onClick={() => { if (isSilenced) return; setSelectedAction(sp); if (isImmediate) executeAction(activeAttacker, null, sp); }} disabled={isSilenced} className={`px-3 md:px-4 py-1 md:py-2 rounded border-2 font-bold flex items-center gap-2 transition-all relative ${selectedAction === sp ? 'bg-blue-600 text-white border-blue-300 scale-105 shadow-[0_0_10px_#2563eb]' : 'bg-black/60 text-blue-300 border-blue-800'} ${isSilenced ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
+                                                <span className="text-xs uppercase">{sp}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            ) : (<div className="text-center text-gray-300 text-sm font-mono max-w-md bg-black/40 p-2 rounded">{battleLog[0]}</div>)}
+                        </div>
+                    </div>
+
+                    <div className="flex justify-center gap-2 md:gap-6 flex-wrap">
+                        {playerTeam.map(card => {
+                            const isStunned = card.activeEffects.some(e => e.type === 'stun');
+                            const canAttack = turn === 'player' && card.mode === 'attack' && card.currentHp > 0 && !isStunned;
+                            return (<BattleCardRender key={card.instanceId} card={card} isInteractable={canAttack} isSelected={selectedAttackerId === card.instanceId} shakeIntensity={shakeCardId === card.instanceId ? shakeIntensity : 0} onRef={(el) => cardRefs.current[card.instanceId] = el} onClick={() => { if (canAttack) { setSelectedAttackerId(card.instanceId); setSelectedAction('standard'); } }} smallScale={teamSize > 5} />);
+                        })}
+                    </div>
+                    
+                    <div className="text-center mt-2 text-gray-400 text-sm h-6">{turn === 'player' ? selectedAttackerId ? selectedAction === 'standard' ? "Select a target to attack." : `Target specific card or use ability!` : "Select an active card to command." : "Enemy is plotting..."}</div>
+                </>
+            </div>
+        );
+    }
+
+    return null;
 };
 
 export default Battle;

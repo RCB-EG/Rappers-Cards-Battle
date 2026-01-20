@@ -86,6 +86,7 @@ const App: React.FC = () => {
     const [isLoadingAssets, setIsLoadingAssets] = useState(true);
     const [showWelcome, setShowWelcome] = useState(true);
     const [showIntro, setShowIntro] = useState(false);
+    const [isBattleActive, setIsBattleActive] = useState(false); // New state to lock nav
     const [modals, setModals] = useState({
         login: false,
         signup: false,
@@ -1143,6 +1144,7 @@ const App: React.FC = () => {
                             setCurrentView={setView} 
                             t={t}
                             notificationCounts={notificationCounts}
+                            isDisabled={isBattleActive}
                         />
 
                         <div className="view-content min-h-[60vh]">
@@ -1157,7 +1159,17 @@ const App: React.FC = () => {
                             )}
                             {view === 'collection' && <Collection gameState={gameState} setGameState={updateGameState} setCardForOptions={setCardOptions} t={t} />}
                             {view === 'market' && <Market market={gameState.market} onBuyCard={handleMarketAction} onCancelListing={handleCancelListing} currentUserId={currentUser?.username || ''} t={t} userCoins={gameState.coins} />}
-                            {view === 'battle' && <Battle gameState={gameState} onBattleWin={handleBattleResult} t={t} playSfx={playSfx} musicVolume={settings.musicVolume} musicOn={settings.musicOn} />}
+                            {view === 'battle' && (
+                                <Battle 
+                                    gameState={gameState} 
+                                    onBattleWin={handleBattleResult} 
+                                    t={t} 
+                                    playSfx={playSfx} 
+                                    musicVolume={settings.musicVolume} 
+                                    musicOn={settings.musicOn} 
+                                    setIsBattleActive={setIsBattleActive} 
+                                />
+                            )}
                             {view === 'fbc' && <FBC gameState={gameState} onFbcSubmit={handleFbcSubmit} t={t} playSfx={playSfx} />}
                             {view === 'evo' && <Evo gameState={gameState} onStartEvo={handleStartEvo} onClaimEvo={handleClaimEvo} t={t} playSfx={playSfx} />}
                             {view === 'objectives' && <Objectives gameState={gameState} onClaimReward={handleClaimObjective} t={t} />}

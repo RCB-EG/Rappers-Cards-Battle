@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GameState, BattleCard, OnlineBattleState, Rarity, BattleMode, ActiveEffect } from '../../types';
 import Button from '../Button';
+import Modal from '../modals/Modal';
 import BattleCardRender from '../battle/BattleCardRender';
 import { db, auth } from '../../firebaseConfig';
 import { doc, onSnapshot, updateDoc, deleteDoc, collection, query, where, getDocs, runTransaction, limit, orderBy } from 'firebase/firestore';
@@ -19,7 +20,7 @@ interface PvPBattleProps {
     musicOn: boolean;
 }
 
-// Animation Types
+// Animation Types (Copied from Battle for consistency)
 interface Projectile {
     id: number;
     startX: number;
@@ -69,6 +70,9 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
     const [selectedAction, setSelectedAction] = useState<string>('standard');
     const [searchTime, setSearchTime] = useState(0);
     const [isAnimating, setIsAnimating] = useState(false);
+    const [showResultScreen, setShowResultScreen] = useState(false);
+    const [gameResult, setGameResult] = useState<{isWin: boolean, reward: number} | null>(null);
+    const [showForfeitModal, setShowForfeitModal] = useState(false);
     
     // Animation State
     const [projectiles, setProjectiles] = useState<Projectile[]>([]);
@@ -81,7 +85,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
     const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const animationFrameRef = useRef<number | null>(null);
     const lastProcessedMoveRef = useRef<number>(0);
-    // Track if we have processed the "Start of Turn" effects for the current turn ID
     const turnStartProcessedRef = useRef<string | null>(null);
 
     // Initial Team Setup
@@ -120,7 +123,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         return () => { if (animationFrameRef.current) window.cancelAnimationFrame(animationFrameRef.current); };
     }, []);
 
-    // --- Helpers ---
+    // --- Helpers (Same as Battle.tsx for consistency) ---
     const spawnParticles = (x: number, y: number, color: string, amount: number) => {
         const particles: HitParticle[] = [];
         for (let i = 0; i < amount; i++) {
@@ -148,20 +151,15 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         if (target.currentHp <= 0) return false;
         
         const activeTeammates = targetTeam.filter(c => c.currentHp > 0);
-        
-        // 1. Untargetable check
         if (activeTeammates.length > 1 && target.activeEffects.some(e => e.type === 'untargetable')) return false;
         
-        // 2. Taunt check (Taunt overrides Defense priority)
         const taunters = activeTeammates.filter(c => c.activeEffects.some(e => e.type === 'taunt'));
         if (taunters.length > 0) {
             return taunters.some(c => c.instanceId === target.instanceId);
         }
         
-        // 3. Defense Mode Priority
         const defenders = activeTeammates.filter(c => c.mode === 'defense');
         if (defenders.length > 0) {
-            // If target is NOT a defender, it's not targetable
             if (target.mode !== 'defense') return false;
         }
         
@@ -176,7 +174,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         return () => clearInterval(interval);
     }, [status]);
 
-    // Force remove from queue on unmount
     useEffect(() => {
         return () => {
             if (status === 'searching' && auth.currentUser) {
@@ -198,14 +195,13 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
 
         try {
             await runTransaction(db, async (transaction) => {
-                // Find opponent (not self)
-                const q = query(collection(db, 'matchmaking_queue'), orderBy('timestamp', 'asc'), limit(5)); // Fetch a few to find valid one
+                const q = query(collection(db, 'matchmaking_queue'), orderBy('timestamp', 'asc'), limit(5));
                 const snapshot = await getDocs(q);
                 let opponentDoc = null;
                 
                 snapshot.forEach(doc => {
                     if (doc.id !== auth.currentUser?.uid) {
-                        opponentDoc = doc; // Simple FIFO
+                        opponentDoc = doc;
                     }
                 });
 
@@ -245,7 +241,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         }
     };
 
-    // Listen for Battle Creation (If I was in queue)
     useEffect(() => {
         let unsubscribe: () => void;
         if (status === 'searching' && auth.currentUser) {
@@ -254,7 +249,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 snapshot.docChanges().forEach((change) => {
                     if (change.type === 'added') {
                         const data = change.doc.data() as OnlineBattleState;
-                        // Filter out stale battles (older than 2 minutes)
                         if (Date.now() - data.lastMoveTimestamp < 120000) {
                             setBattleId(data.id);
                         }
@@ -265,15 +259,10 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         return () => { if (unsubscribe) unsubscribe(); }
     }, [status]);
 
-    // --- GAME LOOP & TURN PROCESSING ---
-    // This effect runs whenever battleState changes to process "Start of Turn" logic (DoT, Durations)
     useEffect(() => {
         if (!battleState || !auth.currentUser || battleState.winner) return;
 
         const isMyTurn = battleState.turn === auth.currentUser.uid;
-        
-        // Only process if it's MY turn and I haven't processed THIS specific turn state yet
-        // We use lastMoveTimestamp as a unique signature for the turn state
         const turnSignature = `${battleState.turn}-${battleState.lastMoveTimestamp}`;
 
         if (isMyTurn && turnStartProcessedRef.current !== turnSignature) {
@@ -292,13 +281,10 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 const newEffects: ActiveEffect[] = [];
                 
                 card.activeEffects.forEach(effect => {
-                    // Poison Logic
                     if (effect.type === 'poison' && effect.val) {
                         newHp -= effect.val;
                         if (newHp <= 0) diedFromPoison = true;
                     }
-                    
-                    // Duration Logic
                     if (effect.duration > 1) {
                         newEffects.push({ ...effect, duration: effect.duration - 1 });
                     }
@@ -311,10 +297,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 return { ...card, currentHp: Math.max(0, newHp), activeEffects: newEffects };
             });
 
-            // Check Stun to auto-skip? 
-            // Simplified: If all active cards are stunned, skip turn. 
-            // For now, let the user manually pass or click inactive cards (which are blocked).
-
             if (stateChanged) {
                 const battleRef = doc(db, 'battles', battleState.id);
                 const updateData: Partial<OnlineBattleState> = {};
@@ -322,7 +304,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 if (imPlayer1) updateData.player1 = { ...battleState.player1, team: processedTeam };
                 else updateData.player2 = { ...battleState.player2, team: processedTeam };
 
-                // If someone died from poison, check win condition immediately
                 const alive = processedTeam.some(c => c.currentHp > 0);
                 if (!alive) {
                     updateData.winner = imPlayer1 ? battleState.player2.uid : battleState.player1.uid;
@@ -330,15 +311,11 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 }
 
                 if (diedFromPoison) playSfx('battleDebuff');
-                
-                // Write the processed state back so opponent sees the poison damage
                 updateDoc(battleRef, updateData).catch(console.error);
             }
         }
     }, [battleState, auth.currentUser]);
 
-
-    // Sync Battle State
     useEffect(() => {
         if (!battleId) return;
 
@@ -347,9 +324,11 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
             if (docSnap.exists()) {
                 const data = docSnap.data() as OnlineBattleState;
                 setBattleState(data);
-                if (status !== 'active') setStatus('active');
+                
+                if (status === 'lobby' || status === 'searching') {
+                    setStatus('active');
+                }
 
-                // Animation Triggers
                 if (data.lastMoveTimestamp > lastProcessedMoveRef.current) {
                     lastProcessedMoveRef.current = data.lastMoveTimestamp;
                     const lastLog = data.logs[0] || '';
@@ -357,12 +336,15 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     else if (lastLog.includes('used') || lastLog.includes('superpower') || lastLog.includes('ended')) playSfx('battleAttackUltimate');
                 }
 
-                if (data.winner) {
+                if (data.winner && status !== 'finished' && !showResultScreen) {
                     setStatus('finished');
                     const amIWinner = data.winner === auth.currentUser?.uid;
                     if (amIWinner) playSfx('success');
-                    let reward = amIWinner ? Math.floor(500 + (data.player1.team.length + data.player2.team.length) * 10) : 100;
-                    onBattleEnd(reward, amIWinner);
+                    
+                    let rewardAmt = amIWinner ? Math.floor(500 + (data.player1.team.length + data.player2.team.length) * 10) : 100;
+                    setGameResult({ isWin: amIWinner, reward: rewardAmt });
+                    setShowResultScreen(true);
+                    onBattleEnd(rewardAmt, amIWinner);
                 }
             } else {
                 alert("Match connection lost.");
@@ -373,7 +355,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         });
 
         return () => unsubscribe();
-    }, [battleId]);
+    }, [battleId, status, showResultScreen]);
 
     const handleAttack = async (targetId: string | null, actionOverride?: string) => {
         if (!battleState || !auth.currentUser || isAnimating) return;
@@ -382,13 +364,11 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         const actionName = actionOverride || selectedAction;
         const isNonTargeted = ['Chopper', 'Show Maker', 'ShowMaker', 'Notes Master', 'Note Master', 'The Artist', 'Storyteller', 'StoryTeller'].includes(actionName);
         
-        // Validation: If it's a targeted move (standard or special), we need a target
         if (!isNonTargeted && !targetId && !selectedAttackerId) return;
 
         setIsAnimating(true);
         const imPlayer1 = battleState.player1.uid === auth.currentUser.uid;
         
-        // Identify squads
         const mySquad = imPlayer1 ? battleState.player1.team : battleState.player2.team;
         const enemySquad = imPlayer1 ? battleState.player2.team : battleState.player1.team;
 
@@ -400,7 +380,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         let logMsg = '';
         let nextTurn = imPlayer1 ? battleState.player2.uid : battleState.player1.uid;
         
-        // Remove Superpower Charge (if using one)
         if (actionName !== 'standard') {
             const attackerIdx = newMySquad.findIndex(c => c.instanceId === attacker.instanceId);
             if (attackerIdx > -1) {
@@ -411,7 +390,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
             }
         }
 
-        // --- Logic Execution ---
         if (actionName === 'standard') {
             const targetIndex = enemySquad.findIndex(c => c.instanceId === targetId);
             if (targetIndex > -1) {
@@ -428,7 +406,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 }
             }
         } 
-        // --- AoE / Global Specials ---
         else if (actionName === 'Chopper') {
             playSfx('battleAttackUltimate');
             triggerSpecialEffect('shockwave');
@@ -478,12 +455,10 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 logMsg = `${attacker.name} tried to copy stats but no enemies found!`;
             }
         }
-        // --- Targeted Specials ---
         else if (targetId) {
             const targetIndex = enemySquad.findIndex(c => c.instanceId === targetId);
             if (targetIndex > -1) {
                 if (actionName.includes('Rhyme')) {
-                    // Deal 50% ATK immediately THEN apply poison
                     const initialDmg = Math.floor(attacker.atk * 0.5);
                     newEnemySquad[targetIndex] = { ...newEnemySquad[targetIndex], currentHp: Math.max(0, newEnemySquad[targetIndex].currentHp - initialDmg) };
                     newEnemySquad[targetIndex].activeEffects.push({ type: 'poison', duration: 3, val: 50 });
@@ -525,7 +500,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     logMsg = `${attacker.name} drained ${damage} HP from ${newEnemySquad[targetIndex].name}!`;
                     playSfx('battleHeal');
                 } else if (actionName === 'Freestyler') {
-                    // 50% chance for 3x damage, 50% fail
                     const isSuccess = Math.random() > 0.5;
                     if (isSuccess) {
                         const damage = attacker.atk * 3;
@@ -536,23 +510,19 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                         logMsg = `${attacker.name} choked the freestyle... (0 Dmg)`;
                     }
                 } else if (actionName === 'Flow Switcher') {
-                    // Attack normally, but DO NOT switch turn
                     const damage = Math.floor(attacker.atk);
                     newEnemySquad[targetIndex] = { ...newEnemySquad[targetIndex], currentHp: Math.max(0, newEnemySquad[targetIndex].currentHp - damage) };
                     logMsg = `${attacker.name} uses Flow Switcher! Extra Turn!`;
                     playSfx('battleBuff');
-                    // KEEP TURN
                     nextTurn = auth.currentUser.uid;
                 }
                 else {
-                    // Generic damage for unhandled specials
                     const damage = Math.floor(attacker.atk * 1.2);
                     newEnemySquad[targetIndex] = { ...newEnemySquad[targetIndex], currentHp: Math.max(0, newEnemySquad[targetIndex].currentHp - damage) };
                     logMsg = `${attacker.name} used ${actionName} on ${newEnemySquad[targetIndex].name}!`;
                     playSfx('battleAttackMedium');
                 }
                 
-                // Visuals for targeted hit
                 const targetNode = cardRefs.current[targetId];
                 if (targetNode && actionName !== 'Flow Switcher' && actionName !== 'Freestyler') {
                     const rect = targetNode.getBoundingClientRect();
@@ -562,9 +532,8 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         }
 
         const enemyAlive = newEnemySquad.some(c => c.currentHp > 0);
-        // If enemy is dead, no next turn, just winner logic
         const winner = enemyAlive ? null : auth.currentUser.uid;
-        if (!enemyAlive) nextTurn = auth.currentUser.uid; // Doesn't matter, game ends
+        if (!enemyAlive) nextTurn = auth.currentUser.uid; 
 
         const battleRef = doc(db, 'battles', battleState.id);
         const updateData: Partial<OnlineBattleState> = {
@@ -587,6 +556,47 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         setSelectedAction('standard');
         setIsAnimating(false);
     };
+
+    const handleForfeit = async () => {
+        if (!battleId || !battleState || !auth.currentUser) return;
+        try {
+            const battleRef = doc(db, 'battles', battleId);
+            const opponentId = battleState.player1.uid === auth.currentUser.uid ? battleState.player2.uid : battleState.player1.uid;
+            await updateDoc(battleRef, { winner: opponentId, status: 'finished' });
+            setShowForfeitModal(false);
+        } catch (e) {
+            console.error("Error forfeiting:", e);
+        }
+    };
+
+    if (showResultScreen && gameResult) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-8 animate-fadeIn relative">
+                {/* Result Animation Background */}
+                <div className={`absolute inset-0 z-0 ${gameResult.isWin ? 'bg-green-900/30' : 'bg-red-900/30'} pointer-events-none`}>
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#000_100%)]"></div>
+                </div>
+
+                <div className="z-10 flex flex-col items-center gap-6">
+                    <h2 className={`font-header text-8xl drop-shadow-[0_0_25px_rgba(0,0,0,0.8)] animate-bounce ${gameResult.isWin ? 'text-green-400 [text-shadow:0_0_20px_#4ade80]' : 'text-red-500 [text-shadow:0_0_20px_#ef4444]'}`}>
+                        {gameResult.isWin ? "VICTORY" : "DEFEAT"}
+                    </h2>
+                    
+                    <div className="bg-black/60 p-8 rounded-2xl border-2 border-gold-dark/50 backdrop-blur-sm shadow-[0_0_50px_rgba(0,0,0,0.5)] transform hover:scale-105 transition-transform">
+                        <p className="text-3xl text-white mb-4 font-header">Reward Claimed</p>
+                        <div className="flex flex-col items-center gap-2">
+                            <span className="text-6xl text-blue-glow font-bold font-header drop-shadow-md">{gameResult.reward} BP</span>
+                            <span className="text-gray-400 text-sm uppercase tracking-widest border-t border-gray-600 pt-2 w-full text-center">Battle Points</span>
+                        </div>
+                    </div>
+                    
+                    <Button variant={gameResult.isWin ? 'cta' : 'default'} onClick={onExit} className="px-16 py-4 text-2xl shadow-lg mt-8">
+                        Return to Menu
+                    </Button>
+                </div>
+            </div>
+        );
+    }
 
     if (status === 'lobby') {
         return (
@@ -639,6 +649,22 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         return (
             <div className="relative w-full max-w-6xl mx-auto min-h-[80vh] flex flex-col justify-between py-4 animate-fadeIn">
                 
+                {/* Custom Modal for Forfeit */}
+                <Modal isOpen={showForfeitModal} onClose={() => setShowForfeitModal(false)} title="Forfeit Match?">
+                    <p className="text-white mb-6">Are you sure you want to give up? This will count as a loss.</p>
+                    <div className="flex justify-center gap-4">
+                        <Button variant="sell" onClick={handleForfeit}>Yes, Forfeit</Button>
+                        <Button variant="default" onClick={() => setShowForfeitModal(false)}>Cancel</Button>
+                    </div>
+                </Modal>
+
+                {/* Forfeit Button for PvP */}
+                <div className="absolute top-0 right-0 z-[60]">
+                    <Button variant="sell" onClick={() => setShowForfeitModal(true)} className="py-1 px-3 text-xs bg-red-900/80 border-red-700 hover:bg-red-800">
+                        Give Up
+                    </Button>
+                </div>
+
                 <style>{`
                     .projectile-container { position: fixed; top: 0; left: 0; width: 0; height: 0; z-index: 50; pointer-events: none; }
                     .impact-burst { position: fixed; width: 100px; height: 100px; background: radial-gradient(circle, #fff 10%, transparent 70%); animation: impact-explode 0.4s ease-out forwards; pointer-events: none; z-index: 60; }
