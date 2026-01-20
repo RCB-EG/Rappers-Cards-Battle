@@ -213,8 +213,18 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     
                     const initialState: OnlineBattleState = {
                         id: newBattleId,
-                        player1: { uid: opponentData.userId, username: opponentData.username, team: opponentData.team },
-                        player2: { uid: auth.currentUser!.uid, username: gameState.userProfile?.username || 'Player 2', team: myTeam },
+                        player1: { 
+                            uid: opponentData.userId, 
+                            username: opponentData.username, 
+                            avatar: opponentData.avatar || null,
+                            team: opponentData.team 
+                        },
+                        player2: { 
+                            uid: auth.currentUser!.uid, 
+                            username: gameState.userProfile?.username || 'Player 2', 
+                            avatar: gameState.userProfile?.avatar || null,
+                            team: myTeam 
+                        },
                         turn: opponentData.userId,
                         winner: null,
                         lastMoveTimestamp: Date.now(),
@@ -230,6 +240,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     transaction.set(myRef, {
                         userId: auth.currentUser!.uid,
                         username: gameState.userProfile?.username || 'Player 1',
+                        avatar: gameState.userProfile?.avatar || null,
                         team: myTeam,
                         timestamp: Date.now()
                     });
@@ -337,17 +348,20 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     else if (lastLog.includes('used') || lastLog.includes('superpower') || lastLog.includes('ended')) playSfx('battleAttackUltimate');
                 }
 
-                if (data.winner && status !== 'finished' && !showResultScreen) {
-                    setStatus('finished');
+                if (data.winner && !showResultScreen) {
                     const amIWinner = data.winner === auth.currentUser?.uid;
-                    if (amIWinner) playSfx('success');
-                    
-                    // FIXED REWARD: Winner 100, Loser 25
-                    let rewardAmt = amIWinner ? 100 : 25;
-                    
-                    setGameResult({ isWin: amIWinner, reward: rewardAmt });
-                    setShowResultScreen(true);
-                    onBattleEnd(rewardAmt, amIWinner);
+                    // Only trigger if we aren't already finished locally
+                    if (status !== 'finished') {
+                        setStatus('finished');
+                        if (amIWinner) playSfx('success');
+                        
+                        // FIXED REWARD: Winner 100, Loser 25
+                        const rewardAmt = amIWinner ? 100 : 25;
+                        setGameResult({ isWin: amIWinner, reward: rewardAmt });
+                        setShowResultScreen(true);
+                        // Trigger App callback for data persistence
+                        onBattleEnd(rewardAmt, amIWinner);
+                    }
                 }
             } else {
                 alert("Match connection lost.");
@@ -634,7 +648,10 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         const imPlayer1 = battleState.player1.uid === auth.currentUser.uid;
         const mySquad = (imPlayer1 ? battleState.player1.team : battleState.player2.team) || [];
         const enemySquad = (imPlayer1 ? battleState.player2.team : battleState.player1.team) || [];
-        const enemyName = (imPlayer1 ? battleState.player2.username : battleState.player1.username) || "Opponent";
+        
+        const enemyData = imPlayer1 ? battleState.player2 : battleState.player1;
+        const enemyName = enemyData.username || "Opponent";
+        const enemyAvatar = enemyData.avatar || `https://api.dicebear.com/8.x/bottts/svg?seed=${enemyName}`;
         
         if (enemySquad.length === 0) {
             return (
@@ -679,7 +696,10 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
 
                 {/* --- Top: Enemy --- */}
                 <div className="flex flex-col items-center flex-shrink-0">
-                    <div className="text-red-400 font-header text-xl mb-1 drop-shadow-md">{enemyName}</div>
+                    <div className="flex items-center gap-3 mb-2">
+                        <img src={enemyAvatar} alt="Opponent" className="w-10 h-10 rounded-full border-2 border-red-500 bg-gray-800" />
+                        <div className="text-red-400 font-header text-xl drop-shadow-md">{enemyName}</div>
+                    </div>
                     <div className="flex justify-center gap-1 md:gap-2 flex-wrap max-w-full">
                         {enemySquad.map(card => {
                             const isTarget = isTargetable(card, enemySquad);

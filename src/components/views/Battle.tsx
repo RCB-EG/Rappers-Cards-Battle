@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GameState, Card as CardType, Rarity, PackType, Rank, BattleCard, ActiveEffect, BattleMode } from '../../types';
+import { GameState, Card as CardType, Rarity, PackType, Rank, BattleCard, ActiveEffect, BattleMode, BattleInvite, User } from '../../types';
 import Card from '../Card';
 import Button from '../Button';
 import Modal from '../modals/Modal';
@@ -19,6 +19,9 @@ interface BattleProps {
     musicVolume: number;
     musicOn: boolean;
     setIsBattleActive: (isActive: boolean) => void;
+    setupInvite?: BattleInvite | null; // Trigger for invite setup flow
+    onStartInviteBattle?: (team: BattleCard[]) => void; // Callback to finalize invite
+    currentUser?: User | null;
 }
 
 interface Projectile {
@@ -100,9 +103,9 @@ const packImages: Record<PackType, string> = {
     legendary: 'https://i.postimg.cc/63Fm6md7/Legendary.png',
 };
 
-const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, musicVolume, musicOn, setIsBattleActive }) => {
+const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, musicVolume, musicOn, setIsBattleActive, setupInvite, onStartInviteBattle, currentUser }) => {
     const [phase, setPhase] = useState<'mode_select' | 'selection' | 'tactics' | 'battle' | 'result' | 'pvp'>('mode_select');
-    const [subMode, setSubMode] = useState<'ranked' | 'challenge' | 'online'>('ranked');
+    const [subMode, setSubMode] = useState<'ranked' | 'challenge' | 'online' | 'invite'>('ranked');
     const [playerTeam, setPlayerTeam] = useState<BattleCard[]>([]);
     const [cpuTeam, setCpuTeam] = useState<BattleCard[]>([]);
     const [turn, setTurn] = useState<'player' | 'cpu'>('player');
@@ -142,6 +145,16 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
 
     const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
 
+    // Handle incoming invite setup
+    useEffect(() => {
+        if (setupInvite) {
+            setSubMode('invite');
+            setPhase('selection');
+            setTeamSize(5); // Default for invites
+            setSelectedCardIds([]); // Reset selection
+        }
+    }, [setupInvite]);
+
     // Lock navigation when in battle
     useEffect(() => {
         const active = phase === 'battle' || phase === 'pvp';
@@ -161,7 +174,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         if (subMode === 'ranked') {
             const config = rankSystem[gameState.rank];
             setTeamSize(config.teamSize);
-        } else if (subMode === 'online') {
+        } else if (subMode === 'online' || subMode === 'invite') {
             // PvP Fixed size for now to simplify syncing
             setTeamSize(5);
         } else {
@@ -527,7 +540,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         if (!playerAlive) {
             setPhase('result');
             stopBattleTheme(musicVolume, musicOn); 
-            onBattleWin(0, false, subMode === 'online' ? 'challenge' : subMode, playerTeam); 
+            onBattleWin(0, false, subMode === 'online' || subMode === 'invite' ? 'challenge' : subMode, playerTeam); 
         } else if (!cpuAlive) {
             const cpuStrength = cpuTeam.reduce((sum, c) => sum + c.ovr, 0);
             const basePoints = Math.floor(cpuStrength * 0.6);
@@ -542,13 +555,13 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
             setPhase('result');
             stopBattleTheme(musicVolume, musicOn); 
             playSfx('success');
-            onBattleWin(calculatedReward, true, subMode === 'online' ? 'challenge' : subMode, playerTeam); 
+            onBattleWin(calculatedReward, true, subMode === 'online' || subMode === 'invite' ? 'challenge' : subMode, playerTeam); 
         }
     }, [playerTeam, cpuTeam, phase, subMode]);
 
     // --- EFFECT 3: CPU AI Logic ---
     useEffect(() => {
-        if (phase !== 'battle' || turn !== 'cpu' || isAnimating || skipNextTurn === 'cpu' || subMode === 'online') return;
+        if (phase !== 'battle' || turn !== 'cpu' || isAnimating || skipNextTurn === 'cpu' || subMode === 'online' || subMode === 'invite') return;
 
         let difficulty = 'normal';
         if (subMode === 'ranked') {
@@ -632,6 +645,12 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     };
 
     const startBattle = () => {
+        // Invite Flow - Delegate to App via callback
+        if (subMode === 'invite' && onStartInviteBattle) {
+            onStartInviteBattle(playerTeam);
+            return;
+        }
+
         let ovrRange: [number, number] = [60, 70];
         
         if (subMode === 'ranked') {
@@ -809,6 +828,114 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                 </Modal>
             </div>
         )
+    }
+
+    if (phase === 'selection') {
+        const canStart = selectedCardIds.length === teamSize;
+        return (
+            <div className="animate-fadeIn flex flex-col items-center p-4">
+                <h2 className="font-header text-4xl text-white mb-6">Select Your Squad</h2>
+                <div className="text-gray-400 mb-4 text-center">
+                    Select <span className="text-gold-light font-bold">{teamSize}</span> cards for this battle.
+                    {subMode === 'challenge' && (
+                        <div className="mt-2 text-sm">
+                            <span className="mr-2 text-gray-500">Mode:</span>
+                            <select value={teamSize} onChange={(e) => { setTeamSize(Number(e.target.value)); setSelectedCardIds([]); }} className="bg-darker-gray text-white p-1 rounded border border-gray-600">
+                                <option value={5}>5v5</option>
+                                <option value={6}>6v6</option>
+                                <option value={7}>7v7</option>
+                                <option value={8}>8v8</option>
+                            </select>
+                        </div>
+                    )}
+                </div>
+                
+                <div className="flex flex-wrap justify-center gap-4 mb-20 max-w-5xl">
+                    {availableCards.map(card => {
+                        const isSelected = selectedCardIds.includes(card.id);
+                        return (
+                            <div key={card.id} onClick={() => handleCardSelect(card.id)} className={`relative cursor-pointer transition-all duration-200 ${isSelected ? 'scale-105 ring-4 ring-green-500 rounded-lg shadow-[0_0_15px_#22c55e]' : 'hover:scale-105 opacity-80 hover:opacity-100'}`}>
+                                <Card card={card} className="!w-[100px] !h-[150px]" />
+                                {isSelected && <div className="absolute top-2 right-2 bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center font-bold text-xs border border-white">✓</div>}
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="fixed bottom-0 left-0 right-0 bg-black/80 p-4 border-t border-gold-dark/30 flex justify-center gap-4 backdrop-blur-md z-50">
+                    <Button variant="default" onClick={() => { setPhase('mode_select'); setSelectedCardIds([]); }}>Back</Button>
+                    <Button variant="cta" onClick={goToTactics} disabled={!canStart} className="w-48 shadow-lg">Next: Tactics</Button>
+                </div>
+            </div>
+        );
+    }
+
+    if (phase === 'tactics') {
+        const avgOvr = Math.round(playerTeam.reduce((sum, c) => sum + c.ovr, 0) / playerTeam.length);
+        const totalAtk = playerTeam.reduce((sum, c) => sum + c.atk, 0);
+        
+        return (
+            <div className="animate-fadeIn flex flex-col items-center p-4 min-h-screen pb-32">
+                <h2 className="font-header text-4xl text-white mb-2">Tactics Setup</h2>
+                <p className="text-gray-400 mb-6 text-center text-sm md:text-base">Tap card to toggle <span className="text-red-400 font-bold">ATTACK</span> / <span className="text-blue-400 font-bold">DEFENSE</span> mode.<br/>Defense doubles HP but removes ATK.</p>
+                
+                <div className="flex flex-wrap justify-center gap-6 mb-8 w-full max-w-6xl">
+                    {playerTeam.map(card => (
+                        <div key={card.instanceId} onClick={() => toggleCardMode(card.instanceId)} className="flex flex-col items-center cursor-pointer group">
+                            <div className="relative">
+                                <BattleCardRender card={card} isInteractable={false} shakeIntensity={0} onRef={() => {}} smallScale={false} />
+                                <div className={`absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg`}>
+                                    <span className="font-header text-white text-xl">Switch</span>
+                                </div>
+                            </div>
+                            <div className={`mt-2 px-3 py-1 rounded text-xs font-bold uppercase tracking-wider ${card.mode === 'attack' ? 'bg-red-900/50 text-red-300 border border-red-800' : 'bg-blue-900/50 text-blue-300 border border-blue-800'}`}>
+                                {card.mode}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="bg-black/40 p-4 rounded-xl border border-gray-700 flex gap-8 mb-4">
+                    <div className="text-center"><p className="text-gray-400 text-xs">AVG OVR</p><p className="text-gold-light font-header text-2xl">{avgOvr}</p></div>
+                    <div className="text-center"><p className="text-gray-400 text-xs">TOTAL ATK</p><p className="text-red-400 font-header text-2xl">{totalAtk}</p></div>
+                </div>
+
+                <div className="fixed bottom-0 left-0 right-0 bg-black/80 p-4 border-t border-gold-dark/30 flex justify-center gap-4 backdrop-blur-md z-50">
+                    <Button variant="default" onClick={() => setPhase('selection')}>Back</Button>
+                    <Button variant="cta" onClick={handleBattleStart} className="w-48 shadow-blue-glow animate-pulse">Start Battle</Button>
+                </div>
+            </div>
+        );
+    }
+
+    if (phase === 'result') {
+        const isWin = reward > 0;
+        return (
+            <div className="animate-fadeIn flex flex-col items-center justify-center min-h-[60vh] gap-6 text-center">
+                <h2 className={`font-header text-6xl md:text-8xl drop-shadow-[0_0_20px_rgba(0,0,0,0.8)] ${isWin ? 'text-green-400' : 'text-red-500'}`}>{isWin ? "VICTORY" : "DEFEAT"}</h2>
+                
+                {isWin && (
+                    <div className="bg-black/40 p-6 rounded-xl border border-gold-dark/50 flex flex-col items-center gap-2 animate-bounce">
+                        <span className="text-gray-300 uppercase tracking-widest text-sm">Reward</span>
+                        <div className="flex items-center gap-2">
+                            <span className="text-4xl">💰</span>
+                            <span className="font-header text-5xl text-gold-light">{reward}</span>
+                        </div>
+                    </div>
+                )}
+
+                <div className="flex flex-col gap-3 mt-8 w-full max-w-xs">
+                    {/* Only show "Same Tactics" for PvE Challenge mode */}
+                    {subMode === 'challenge' && (
+                        <Button variant="keep" onClick={restartSameTactics} className="w-full">{t('battle_opt_same_tactics')}</Button>
+                    )}
+                    
+                    <Button variant="default" onClick={() => setPhase('tactics')} className="w-full">{t('battle_opt_change_tactics')}</Button>
+                    <Button variant="default" onClick={() => { setPhase('selection'); setSelectedCardIds([]); }} className="w-full">{t('battle_opt_new_squad')}</Button>
+                    <Button variant="sell" onClick={() => setPhase('mode_select')} className="w-full mt-4">{t('battle_opt_change_mode')}</Button>
+                </div>
+            </div>
+        );
     }
 
     // PvE Battle Render

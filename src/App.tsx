@@ -99,8 +99,9 @@ const App: React.FC = () => {
     const [unreadChatCount, setUnreadChatCount] = useState(0);
     const [unreadFromFriends, setUnreadFromFriends] = useState<Set<string>>(new Set());
     
-    // Special Battle Override
+    // Special Battle States
     const [directBattleId, setDirectBattleId] = useState<string | null>(null);
+    const [setupInvite, setSetupInvite] = useState<BattleInvite | null>(null); // Invite currently being set up
 
     const [modals, setModals] = useState({
         login: false,
@@ -298,41 +299,45 @@ const App: React.FC = () => {
         };
     }, [firebaseUser, playSfx]);
 
-    const handleAcceptInvite = async () => {
-        if (!incomingInvite || !firebaseUser) return;
-        
+    // Called when user clicks "Accept" on invite modal
+    const handleAcceptInvite = () => {
+        if (!incomingInvite) return;
+        setIncomingInvite(null);
+        setSetupInvite(incomingInvite);
+        setView('battle'); // Go to battle view to start setup (selection/tactics)
+    };
+
+    // Called by Battle component when user finishes setup and clicks "Start"
+    const handleFinalizeInviteStart = async (selectedTeam: BattleCard[]) => {
+        if (!setupInvite || !firebaseUser) return;
+
         try {
-            // Create the Battle Room immediately
             const newBattleId = `battle_${Date.now()}_invite`;
             const battleRef = doc(db, 'battles', newBattleId);
             
-            // Need opponent data, fetch briefly
-            const opponentDoc = await getDoc(doc(db, 'users', incomingInvite.fromUid));
+            // Need opponent data for avatar/username
+            const opponentDoc = await getDoc(doc(db, 'users', setupInvite.fromUid));
             if (!opponentDoc.exists()) {
                 alert("Opponent data missing.");
+                setSetupInvite(null);
                 return;
             }
-            const opponentData = opponentDoc.data();
-            
-            // Prepare my team stats
-            const myTeam = Object.values(gameStateRef.current.formation).filter((c): c is GameCard => !!c).map((card, i) => ({
+            const opponentData = opponentDoc.data() as GameState;
+            const opponentProfile = opponentData.userProfile;
+            const myProfile = gameStateRef.current.userProfile;
+
+            // My Team (Player 2)
+            const myTeam = selectedTeam.map((card, i) => ({
                 ...card,
                 instanceId: `${firebaseUser.uid}-${i}-${card.id}`,
-                maxHp: card.ovr * 10, // Simple calc for now, Battle component recalculates usually but we need initial structure
-                currentHp: card.ovr * 10,
-                atk: card.ovr,
-                mode: 'attack' as any,
-                owner: 'player' as any,
-                specialSlots: 1,
-                availableSuperpowers: [...card.superpowers],
-                activeEffects: [],
-                attacksRemaining: 1
             }));
 
+            // Opponent Team (Player 1) - Currently grabs their active formation
+            // Ideally, the invite sender would have 'locked in' a team, but for now we pull their current formation
             const opponentTeamCards = (Object.values(opponentData.formation || {}) as GameCard[]).filter(Boolean);
             const opponentTeam = opponentTeamCards.map((card, i) => ({
                 ...card,
-                instanceId: `${incomingInvite.fromUid}-${i}-${card.id}`,
+                instanceId: `${setupInvite.fromUid}-${i}-${card.id}`,
                 maxHp: card.ovr * 10,
                 currentHp: card.ovr * 10,
                 atk: card.ovr,
@@ -346,9 +351,19 @@ const App: React.FC = () => {
 
             const initialState: OnlineBattleState = {
                 id: newBattleId,
-                player1: { uid: incomingInvite.fromUid, username: incomingInvite.fromName, team: opponentTeam },
-                player2: { uid: firebaseUser.uid, username: gameStateRef.current.userProfile?.username || 'P2', team: myTeam },
-                turn: incomingInvite.fromUid, // Challenger starts
+                player1: { 
+                    uid: setupInvite.fromUid, 
+                    username: opponentProfile?.username || 'Opponent', 
+                    avatar: opponentProfile?.avatar || null,
+                    team: opponentTeam 
+                },
+                player2: { 
+                    uid: firebaseUser.uid, 
+                    username: myProfile?.username || 'Me', 
+                    avatar: myProfile?.avatar || null,
+                    team: myTeam 
+                },
+                turn: setupInvite.fromUid, // Challenger starts
                 winner: null,
                 lastMoveTimestamp: Date.now(),
                 logs: ['Friend Battle Started!'],
@@ -357,16 +372,15 @@ const App: React.FC = () => {
 
             await setDoc(battleRef, initialState);
             
-            // Update Invite to 'accepted' and store battleId so sender knows where to go (if they were listening)
-            await updateDoc(doc(db, 'battle_invites', incomingInvite.id), { status: 'accepted', battleId: newBattleId });
+            // Update Invite to 'accepted' and store battleId so sender knows where to go
+            await updateDoc(doc(db, 'battle_invites', setupInvite.id), { status: 'accepted', battleId: newBattleId });
 
-            // Start Game Locally
-            setIncomingInvite(null);
+            setSetupInvite(null);
             setDirectBattleId(newBattleId);
-            setView('battle');
             
         } catch (e) {
-            console.error("Error accepting invite", e);
+            console.error("Error starting invite battle", e);
+            setSetupInvite(null);
         }
     };
 
@@ -1373,6 +1387,9 @@ const App: React.FC = () => {
                                         musicVolume={settings.musicVolume} 
                                         musicOn={settings.musicOn} 
                                         setIsBattleActive={setIsBattleActive} 
+                                        setupInvite={setupInvite}
+                                        onStartInviteBattle={handleFinalizeInviteStart}
+                                        currentUser={currentUser}
                                     />
                                 )
                             )}

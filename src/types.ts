@@ -60,11 +60,13 @@ export interface OnlineBattleState {
     player1: {
         uid: string;
         username: string;
+        avatar?: string;
         team: BattleCard[];
     };
     player2: {
         uid: string;
         username: string;
+        avatar?: string;
         team: BattleCard[];
     };
     turn: string; // uid of the current turn
