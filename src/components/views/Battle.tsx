@@ -4,7 +4,7 @@ import { GameState, Card as CardType, Rarity, PackType, Rank, BattleCard, Active
 import Card from '../Card';
 import Button from '../Button';
 import Modal from '../modals/Modal';
-import { allCards, superpowerIcons, rankSystem, playerPickConfigs } from '../../data/gameData';
+import { allCards, superpowerIcons, rankSystem, playerPickConfigs, blitzRankSystem } from '../../data/gameData';
 import { TranslationKey } from '../../utils/translations';
 import { sfx } from '../../data/sounds';
 import { playBattleTheme, stopBattleTheme } from '../../utils/sound';
@@ -13,7 +13,7 @@ import PvPBattle from './PvPBattle';
 
 interface BattleProps {
     gameState: GameState;
-    onBattleWin: (amount: number, isWin: boolean, mode: 'ranked' | 'challenge', squad: CardType[]) => void;
+    onBattleWin: (amount: number, isWin: boolean, mode: 'ranked' | 'challenge' | 'blitz', squad: CardType[]) => void;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
     playSfx: (key: keyof typeof sfx) => void;
     musicVolume: number;
@@ -105,7 +105,7 @@ const packImages: Record<PackType, string> = {
 
 const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, musicVolume, musicOn, setIsBattleActive, setupInvite, onStartInviteBattle, currentUser }) => {
     const [phase, setPhase] = useState<'mode_select' | 'selection' | 'tactics' | 'battle' | 'result' | 'pvp'>('mode_select');
-    const [subMode, setSubMode] = useState<'ranked' | 'challenge' | 'online' | 'invite'>('ranked');
+    const [subMode, setSubMode] = useState<'ranked' | 'challenge' | 'online' | 'invite' | 'blitz'>('ranked');
     const [playerTeam, setPlayerTeam] = useState<BattleCard[]>([]);
     const [cpuTeam, setCpuTeam] = useState<BattleCard[]>([]);
     const [turn, setTurn] = useState<'player' | 'cpu'>('player');
@@ -122,6 +122,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     const [shakeCardId, setShakeCardId] = useState<string | null>(null);
     const [shakeIntensity, setShakeIntensity] = useState<number>(0);
     const [showRankRewards, setShowRankRewards] = useState(false);
+    const [showBlitzRewards, setShowBlitzRewards] = useState(false);
     const [showForfeitModal, setShowForfeitModal] = useState(false);
     const [teamSize, setTeamSize] = useState(5);
     const [forcedCpuAttackerId, setForcedCpuAttackerId] = useState<string | null>(null); 
@@ -174,7 +175,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         if (subMode === 'ranked') {
             const config = rankSystem[gameState.rank];
             setTeamSize(config.teamSize);
-        } else if (subMode === 'online' || subMode === 'invite') {
+        } else if (subMode === 'online' || subMode === 'invite' || subMode === 'blitz') {
             // PvP Fixed size for now to simplify syncing
             setTeamSize(5);
         } else {
@@ -297,6 +298,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     };
 
     const executeAction = async (attacker: BattleCard, target: BattleCard | null, actionOverride?: string) => {
+        // [Existing executeAction implementation remains unchanged...]
         if (isAnimating) return;
         try {
             setIsAnimating(true);
@@ -547,7 +549,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         if (!playerAlive) {
             setPhase('result');
             stopBattleTheme(musicVolume, musicOn); 
-            onBattleWin(0, false, subMode === 'online' || subMode === 'invite' ? 'challenge' : subMode, playerTeam); 
+            onBattleWin(0, false, subMode === 'online' || subMode === 'invite' || subMode === 'blitz' ? 'challenge' : subMode, playerTeam); 
         } else if (!cpuAlive) {
             const cpuStrength = cpuTeam.reduce((sum, c) => sum + c.ovr, 0);
             const basePoints = Math.floor(cpuStrength * 0.6);
@@ -562,13 +564,15 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
             setPhase('result');
             stopBattleTheme(musicVolume, musicOn); 
             playSfx('success');
-            onBattleWin(calculatedReward, true, subMode === 'online' || subMode === 'invite' ? 'challenge' : subMode, playerTeam); 
+            // Pass 'blitz' mode if relevant so App.tsx can handle blitz rank updates
+            const resultMode = subMode === 'online' || subMode === 'invite' ? 'challenge' : subMode;
+            onBattleWin(calculatedReward, true, resultMode as 'ranked' | 'challenge' | 'blitz', playerTeam); 
         }
     }, [playerTeam, cpuTeam, phase, subMode]);
 
     // --- EFFECT 3: CPU AI Logic ---
     useEffect(() => {
-        if (phase !== 'battle' || turn !== 'cpu' || isAnimating || skipNextTurn === 'cpu' || subMode === 'online' || subMode === 'invite') return;
+        if (phase !== 'battle' || turn !== 'cpu' || isAnimating || skipNextTurn === 'cpu' || subMode === 'online' || subMode === 'invite' || subMode === 'blitz') return;
 
         let difficulty = 'normal';
         if (subMode === 'ranked') {
@@ -711,7 +715,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     };
 
     const handleBattleStart = () => {
-        if (subMode === 'online') {
+        if (subMode === 'online' || subMode === 'blitz') {
             setPhase('pvp');
         } else {
             startBattle();
@@ -729,113 +733,187 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
             <PvPBattle 
                 gameState={gameState}
                 preparedTeam={playerTeam}
-                onBattleEnd={(reward, isWin) => onBattleWin(reward, isWin, 'challenge', [])} 
+                onBattleEnd={(reward, isWin) => onBattleWin(reward, isWin, subMode === 'blitz' ? 'blitz' : 'challenge', [])} 
                 onExit={() => { setPhase('mode_select'); stopBattleTheme(musicVolume, musicOn); }}
                 playSfx={playSfx}
                 musicVolume={musicVolume}
                 musicOn={musicOn}
+                blitzMode={subMode === 'blitz'} // Pass Blitz flag
             />
         );
     }
 
     if (phase === 'mode_select') {
         return (
-            <div className="animate-fadeIn flex flex-col items-center justify-center min-h-[60vh] gap-8">
+            <div className="animate-fadeIn flex flex-col items-center justify-center min-h-[60vh] gap-8 pb-10">
                 <h2 className="font-header text-5xl text-white mb-6 drop-shadow-[0_0_10px_#00c7e2]">Choose Your Path</h2>
-                <div className="flex flex-col md:flex-row gap-8 w-full max-w-5xl justify-center px-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 w-full max-w-7xl justify-center px-4">
                     {/* Ranked */}
-                    <div className="flex-1 flex flex-col items-center gap-4">
-                        <div onClick={() => { setSubMode('ranked'); setPhase('selection'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-gold-dark/50 hover:border-gold-light rounded-xl p-8 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(255,215,0,0.1)] hover:shadow-[0_0_30px_rgba(255,215,0,0.3)] h-full justify-between">
+                    <div className="flex flex-col items-center gap-4">
+                        <div onClick={() => { setSubMode('ranked'); setPhase('selection'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-gold-dark/50 hover:border-gold-light rounded-xl p-6 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(255,215,0,0.1)] hover:shadow-[0_0_30px_rgba(255,215,0,0.3)] h-full justify-between min-h-[280px]">
                             <div>
-                                <div className="text-6xl mb-4">🏆</div>
-                                <h3 className="font-header text-3xl text-gold-light mb-2">Ranked Battle</h3>
-                                <p className="text-gray-400 mb-4">Climb the ladder from Bronze to Legend. Prove your worth!</p>
+                                <div className="text-5xl mb-3">🏆</div>
+                                <h3 className="font-header text-2xl text-gold-light mb-2">Ranked</h3>
+                                <p className="text-gray-400 text-sm mb-3">Climb the ladder from Bronze to Legend.</p>
                             </div>
-                            <div className="bg-black/40 w-full p-3 rounded-lg border border-gray-700 space-y-2">
-                                <p className="text-red-400 font-bold text-sm">⚠️ 50% Battle Points</p>
-                                <p className="text-green-400 font-bold text-sm">✅ Rank Progression</p>
-                                <p className="text-gold-light font-bold text-sm">🎁 Massive Rank Rewards</p>
+                            <div className="bg-black/40 w-full p-2 rounded-lg border border-gray-700 space-y-1">
+                                <p className="text-green-400 font-bold text-xs">✅ Rank Progress</p>
+                                <p className="text-gold-light font-bold text-xs">🎁 Big Rewards</p>
                             </div>
-                            <div className="mt-4 text-sm text-gray-500">Current: <span className="text-white font-bold">{gameState.rank}</span></div>
+                            <div className="mt-2 text-xs text-gray-500">Current: <span className="text-white font-bold">{gameState.rank}</span></div>
                         </div>
-                        <Button variant="default" onClick={() => setShowRankRewards(true)} className="py-2 text-sm">{t('view_rank_rewards')}</Button>
+                        <Button variant="default" onClick={() => setShowRankRewards(true)} className="py-2 text-xs w-full">Rewards</Button>
                     </div>
-                    {/* Challenge */}
-                    <div className="flex-1 flex flex-col items-center gap-4">
-                        <div onClick={() => { setSubMode('challenge'); setPhase('selection'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-blue-900/50 hover:border-blue-400 rounded-xl p-8 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(0,199,226,0.1)] hover:shadow-[0_0_30px_rgba(0,199,226,0.3)] h-full justify-between">
+
+                    {/* Street Fight (Renamed from Blitz PvP) */}
+                    <div className="flex flex-col items-center gap-4">
+                        <div onClick={() => { setSubMode('blitz'); setPhase('selection'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-900 to-black border-2 border-red-600/50 hover:border-red-500 rounded-xl p-6 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(220,38,38,0.2)] hover:shadow-[0_0_30px_rgba(220,38,38,0.4)] h-full justify-between min-h-[280px]">
                             <div>
-                                <div className="text-6xl mb-4">⚔️</div>
-                                <h3 className="font-header text-3xl text-blue-glow mb-2">Challenge Battle</h3>
-                                <p className="text-gray-400 mb-4">Casual matches against opponents of your power level.</p>
+                                <div className="text-5xl mb-3">🥊</div>
+                                <h3 className="font-header text-2xl text-red-500 mb-2">Street Fight</h3>
+                                <p className="text-gray-400 text-sm mb-3">Online Ranked Blitz Battles.<br/>2-Min Clock.</p>
                             </div>
-                            <div className="bg-black/40 w-full p-3 rounded-lg border border-gray-700 space-y-2">
-                                <p className="text-green-400 font-bold text-sm">✅ 100% Battle Points</p>
-                                <p className="text-blue-300 font-bold text-sm">⚖️ Fair Matchmaking</p>
-                                <p className="text-gray-500 font-bold text-sm">❌ No Rank Progress</p>
+                            <div className="bg-black/40 w-full p-2 rounded-lg border border-gray-700 space-y-1">
+                                <p className="text-red-400 font-bold text-xs">⏱️ 2 Min Timer</p>
+                                <p className="text-green-400 font-bold text-xs">✅ Street Rank</p>
                             </div>
-                            <div className="mt-4 text-sm text-gray-500">Practice Mode</div>
+                            <div className="mt-2 text-xs text-gray-500">Street Rank: <span className="text-white font-bold">{gameState.blitzRank || 5}</span></div>
+                        </div>
+                        <Button variant="default" onClick={() => setShowBlitzRewards(true)} className="py-2 text-xs w-full">Rewards</Button>
+                    </div>
+
+                    {/* Casual Online */}
+                    <div className="flex flex-col items-center gap-4">
+                        <div onClick={() => { setSubMode('online'); setPhase('selection'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-green-900/50 hover:border-green-400 rounded-xl p-6 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(34,197,94,0.1)] hover:shadow-[0_0_30px_rgba(34,197,94,0.3)] h-full justify-between min-h-[280px]">
+                            <div>
+                                <div className="text-5xl mb-3">🌍</div>
+                                <h3 className="font-header text-2xl text-green-400 mb-2">Casual</h3>
+                                <p className="text-gray-400 text-sm mb-3">Battle real players. No pressure.</p>
+                            </div>
+                            <div className="bg-black/40 w-full p-2 rounded-lg border border-gray-700 space-y-1">
+                                <p className="text-green-400 font-bold text-xs">✅ PvP Action</p>
+                                <p className="text-gray-500 font-bold text-xs">❌ No Rank</p>
+                            </div>
+                            <div className="mt-2 text-xs text-gray-500">Online Mode</div>
                         </div>
                     </div>
-                    {/* Online PvP */}
-                    <div className="flex-1 flex flex-col items-center gap-4">
-                        <div onClick={() => { setSubMode('online'); setPhase('selection'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-green-900/50 hover:border-green-400 rounded-xl p-8 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(34,197,94,0.1)] hover:shadow-[0_0_30px_rgba(34,197,94,0.3)] h-full justify-between">
+
+                    {/* Challenge (PvE) */}
+                    <div className="flex flex-col items-center gap-4">
+                        <div onClick={() => { setSubMode('challenge'); setPhase('selection'); playSfx('buttonClick'); }} className="w-full bg-gradient-to-b from-gray-800 to-black border-2 border-blue-900/50 hover:border-blue-400 rounded-xl p-6 cursor-pointer transform hover:scale-105 transition-all duration-300 flex flex-col items-center text-center shadow-[0_0_20px_rgba(0,199,226,0.1)] hover:shadow-[0_0_30px_rgba(0,199,226,0.3)] h-full justify-between min-h-[280px]">
                             <div>
-                                <div className="text-6xl mb-4">🌍</div>
-                                <h3 className="font-header text-3xl text-green-400 mb-2">Casual Online</h3>
-                                <p className="text-gray-400 mb-4">Battle real players or friends in real-time!</p>
+                                <div className="text-5xl mb-3">⚔️</div>
+                                <h3 className="font-header text-2xl text-blue-glow mb-2">Practice</h3>
+                                <p className="text-gray-400 text-sm mb-3">Casual matches against AI.</p>
                             </div>
-                            <div className="bg-black/40 w-full p-3 rounded-lg border border-gray-700 space-y-2">
-                                <p className="text-green-400 font-bold text-sm">✅ Real PvP Action</p>
-                                <p className="text-blue-300 font-bold text-sm">⚖️ Winner: 100 BP</p>
-                                <p className="text-gray-500 font-bold text-sm">❌ Loser: 25 BP</p>
+                            <div className="bg-black/40 w-full p-2 rounded-lg border border-gray-700 space-y-1">
+                                <p className="text-green-400 font-bold text-xs">✅ 100% BP</p>
+                                <p className="text-gray-500 font-bold text-xs">❌ No Rank</p>
                             </div>
-                            <div className="mt-4 text-sm text-gray-500">Online Mode</div>
+                            <div className="mt-2 text-xs text-gray-500">PvE Mode</div>
                         </div>
                     </div>
                 </div>
-                {/* Rewards Modal */}
+
+                {/* Rank Rewards Modal */}
                 <Modal isOpen={showRankRewards} onClose={() => setShowRankRewards(false)} title={t('rank_rewards_title')} size="lg">
-                    <div className="space-y-6 max-h-[70vh] overflow-y-auto p-2">
+                    <div className="space-y-4 max-h-[60vh] overflow-y-auto p-2">
                         {(Object.keys(rankSystem) as Rank[]).map((rank) => {
                             const config = rankSystem[rank];
                             const rewards = config.promotionReward;
-                            const isCurrentRank = rank === gameState.rank;
-                            const packCounts = rewards.packs.reduce((acc, p) => { acc[p] = (acc[p] || 0) + 1; return acc; }, {} as Record<PackType, number>);
-                            const pickCounts = rewards.picks.reduce((acc, p) => { acc[p] = (acc[p] || 0) + 1; return acc; }, {} as Record<string, number>);
                             return (
-                                <div key={rank} className={`p-4 rounded-xl border-2 transition-all duration-300 ${isCurrentRank ? 'bg-gradient-to-br from-gold-dark/20 to-black border-gold-light shadow-[0_0_15px_rgba(255,215,0,0.2)]' : 'bg-black/40 border-gray-700'}`}>
-                                    <div className="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
-                                        <h4 className={`font-header text-3xl ${isCurrentRank ? 'text-gold-light' : 'text-gray-300'}`}>{rank}</h4>
-                                        <span className="text-sm text-gray-400 bg-black/50 px-3 py-1 rounded-full border border-gray-600">{t('reward_wins_required', { wins: config.winsToPromote })}</span>
+                                <div key={rank} className="p-3 rounded-lg bg-black/40 border border-gray-700 flex justify-between items-center">
+                                    <div className="text-left">
+                                        <h4 className="font-header text-xl text-gold-light">{rank}</h4>
+                                        <p className="text-xs text-gray-400">{t('reward_wins_required', { wins: config.winsToPromote })}</p>
                                     </div>
-                                    <div className="flex flex-wrap gap-4 justify-center">
-                                        <div className="flex flex-col items-center w-24">
-                                            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 border-2 border-yellow-200 flex items-center justify-center text-3xl shadow-lg mb-2">💰</div>
-                                            <span className="text-gold-light font-bold text-sm">{rewards.coins.toLocaleString()}</span>
-                                            <span className="text-gray-400 text-[10px] uppercase tracking-wider">{t('coins')}</span>
-                                        </div>
-                                        {Object.entries(packCounts).map(([type, count]) => (
-                                            <div key={type} className="flex flex-col items-center w-24">
-                                                <div className="relative group"><img src={packImages[type as PackType]} alt={type} className="w-16 h-auto object-contain drop-shadow-md transition-transform group-hover:scale-110" />{count > 1 && <div className="absolute -top-2 -right-2 bg-red-600 text-white text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full border-2 border-darker-gray shadow-sm">{count}</div>}</div>
-                                                <span className="text-white font-bold text-sm mt-2">{count}x</span>
-                                                <span className="text-gray-400 text-[10px] text-center leading-tight h-6 flex items-center">{t(`pack_${type}` as TranslationKey).replace(' Pack', '')}</span>
-                                            </div>
-                                        ))}
-                                        {Object.entries(pickCounts).map(([pickId, count]) => {
-                                            const pickConfig = playerPickConfigs[pickId];
-                                            return (
-                                                <div key={pickId} className="flex flex-col items-center w-24">
-                                                    <div className="relative group"><div className="w-16 h-24 bg-cover bg-center rounded-lg shadow-md border border-gray-600 group-hover:border-gold-light transition-all duration-300 group-hover:scale-105" style={{ backgroundImage: 'url("https://i.imghippo.com/files/cGUh9927EWc.png")' }}><div className="absolute inset-0 bg-black/40 flex items-center justify-center"><span className="text-2xl">❓</span></div></div>{count > 1 && <div className="absolute -top-2 -right-2 bg-red-600 text-white text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full border-2 border-darker-gray shadow-sm">{count}</div>}</div>
-                                                    <span className="text-white font-bold text-sm mt-2">{count}x</span>
-                                                    <span className="text-gray-400 text-[10px] text-center leading-tight h-6 flex items-center">{pickConfig ? t(pickConfig.nameKey as TranslationKey).replace(' Pick', '') : pickId}</span>
-                                                </div>
-                                            );
-                                        })}
+                                    <div className="text-right text-sm">
+                                        <span className="text-green-400 block">{rewards.coins.toLocaleString()} Coins</span>
+                                        <span className="text-blue-300 block">{rewards.packs.length} Packs</span>
                                     </div>
                                 </div>
                             );
                         })}
-                        <Button variant="ok" onClick={() => setShowRankRewards(false)} className="w-full mt-4 sticky bottom-0 z-10 shadow-xl">{t('close')}</Button>
+                        <Button variant="ok" onClick={() => setShowRankRewards(false)} className="w-full mt-2">{t('close')}</Button>
+                    </div>
+                </Modal>
+
+                {/* Street Fight (Blitz) Rewards Modal - VISUAL UPDATE */}
+                <Modal isOpen={showBlitzRewards} onClose={() => setShowBlitzRewards(false)} title="Street Fight Rewards" size="xl">
+                    <div className="space-y-4 max-h-[70vh] overflow-y-auto p-2 pr-4 custom-scrollbar">
+                        {[5, 4, 3, 2, 1].map((rankNum) => {
+                            const rank = rankNum as unknown as 5 | 4 | 3 | 2 | 1;
+                            const config = blitzRankSystem[rank];
+                            const rewards = config.promotionReward;
+                            const isCurrent = (gameState.blitzRank || 5) === rank;
+                            
+                            // Helper to group items
+                            const packCounts = rewards.packs.reduce((acc, p) => { acc[p] = (acc[p] || 0) + 1; return acc; }, {} as Record<string, number>);
+                            const pickCounts = rewards.picks.reduce((acc, p) => { acc[p] = (acc[p] || 0) + 1; return acc; }, {} as Record<string, number>);
+
+                            return (
+                                <div key={rank} className={`p-4 rounded-xl border-2 flex flex-col gap-4 relative overflow-hidden transition-all ${isCurrent ? 'bg-red-900/30 border-red-500 shadow-[0_0_15px_rgba(220,38,38,0.3)]' : 'bg-black/60 border-gray-700 hover:border-gray-500'}`}>
+                                    {/* Header */}
+                                    <div className="flex justify-between items-center border-b border-white/10 pb-2">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-header text-xl border-2 ${isCurrent ? 'bg-red-600 border-white text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}>
+                                                {rank}
+                                            </div>
+                                            <div className="text-left">
+                                                <h4 className={`font-header text-2xl ${isCurrent ? 'text-red-400' : 'text-gray-300'}`}>Street Rank {rank}</h4>
+                                                <p className="text-xs text-gray-400 font-mono uppercase tracking-wider">{config.winsToPromote} Wins to Promote</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Rewards Grid */}
+                                    <div className="flex flex-wrap gap-4 justify-start items-center">
+                                        {/* Coins */}
+                                        <div className="flex flex-col items-center w-20 p-2 bg-black/40 rounded-lg border border-white/5">
+                                            <div className="text-2xl mb-1">💰</div>
+                                            <span className="text-gold-light font-bold text-xs">{rewards.coins.toLocaleString()}</span>
+                                            <span className="text-[10px] text-gray-500 uppercase">Coins</span>
+                                        </div>
+
+                                        {/* BP */}
+                                        <div className="flex flex-col items-center w-20 p-2 bg-black/40 rounded-lg border border-white/5">
+                                            <div className="text-2xl mb-1 text-blue-400 font-bold">BP</div>
+                                            <span className="text-blue-300 font-bold text-xs">{rewards.bp.toLocaleString()}</span>
+                                            <span className="text-[10px] text-gray-500 uppercase">Points</span>
+                                        </div>
+
+                                        {/* Packs */}
+                                        {Object.entries(packCounts).map(([type, count]) => (
+                                            <div key={type} className="flex flex-col items-center w-20 p-2 bg-black/40 rounded-lg border border-white/5 relative group">
+                                                <div className="relative">
+                                                    <img src={packImages[type as PackType]} alt={type} className="w-12 h-auto object-contain drop-shadow-sm group-hover:scale-110 transition-transform" />
+                                                    {count > 1 && <div className="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border border-black">{count}</div>}
+                                                </div>
+                                                <span className="text-[10px] text-gray-300 mt-1 capitalize text-center leading-tight">{type.replace('legendary', 'Legend')}</span>
+                                            </div>
+                                        ))}
+
+                                        {/* Picks */}
+                                        {Object.entries(pickCounts).map(([pickId, count]) => {
+                                            const pickConfig = playerPickConfigs[pickId];
+                                            const name = pickConfig ? t(pickConfig.nameKey as TranslationKey).replace(' Pick', '') : pickId;
+                                            return (
+                                                <div key={pickId} className="flex flex-col items-center w-20 p-2 bg-black/40 rounded-lg border border-white/5 relative group">
+                                                    <div className="relative">
+                                                        <div className="w-10 h-14 bg-cover bg-center rounded border border-gray-600 group-hover:border-gold-light transition-all" style={{ backgroundImage: 'url("https://i.imghippo.com/files/cGUh9927EWc.png")' }}></div>
+                                                        {count > 1 && <div className="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border border-black">{count}</div>}
+                                                    </div>
+                                                    <span className="text-[9px] text-gray-300 mt-1 text-center leading-tight max-w-full overflow-hidden text-ellipsis whitespace-nowrap px-1">{name}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    
+                                    {isCurrent && <div className="absolute top-2 right-2 text-xs font-bold text-red-500 border border-red-500/50 px-2 py-1 rounded bg-red-900/20">CURRENT RANK</div>}
+                                </div>
+                            );
+                        })}
+                        <Button variant="ok" onClick={() => setShowBlitzRewards(false)} className="w-full mt-4 py-3 text-lg">Got It</Button>
                     </div>
                 </Modal>
             </div>

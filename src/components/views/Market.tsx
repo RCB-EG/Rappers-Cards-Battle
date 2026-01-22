@@ -1,9 +1,10 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { MarketCard } from '../../types';
+import { MarketCard, Card as CardType } from '../../types';
 import Card from '../Card';
 import BuyModal from '../modals/BuyModal';
 import { TranslationKey } from '../../utils/translations';
+import { allCards } from '../../data/gameData';
 
 interface MarketProps {
   market: MarketCard[];
@@ -22,6 +23,22 @@ const formatDuration = (ms: number) => {
     return `${m}m ${Math.floor((ms % 60000) / 1000)}s`;
 };
 
+// Helper to merge old market data with current game definitions
+const getUpdatedCardData = (marketCard: MarketCard): MarketCard => {
+    // Attempt to find the canonical card definition by name and rarity
+    const canonical = allCards.find(c => c.name === marketCard.name && c.rarity === marketCard.rarity);
+    
+    if (canonical) {
+        return {
+            ...marketCard,
+            ovr: canonical.ovr,
+            stats: canonical.stats,
+            // We keep specific instance data like ID, price, etc.
+        };
+    }
+    return marketCard;
+};
+
 const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, currentUserId, t, userCoins }) => {
   const [cardToBuy, setCardToBuy] = useState<MarketCard | null>(null);
   const [sortBy, setSortBy] = useState('ending_soon');
@@ -38,18 +55,21 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
   // Process market items (handle resets visually if needed)
   const processedMarket = useMemo(() => {
       return market.map(card => {
-          let expiresAt = card.expiresAt || 0;
-          const durationMs = (card.durationHours || 24) * 3600000;
+          // Apply stat updates to existing listings
+          const updatedCard = getUpdatedCardData(card);
+
+          let expiresAt = updatedCard.expiresAt || 0;
+          const durationMs = (updatedCard.durationHours || 24) * 3600000;
           
           // Client-side auto-reset visualization logic requested
           // If expired AND no bidder, calculate the current active window
-          if (now > expiresAt && !card.highestBidderId && durationMs > 0) {
+          if (now > expiresAt && !updatedCard.highestBidderId && durationMs > 0) {
              const timeSinceExpiry = now - expiresAt;
              const cycles = Math.ceil(timeSinceExpiry / durationMs);
              expiresAt = expiresAt + (cycles * durationMs);
           }
           
-          return { ...card, displayExpiresAt: expiresAt };
+          return { ...updatedCard, displayExpiresAt: expiresAt };
       });
   }, [market, now]);
 

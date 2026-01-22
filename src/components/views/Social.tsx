@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { GameState, User, FriendRequest, Friend, BattleCard } from '../../types';
 import { db, auth } from '../../firebaseConfig';
-import { collection, query, orderBy, limit, getDocs, where, addDoc, onSnapshot, doc, updateDoc, arrayUnion, writeBatch, getDoc } from 'firebase/firestore';
+import { collection, query, orderBy, limit, getDocs, where, addDoc, onSnapshot, doc, updateDoc, arrayUnion, writeBatch, getDoc, documentId } from 'firebase/firestore';
 import Button from '../Button';
 import InspectModal from '../modals/InspectModal';
 import ChatModal from '../modals/ChatModal';
@@ -22,6 +22,7 @@ interface LeaderboardEntry {
     uid: string;
     username: string;
     rank: string;
+    blitzRank: number;
     wins: number;
     value: number;
     avatar?: string;
@@ -36,6 +37,7 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
     const [searchStatus, setSearchStatus] = useState<string>('');
     const [inspectUser, setInspectUser] = useState<{state: GameState, username: string} | null>(null);
     const [loadingLB, setLoadingLB] = useState(false);
+    const [friendsStats, setFriendsStats] = useState<Record<string, { rank: string, blitzRank: number }>>({});
     
     // New States for Features
     const [chatFriend, setChatFriend] = useState<Friend | null>(null);
@@ -63,6 +65,7 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
                             uid: doc.id,
                             username: profile?.username || 'Unknown',
                             rank: data.rank,
+                            blitzRank: data.blitzRank || 5,
                             wins: data.rankWins,
                             value: squadValue,
                             avatar: profile?.avatar,
@@ -79,6 +82,37 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
             fetchLeaderboard();
         }
     }, [activeTab]);
+
+    // --- Fetch Friend Stats ---
+    useEffect(() => {
+        if (activeTab === 'friends' && gameState.friends && gameState.friends.length > 0) {
+            const fetchFriendsStats = async () => {
+                try {
+                    const friendIds = gameState.friends.map(f => f.uid);
+                    // Split into chunks of 10 for 'in' query limit if needed, 
+                    // but for now simplistic approach: fetch up to 10
+                    const q = query(
+                        collection(db, 'users'),
+                        where(documentId(), 'in', friendIds.slice(0, 10))
+                    );
+                    
+                    const snapshot = await getDocs(q);
+                    const stats: Record<string, { rank: string, blitzRank: number }> = {};
+                    snapshot.forEach(doc => {
+                        const data = doc.data() as GameState;
+                        stats[doc.id] = {
+                            rank: data.rank || 'Bronze',
+                            blitzRank: data.blitzRank || 5
+                        };
+                    });
+                    setFriendsStats(stats);
+                } catch (error) {
+                    console.error("Error fetching friends stats:", error);
+                }
+            };
+            fetchFriendsStats();
+        }
+    }, [activeTab, gameState.friends]);
 
     // --- Friend Requests Listener ---
     useEffect(() => {
@@ -236,6 +270,7 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
                                     <th className="p-4">#</th>
                                     <th className="p-4">Player</th>
                                     <th className="p-4">{t('social_rank')}</th>
+                                    <th className="p-4">Street</th>
                                     <th className="p-4 hidden md:table-cell">{t('social_squad_value')}</th>
                                     <th className="p-4"></th>
                                 </tr>
@@ -251,6 +286,11 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
                                         <td className="p-4">
                                             <span className={`px-2 py-1 rounded text-xs font-bold ${entry.rank === 'Legend' ? 'bg-purple-900 text-purple-200' : entry.rank === 'Gold' ? 'bg-yellow-900 text-yellow-200' : 'bg-gray-800 text-gray-300'}`}>
                                                 {entry.rank}
+                                            </span>
+                                        </td>
+                                        <td className="p-4">
+                                            <span className="px-2 py-1 rounded text-xs font-bold bg-red-900 text-red-200 border border-red-700">
+                                                Rank {entry.blitzRank}
                                             </span>
                                         </td>
                                         <td className="p-4 hidden md:table-cell text-gray-300">
@@ -314,6 +354,8 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {gameState.friends.map((friend, idx) => {
                                     const hasMessage = unreadFromFriends.has(friend.uid);
+                                    const stats = friendsStats[friend.uid];
+                                    
                                     return (
                                         <div key={idx} className={`flex flex-col bg-darker-gray p-4 rounded-lg border transition-all ${hasMessage ? 'border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-gray-700 hover:border-gold-light'}`}>
                                             <div className="flex items-center justify-between mb-3">
@@ -322,7 +364,15 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
                                                         <img src={friend.avatar || 'https://api.dicebear.com/8.x/bottts/svg?seed=friend'} className="w-10 h-10 rounded-full bg-gray-600" />
                                                         {hasMessage && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border border-black"></span>}
                                                     </div>
-                                                    <span className="text-white font-bold">{friend.username}</span>
+                                                    <div>
+                                                        <span className="text-white font-bold block">{friend.username}</span>
+                                                        {stats && (
+                                                            <div className="flex gap-2 text-[10px]">
+                                                                <span className="text-gray-400">{stats.rank}</span>
+                                                                <span className="text-red-400">Street {stats.blitzRank}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 {hasMessage && <span className="text-xs text-blue-400 font-bold animate-pulse">New Message!</span>}
                                             </div>

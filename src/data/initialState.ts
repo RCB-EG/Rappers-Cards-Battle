@@ -8,7 +8,7 @@ formationLayouts['4-4-2'].allPositions.forEach(posId => {
 });
 
 export const initialState: GameState = {
-  version: 1.7,
+  version: 1.8,
   userId: `guest`,
   coins: 10000,
   battlePoints: 0,
@@ -16,6 +16,8 @@ export const initialState: GameState = {
   rank: 'Bronze',
   rankValue: 1,
   rankWins: 0,
+  blitzRank: 5,
+  blitzWins: 0,
   pendingEarnings: 0,
   formation: initialFormation,
   formationLayout: '4-4-2',

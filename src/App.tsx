@@ -13,10 +13,11 @@ import {
     Rank,
     BattleInvite,
     OnlineBattleState,
-    BattleCard
+    BattleCard,
+    BlitzRank
 } from './types';
 import { initialState } from './data/initialState';
-import { packs, allCards, objectivesData, evoData, fbcData, playerPickConfigs, rankSystem } from './data/gameData';
+import { packs, allCards, objectivesData, evoData, fbcData, playerPickConfigs, rankSystem, blitzRankSystem } from './data/gameData';
 import { sfx } from './data/sounds';
 import { translations, TranslationKey } from './utils/translations';
 import { playSound, updateMainMusic } from './utils/sound';
@@ -317,6 +318,7 @@ const App: React.FC = () => {
 
             const initialState: OnlineBattleState = {
                 id: newBattleId,
+                mode: 'standard', // Friend battles standard by default
                 player1: { 
                     uid: incomingInvite.fromUid, 
                     username: opponentProfile?.username || 'Opponent', 
@@ -1100,12 +1102,13 @@ const App: React.FC = () => {
         }
     };
     
-    const handleBattleResult = (amount: number, isWin: boolean, mode: 'ranked' | 'challenge', squad: GameCard[]) => {
+    const handleBattleResult = (amount: number, isWin: boolean, mode: 'ranked' | 'challenge' | 'blitz', squad: GameCard[]) => {
         // Reset direct battle ID if active
         if (directBattleId) setDirectBattleId(null);
 
         const updates: Partial<GameState> = {};
-        const xpGain = isWin ? 150 : 25;
+        // Increase XP gain for Blitz
+        const xpGain = isWin ? (mode === 'blitz' ? 200 : 150) : (mode === 'blitz' ? 50 : 25);
         updates.battlePoints = (gameState.battlePoints || 0) + amount;
         updates.xp = (gameState.xp || 0) + xpGain;
 
@@ -1161,6 +1164,52 @@ const App: React.FC = () => {
             }
             updates.rankWins = newRankWins;
         }
+
+        if (isWin && mode === 'blitz') {
+            const currentBlitzRank = (gameState.blitzRank || 5) as BlitzRank;
+            const config = blitzRankSystem[currentBlitzRank];
+            let newBlitzWins = (gameState.blitzWins || 0) + 1;
+
+            if (newBlitzWins >= config.winsToPromote) {
+                newBlitzWins = 0;
+                const rewards = config.promotionReward;
+                
+                // Rewards logic
+                updates.coins = (gameState.coins || 0) + rewards.coins;
+                updates.battlePoints = (updates.battlePoints || 0) + rewards.bp;
+                updates.ownedPacks = [...gameState.ownedPacks, ...rewards.packs];
+                const newPicks = rewards.picks.map(id => playerPickConfigs[id]).filter(Boolean);
+                updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, ...newPicks];
+
+                // Rank progression logic
+                let nextBlitzRank = currentBlitzRank;
+                if (currentBlitzRank > 1) {
+                    nextBlitzRank = (currentBlitzRank - 1) as BlitzRank;
+                    updates.blitzRank = nextBlitzRank;
+                } else {
+                    // Loop rank 1
+                    nextBlitzRank = 1; 
+                }
+
+                // Show Reward Modal (Reusing RankUp modal for Blitz)
+                // Passing a dummy 'newRank' type but handled visually via custom logic if needed, 
+                // or just accept Rank type limitation and customize modal content later if needed.
+                // For now, we assume standard RankUpModal can display the rewards. 
+                // To properly support Blitz Ranks in Modal, we might need to adjust Modal props or cast type.
+                // Using a custom alert or updating modal to support string rank.
+                
+                playSfx('success');
+                
+                // Immediate notification for now
+                setRewardModal({
+                    isOpen: true,
+                    reward: { type: 'coins', amount: rewards.coins }, // Simplified for initial display
+                    title: `Promoted to Blitz Rank ${nextBlitzRank}!`
+                });
+            }
+            updates.blitzWins = newBlitzWins;
+        }
+
         updateGameState(updates);
     };
     

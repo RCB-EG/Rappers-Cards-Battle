@@ -13,10 +13,12 @@ interface CardProps {
 
 const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = false, ...props }) => {
   const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   // Reset states when card changes
   useEffect(() => {
     setImageError(false);
+    setImageLoaded(false);
   }, [card.image, card.id]);
 
   const specialRarityClass = card.rarity === 'legend' ? 'is-legendary' : card.rarity === 'event' ? 'is-event' : '';
@@ -46,6 +48,15 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
 
   const bgUrl = rarityBgUrls[card.rarity] || rarityBgUrls['gold'];
 
+  // Default scale logic: New cards (non-legacy) get 1.05X width by default
+  const defaultScaleX = card.legacy ? 1 : 1.05;
+  const scaleX = card.customScaleX ?? defaultScaleX;
+  const scaleY = card.customScaleY ?? 1;
+
+  const transformStyle = card.customScale 
+    ? `scale(${card.customScale})` 
+    : `scale(${scaleX}, ${scaleY})`;
+
   return (
     <div
       className={cardContainerClasses}
@@ -55,22 +66,26 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
       onContextMenu={(e) => e.preventDefault()}
       {...props}
     >
-      {/* Base layer: Card Background (Frame) */}
-      <div className={`absolute inset-0 z-0 bg-cover bg-center`} style={{backgroundImage: `url('${bgUrl}')`}} />
+      {/* Base layer: Card Background (Frame). Hidden if image loaded and not animating to prevent clipping/double-borders. */}
+      {(!imageLoaded || origin === 'animation') && (
+         <div className={`absolute inset-0 z-0 bg-cover bg-center`} style={{backgroundImage: `url('${bgUrl}')`}} />
+      )}
       
       {/* Detail layer: Character Image */}
       {!imageError && (
         <img 
-          className="absolute inset-0 w-full h-full object-cover z-10"
+          className="absolute inset-0 w-full h-full object-cover z-10 transition-transform duration-200"
+          style={{ transform: transformStyle }}
           src={card.image} 
           alt={card.name}
-          onError={() => setImageError(true)}
+          onLoad={() => setImageLoaded(true)}
+          onError={() => { setImageError(true); setImageLoaded(true); }}
         />
       )}
 
       {/* Fallback Initials if image fails */}
       {imageError && (
-         <div className="absolute inset-0 z-10 flex items-center justify-center">
+         <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900">
             <span className="text-6xl font-header text-white/20 uppercase">{card.name.substring(0, 2)}</span>
          </div>
       )}

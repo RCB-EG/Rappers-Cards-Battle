@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Card as CardType } from '../../types';
 import Modal from './Modal';
 import Button from '../Button';
@@ -34,6 +34,8 @@ const getRarityColorClass = (rarity: CardType['rarity']) => {
 
 
 const CardOptionsModal: React.FC<CardOptionsModalProps> = ({ cardWithOptions, onClose, onListCard, onQuickSell, onAddToFormation, isFormationFull, t }) => {
+  const [viewMode, setViewMode] = useState<'stats' | 'superpowers'>('stats');
+
   if (!cardWithOptions) return null;
 
   const { card, origin } = cardWithOptions;
@@ -70,38 +72,63 @@ const CardOptionsModal: React.FC<CardOptionsModalProps> = ({ cardWithOptions, on
               <span className="text-gray-300">Value: <span className="text-gold-light font-semibold">{card.value} Coins</span></span>
             </div>
             
-            {/* Display Superpowers */}
-            {card.superpowers.length > 0 && (
-              <div className="my-4">
-                <h4 className="font-header text-xl text-gold-light mb-2">Superpowers</h4>
-                <div className="flex flex-wrap gap-4">
-                  {card.superpowers.map((power) => {
-                     // Normalize look up or use direct key
-                     const iconUrl = superpowerIcons[power] || superpowerIcons[Object.keys(superpowerIcons).find(k => k.toLowerCase() === power.toLowerCase()) || ''];
-                     
-                     return (
-                        <div key={power} className="flex flex-col items-center gap-1 w-20">
-                            {iconUrl ? (
-                                <img src={iconUrl} alt={power} className="w-12 h-12 object-contain drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]" />
-                            ) : (
-                                <div className="w-12 h-12 bg-blue-glow/20 rounded-full flex items-center justify-center border border-blue-glow/50 text-xs text-white">?</div>
-                            )}
-                            <span className="text-[10px] text-center text-blue-glow leading-tight font-main">{power}</span>
-                        </div>
-                     );
-                  })}
-                </div>
-              </div>
-            )}
-            
-            {/* Fallback message if no superpowers */}
-            {card.superpowers.length === 0 && (
-                 <p className="text-gray-400 italic my-4 p-3 bg-black/20 rounded-md border border-gold-dark/20">This card has no special superpowers. All stats are shown on the card design.</p>
-            )}
+            {/* View Toggle */}
+            <div className="flex bg-black/40 p-1 rounded-lg mb-4 border border-gray-700">
+                <button 
+                    onClick={() => setViewMode('stats')}
+                    className={`flex-1 py-2 text-sm font-bold rounded transition-all ${viewMode === 'stats' ? 'bg-gold-light text-black shadow-gold-glow' : 'text-gray-400 hover:text-white'}`}
+                >
+                    Face Stats
+                </button>
+                <button 
+                    onClick={() => setViewMode('superpowers')}
+                    className={`flex-1 py-2 text-sm font-bold rounded transition-all ${viewMode === 'superpowers' ? 'bg-blue-glow text-black shadow-blue-glow' : 'text-gray-400 hover:text-white'}`}
+                >
+                    Superpowers
+                </button>
+            </div>
+
+            {/* Content Area */}
+            <div className="min-h-[160px] mb-4">
+                {viewMode === 'stats' ? (
+                    <div className="grid grid-cols-3 gap-3 bg-black/20 p-4 rounded-lg border border-gold-dark/20 text-center animate-fadeIn">
+                        {['LYRC', 'FLOW', 'SING', 'LIVE', 'DISS', 'CHAR'].map(stat => (
+                            <div key={stat} className="flex flex-col bg-black/30 rounded p-1 border border-white/5">
+                                <span className="text-[10px] text-gray-400 font-bold tracking-wider mb-1">{stat}</span>
+                                <span className="text-gold-light font-header text-xl">{card.stats[stat.toLowerCase() as keyof typeof card.stats]}</span>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="bg-black/20 p-4 rounded-lg border border-blue-glow/20 animate-fadeIn h-full">
+                        {card.superpowers.length > 0 ? (
+                            <div className="grid grid-cols-2 gap-4">
+                                {card.superpowers.map((power) => {
+                                    const iconUrl = superpowerIcons[power] || superpowerIcons[Object.keys(superpowerIcons).find(k => k.toLowerCase() === power.toLowerCase()) || ''];
+                                    return (
+                                        <div key={power} className="flex flex-col items-center gap-1 p-2 bg-black/40 rounded border border-blue-glow/30">
+                                            {iconUrl ? (
+                                                <img src={iconUrl} alt={power} className="w-8 h-8 object-contain drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]" />
+                                            ) : (
+                                                <div className="w-8 h-8 bg-blue-glow/20 rounded-full flex items-center justify-center border border-blue-glow/50 text-xs text-white">?</div>
+                                            )}
+                                            <span className="text-[10px] text-center text-blue-200 leading-tight font-bold">{power}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-gray-400 text-center italic p-4">
+                                <p>No special superpowers.</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
 
           </div>
           
-          <div className="flex flex-col items-center gap-3 mt-4">
+          <div className="flex flex-col items-center gap-3">
              {origin === 'storage' && (
               <Button
                 variant="keep"

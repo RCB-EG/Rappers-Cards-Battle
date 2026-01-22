@@ -26,6 +26,10 @@ export interface Card {
   superpowers: string[];
   stats: Stats;
   isPackable?: boolean;
+  customScale?: number;
+  customScaleX?: number;
+  customScaleY?: number;
+  legacy?: boolean;
 }
 
 export interface MarketCard extends Card {
@@ -134,6 +138,7 @@ export interface User {
 export type CurrentUser = User | null;
 
 export type Rank = 'Bronze' | 'Silver' | 'Gold' | 'Legend';
+export type BlitzRank = 5 | 4 | 3 | 2 | 1;
 
 export interface PlayerPickConfig {
     id: string;
@@ -188,6 +193,8 @@ export interface GameState {
   rank: Rank;
   rankValue: number;
   rankWins: number;
+  blitzRank: BlitzRank;
+  blitzWins: number;
   pendingEarnings?: number;
   formation: Record<string, Card | null>;
   formationLayout: FormationLayoutId;
@@ -251,6 +258,7 @@ export interface BattleAction {
 
 export interface OnlineBattleState {
     id: string;
+    mode?: 'standard' | 'blitz';
     player1: {
         uid: string;
         username: string;
@@ -263,6 +271,8 @@ export interface OnlineBattleState {
         avatar?: string;
         team: BattleCard[];
     };
+    player1TimeRemaining?: number; // For Blitz: ms remaining
+    player2TimeRemaining?: number; // For Blitz: ms remaining
     turn: string; // uid of the current turn
     winner: string | null; // uid of winner
     lastMoveTimestamp: number;
