@@ -298,7 +298,6 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     };
 
     const executeAction = async (attacker: BattleCard, target: BattleCard | null, actionOverride?: string) => {
-        // [Existing executeAction implementation remains unchanged...]
         if (isAnimating) return;
         try {
             setIsAnimating(true);
@@ -316,6 +315,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
             const isFlowSwitcher = actionName === 'Flow Switcher';
             const isPunchline = actionName === 'Punchline Machine';
             const isCareerKiller = actionName === 'Career Killer';
+            const isFreestyler = actionName === 'Freestyler';
 
             if (isSuperpower) {
                 const teamSetter = attacker.owner === 'player' ? setPlayerTeam : setCpuTeam;
@@ -346,62 +346,74 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                 return { ...card, currentHp: Math.max(0, card.currentHp - dmg) };
             };
 
-            // Non-Targeted Moves logic same as before...
-            if (isChopper || isShowMaker || isNotesMaster || isStoryteller || isArtist) {
-                if (isChopper) {
-                    playSfx('battleAttackUltimate');
-                    triggerSpecialEffect('shockwave'); 
-                    const dmg = Math.floor(baseDmg * 0.6);
-                    addToLog(`${attacker.name} uses Chopper! AoE ${dmg} damage!`);
-                    await new Promise(r => setTimeout(r, 400)); 
-                    const hitAll = (team: BattleCard[]) => team.map(c => { if (c.currentHp > 0) return applyDamageToCard(c, dmg, true); return c; });
-                    if (attacker.owner === 'player') setCpuTeam(prev => hitAll(prev)); else setPlayerTeam(prev => hitAll(prev));
-                } else if (isShowMaker) {
-                    playSfx('battleBuff');
-                    triggerSpecialEffect('spotlight');
-                    const buffAmt = Math.floor(attacker.atk * 0.3);
-                    const buffTeam = (team: BattleCard[]) => team.map(c => c.currentHp > 0 && c.instanceId !== attacker.instanceId ? { ...c, atk: c.atk + buffAmt, activeEffects: [...c.activeEffects, { type: 'buff', duration: 99 } as ActiveEffect] } : c);
-                    if (attacker.owner === 'player') setPlayerTeam(prev => buffTeam(prev)); else setCpuTeam(prev => buffTeam(prev));
-                    addToLog(`${attacker.name} hypes up the crew! (+${buffAmt} ATK)`);
-                } else if (isNotesMaster) {
-                    playSfx('battleBuff');
-                    if (startRect) triggerSpecialEffect('notes', startRect.left + startRect.width/2, startRect.top);
-                    const addTaunt = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { ...c, activeEffects: [...c.activeEffects, { type: 'taunt', duration: 2 } as ActiveEffect] } : c);
-                    if (attacker.owner === 'player') setPlayerTeam(prev => addTaunt(prev)); else setCpuTeam(prev => addTaunt(prev));
-                    addToLog(`${attacker.name} demands attention! (2 turns)`);
-                } else if (isStoryteller) {
-                    playSfx('battleBuff');
-                    const addUntarget = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { ...c, activeEffects: [...c.activeEffects, { type: 'untargetable', duration: 1 } as ActiveEffect] } : c);
-                    if (attacker.owner === 'player') setPlayerTeam(prev => addUntarget(prev)); else setCpuTeam(prev => addUntarget(prev));
-                    addToLog(`${attacker.name} fades...`);
-                } else if (isArtist) {
-                    const enemyTeam = attacker.owner === 'player' ? cpuTeam : playerTeam;
-                    const aliveEnemies = enemyTeam.filter(c => c.currentHp > 0);
-                    const targetPool = aliveEnemies.length > 0 ? aliveEnemies : enemyTeam;
-                    if (targetPool.length > 0) {
-                        playSfx('battleBuff');
-                        const strongest = targetPool.reduce((prev, curr) => (curr.atk > prev.atk ? curr : prev), targetPool[0]);
-                        const transform = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { ...c, atk: strongest.atk, maxHp: Math.max(c.maxHp, strongest.maxHp), currentHp: Math.max(c.currentHp, strongest.currentHp) } : c);
-                        if (attacker.owner === 'player') setPlayerTeam(prev => transform(prev)); else setCpuTeam(prev => transform(prev));
-                        addToLog(`${attacker.name} becomes ${strongest.name}! (${strongest.atk} ATK)`);
-                    } else { addToLog(`${attacker.name} has no one to copy!`); }
-                }
+            // --- Superpower Effects Logic ---
+            if (isChopper) {
+                playSfx('spChopper');
+                triggerSpecialEffect('shockwave'); 
+                const dmg = Math.floor(baseDmg * 0.6);
+                addToLog(`${attacker.name} uses Chopper! AoE ${dmg} damage!`);
+                await new Promise(r => setTimeout(r, 400)); 
+                const hitAll = (team: BattleCard[]) => team.map(c => { if (c.currentHp > 0) return applyDamageToCard(c, dmg, true); return c; });
+                if (attacker.owner === 'player') setCpuTeam(prev => hitAll(prev)); else setPlayerTeam(prev => hitAll(prev));
+            } 
+            else if (isShowMaker) {
+                playSfx('spShowMaker');
+                triggerSpecialEffect('spotlight');
+                const buffAmt = Math.floor(attacker.atk * 0.3);
+                const buffTeam = (team: BattleCard[]) => team.map(c => c.currentHp > 0 && c.instanceId !== attacker.instanceId ? { ...c, atk: c.atk + buffAmt, activeEffects: [...c.activeEffects, { type: 'buff', duration: 99 } as ActiveEffect] } : c);
+                if (attacker.owner === 'player') setPlayerTeam(prev => buffTeam(prev)); else setCpuTeam(prev => buffTeam(prev));
+                addToLog(`${attacker.name} hypes up the crew! (+${buffAmt} ATK)`);
+            } 
+            else if (isNotesMaster) {
+                playSfx('battleBuff'); // Generic
+                if (startRect) triggerSpecialEffect('notes', startRect.left + startRect.width/2, startRect.top);
+                const addTaunt = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { ...c, activeEffects: [...c.activeEffects, { type: 'taunt', duration: 2 } as ActiveEffect] } : c);
+                if (attacker.owner === 'player') setPlayerTeam(prev => addTaunt(prev)); else setCpuTeam(prev => addTaunt(prev));
+                addToLog(`${attacker.name} demands attention! (2 turns)`);
+            } 
+            else if (isStoryteller) {
+                playSfx('battleBuff'); // Generic
+                const addUntarget = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { ...c, activeEffects: [...c.activeEffects, { type: 'untargetable', duration: 1 } as ActiveEffect] } : c);
+                if (attacker.owner === 'player') setPlayerTeam(prev => addUntarget(prev)); else setCpuTeam(prev => addUntarget(prev));
+                addToLog(`${attacker.name} fades...`);
+            } 
+            else if (isArtist) {
+                const enemyTeam = attacker.owner === 'player' ? cpuTeam : playerTeam;
+                const aliveEnemies = enemyTeam.filter(c => c.currentHp > 0);
+                const targetPool = aliveEnemies.length > 0 ? aliveEnemies : enemyTeam;
+                if (targetPool.length > 0) {
+                    playSfx('spTheArtist');
+                    const strongest = targetPool.reduce((prev, curr) => (curr.atk > prev.atk ? curr : prev), targetPool[0]);
+                    const transform = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { ...c, atk: strongest.atk, maxHp: Math.max(c.maxHp, strongest.maxHp), currentHp: Math.max(c.currentHp, strongest.currentHp) } : c);
+                    if (attacker.owner === 'player') setPlayerTeam(prev => transform(prev)); else setCpuTeam(prev => transform(prev));
+                    addToLog(`${attacker.name} becomes ${strongest.name}! (${strongest.atk} ATK)`);
+                } else { addToLog(`${attacker.name} has no one to copy!`); }
             }
-            // Targeted Moves
+            // --- Targeted Attacks ---
             else {
                 if (!target) { setIsAnimating(false); return; }
                 let multiplier = (0.9 + Math.random() * 0.2);
                 isCrit = Math.random() < 0.15;
-                if (actionName === 'Freestyler') {
-                    if (Math.random() < 0.5) { multiplier = 3.0; isCrit = true; addToLog(`${attacker.name} Freestyles... IT'S FIRE!`); } 
-                    else { multiplier = 0; addToLog(`${attacker.name} Freestyles... and chokes.`); }
+                
+                if (isFreestyler) {
+                    if (Math.random() < 0.5) { 
+                        multiplier = 3.0; isCrit = true; 
+                        addToLog(`${attacker.name} Freestyles... IT'S FIRE!`); 
+                        playSfx('spFreestyler');
+                    } else { 
+                        multiplier = 0; 
+                        addToLog(`${attacker.name} Freestyles... and chokes.`); 
+                        playSfx('battleDebuff'); // Fail sound
+                    }
                 } else if (isCrit) multiplier = 1.5;
+                
                 dealtDamage = Math.max(1, Math.floor(baseDmg * multiplier));
                 if (multiplier === 0) dealtDamage = 0;
                 
                 if (isCareerKiller && target.currentHp < target.maxHp * 0.3) { 
                     dealtDamage = target.currentHp; isCrit = true; 
                     addToLog(`${attacker.name} ends ${target.name}'s career!`);
+                    playSfx('spCareerKiller');
                     const tr = cardRefs.current[target.instanceId]?.getBoundingClientRect();
                     if (tr) triggerSpecialEffect('slash', tr.left + tr.width/2, tr.top + tr.height/2, 2);
                 }
@@ -411,29 +423,36 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                     if (endNode) {
                         const endRect = endNode.getBoundingClientRect();
                         const pid = Date.now();
+                        
                         if (isPunchline) {
                              triggerSpecialEffect('lightning', endRect.left + endRect.width/2, endRect.top + endRect.height/2);
-                             playSfx('battleStun');
+                             playSfx('spPunchline');
                              await new Promise(r => setTimeout(r, 300));
                         } else if (isCareerKiller) {
-                             playSfx('battleAttackUltimate');
                              await new Promise(r => setTimeout(r, 200));
                         } else { 
+                             // Projectile Animation based on Rarity
                              let projType: Projectile['type'] = 'orb';
                              if (attacker.rarity === 'rotm' || attacker.rarity === 'icon') projType = 'beam';
+                             
                              setProjectiles(prev => [...prev, { id: pid, startX: startRect.left + startRect.width/2, startY: startRect.top + startRect.height/2, endX: endRect.left + endRect.width/2, endY: endRect.top + endRect.height/2, rarity: attacker.rarity, isCrit, type: projType }]);
-                             playSfx('battleShot');
+                             
+                             // --- Play Rarity Attack Sound ---
+                             if (!isFreestyler && dealtDamage > 0) {
+                                 switch(attacker.rarity) {
+                                     case 'bronze': 
+                                     case 'silver': playSfx('attackBronzeSilver'); break;
+                                     case 'gold': playSfx('attackGold'); break;
+                                     case 'rotm': playSfx('attackRotm'); break;
+                                     case 'icon': playSfx('attackIcon'); break;
+                                     case 'legend': playSfx('attackIcon'); break;
+                                     default: playSfx('attackGold');
+                                 }
+                             }
+                             
                              await new Promise<void>(r => setTimeout(r, 450)); 
                              setProjectiles(prev => prev.filter(p => p.id !== pid));
                         }
-                    }
-                }
-
-                if (dealtDamage > 0) {
-                    if (!isCareerKiller) {
-                        if (isCrit || dealtDamage > 80) playSfx('battleAttackHeavy');
-                        else if (dealtDamage > 40) playSfx('battleAttackMedium');
-                        else playSfx('battleAttackLight');
                     }
                 }
 
@@ -450,7 +469,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                 const tr = targetNode?.getBoundingClientRect();
 
                 if (isRhymesCrafter) { 
-                    playSfx('battleDebuff'); 
+                    playSfx('spRhymesCrafter'); 
                     if (tr) triggerSpecialEffect('poison-cloud', tr.left + tr.width/2, tr.top + tr.height/2);
                     applyEffectToTarget({ type: 'poison', duration: 3, val: 50, sourceId: attacker.instanceId }); 
                     addToLog(`${target.name} is poisoned!`); 
@@ -466,7 +485,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                     addToLog(`${target.name} is silenced!`); 
                 }
                 else if (isWordsBender) {
-                    playSfx('battleHeal');
+                    playSfx('spWordsBender');
                     if (startRect) triggerSpecialEffect('heal-aura', startRect.left + startRect.width/2, startRect.top + startRect.height/2);
                     const healAmt = dealtDamage;
                     const healSelf = (team: BattleCard[]) => team.map(c => c.instanceId === attacker.instanceId ? { ...c, currentHp: Math.min(c.maxHp, c.currentHp + healAmt) } : c);
@@ -479,6 +498,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
             setSelectedAction('standard');
 
             if (isFlowSwitcher) {
+                 playSfx('spFlowSwitcher');
                  addToLog(`${attacker.name} strikes again!`);
                  if (attacker.owner === 'player') {
                      setSelectedAttackerId(attacker.instanceId); 

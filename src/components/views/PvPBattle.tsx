@@ -320,6 +320,35 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                             spawnParticles(cx, cy, data.lastAction.isCrit ? '#ff0000' : '#ffffff', 20);
                             showFloatText(cx, cy - 50, `-${data.lastAction.damage}`, data.lastAction.isCrit ? '#ff0000' : '#fff', data.lastAction.isCrit ? 2 : 1.2);
                         }
+                        
+                        // Play sound based on action type
+                        // We use the lastAction.actionType string (superpower name) or infer standard attack
+                        const actType = data.lastAction.actionType;
+                        if (actType && actType !== 'standard') {
+                            // Map superpower name to sound key
+                            if (actType.includes('Chopper')) playSfx('spChopper');
+                            else if (actType.includes('Show Maker') || actType.includes('ShowMaker')) playSfx('spShowMaker');
+                            else if (actType.includes('Rhyme')) playSfx('spRhymesCrafter');
+                            else if (actType.includes('Punchline')) playSfx('spPunchline');
+                            else if (actType.includes('Words') || actType.includes('Word')) playSfx('spWordsBender');
+                            else if (actType.includes('Career')) playSfx('spCareerKiller');
+                            else if (actType.includes('Flow')) playSfx('spFlowSwitcher');
+                            else if (actType.includes('Freestyle')) playSfx('spFreestyler');
+                            else if (actType.includes('Artist')) playSfx('spTheArtist');
+                            else playSfx('battleBuff'); // Fallback for buff/debuff
+                        } else {
+                            // Standard attack sound based on rarity
+                            const r = data.lastAction.rarity;
+                            switch(r) {
+                                case 'bronze': 
+                                case 'silver': playSfx('attackBronzeSilver'); break;
+                                case 'gold': playSfx('attackGold'); break;
+                                case 'rotm': playSfx('attackRotm'); break;
+                                case 'icon': playSfx('attackIcon'); break;
+                                case 'legend': playSfx('attackIcon'); break;
+                                default: playSfx('attackGold');
+                            }
+                        }
                     }
                 }
 
@@ -397,7 +426,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 });
             });
             
-            playSfx(isCrit ? 'battleAttackHeavy' : 'battleAttackMedium');
+            // Note: Sound plays via onSnapshot update for consistency with opponent moves
 
         } catch (e) {
             console.error("Move failed:", e);

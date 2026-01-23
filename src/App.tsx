@@ -18,7 +18,7 @@ import {
 } from './types';
 import { initialState } from './data/initialState';
 import { packs, allCards, objectivesData, evoData, fbcData, playerPickConfigs, rankSystem, blitzRankSystem } from './data/gameData';
-import { sfx } from './data/sounds';
+import { sfx, getRevealSfxKey } from './data/sounds';
 import { translations, TranslationKey } from './utils/translations';
 import { playSound, updateMainMusic } from './utils/sound';
 import { preloadCriticalAssets } from './utils/assets';
@@ -246,6 +246,7 @@ const App: React.FC = () => {
             where('status', '==', 'pending')
         );
         const unsubReqs = onSnapshot(reqQuery, (snap) => {
+            if (snap.size > friendRequestCount) playSfx('notification');
             setFriendRequestCount(snap.size);
         });
 
@@ -260,7 +261,7 @@ const App: React.FC = () => {
             if (!snap.empty) {
                 const doc = snap.docs[0];
                 setIncomingInvite({ id: doc.id, ...doc.data() } as BattleInvite);
-                playSfx('packBuildup'); // Alert sound
+                playSfx('notification'); // Alert sound
             } else {
                 setIncomingInvite(null);
             }
@@ -289,6 +290,7 @@ const App: React.FC = () => {
                     }
                 }
             });
+            if (totalUnread > unreadChatCount) playSfx('notification');
             setUnreadChatCount(totalUnread);
             setUnreadFromFriends(senders);
         });
@@ -298,7 +300,7 @@ const App: React.FC = () => {
             unsubInvites();
             unsubChats();
         };
-    }, [firebaseUser, playSfx]);
+    }, [firebaseUser, playSfx, friendRequestCount, unreadChatCount]);
 
     // Called when user clicks "Accept" on invite modal (Player B)
     const handleAcceptInvite = async () => {
@@ -1008,13 +1010,15 @@ const App: React.FC = () => {
             }
         }
 
-        playSfx('packBuildup');
-
+        // MOVED: Play sound logic now handled in PackAnimationModal or here based on settings
         if (settings.animationsOn) {
+            // Animation Modal handles the buildup sound on mount
             setPackCard(bestCard);
             setPendingPackCards(newCards);
             updateGameState(stateUpdates);
         } else {
+            // No animation, play reveal sound directly
+            playSfx(getRevealSfxKey(bestCard.rarity));
             setPendingPackCards(newCards);
             updateGameState(stateUpdates);
         }
@@ -1139,7 +1143,7 @@ const App: React.FC = () => {
                     const newPicks = rewards.picks.map(id => playerPickConfigs[id]).filter(Boolean);
                     updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, ...newPicks];
                     setRankUpModalData({ newRank: 'Legend', rewards });
-                    playSfx('success');
+                    playSfx('rankUp');
                 }
             } else if (newRankWins >= rankConfig.winsToPromote) {
                 let nextRank: Rank = currentRank;
@@ -1155,7 +1159,7 @@ const App: React.FC = () => {
                 updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, ...newPicks];
 
                 setRankUpModalData({ newRank: nextRank, rewards });
-                playSfx('success');
+                playSfx('rankUp');
                 updates.rank = nextRank;
                 
                 // Set rank value immediately for updates
@@ -1198,7 +1202,7 @@ const App: React.FC = () => {
                 // To properly support Blitz Ranks in Modal, we might need to adjust Modal props or cast type.
                 // Using a custom alert or updating modal to support string rank.
                 
-                playSfx('success');
+                playSfx('rankUp');
                 
                 // Immediate notification for now
                 setRewardModal({

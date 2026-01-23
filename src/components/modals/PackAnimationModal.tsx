@@ -45,17 +45,17 @@ class Particle {
 const getAnimationDetails = (rarity: CardType['rarity']) => {
     switch (rarity) {
         case 'silver':
-            return { tier: 2, revealDelay: 1800, totalDuration: 3500 };
+            return { tier: 2, revealDelay: 1100, totalDuration: 2500 };
         case 'gold':
-            return { tier: 3, revealDelay: 2500, totalDuration: 4500 };
+            return { tier: 3, revealDelay: 1600, totalDuration: 3500 };
         case 'rotm':
         case 'icon':
         case 'legend':
         case 'event':
-            return { tier: 4, revealDelay: 3000, totalDuration: 6000 };
+            return { tier: 4, revealDelay: 2000, totalDuration: 4000 };
         case 'bronze':
         default:
-            return { tier: 1, revealDelay: 1200, totalDuration: 2500 };
+            return { tier: 1, revealDelay: 800, totalDuration: 2000 };
     }
 };
 
@@ -63,10 +63,17 @@ const PackAnimationModal: React.FC<PackAnimationModalProps> = ({ card, onAnimati
     const [isRevealing, setIsRevealing] = useState(false);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const animFrameRef = useRef<number | null>(null);
+    const hasPlayedBuildup = useRef(false);
 
     const animationDetails = useMemo(() => card ? getAnimationDetails(card.rarity) : null, [card]);
 
     useEffect(() => {
+        // Trigger buildup immediately on mount
+        if (!hasPlayedBuildup.current) {
+            playSfx('packBuildup');
+            hasPlayedBuildup.current = true;
+        }
+
         if (card && animationDetails) {
             const { revealDelay, totalDuration } = animationDetails;
 
