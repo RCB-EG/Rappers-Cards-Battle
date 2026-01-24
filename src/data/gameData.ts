@@ -152,6 +152,26 @@ export const superpowerIcons: Record<string, string> = {
     'Punchline Machine': 'https://i.imghippo.com/files/EFHO4474cYk.png',
 };
 
+export const SUPERPOWER_DESC: Record<string, string> = {
+    'Rhymes Crafter': '☠️ Deals damage over time for 3 turns.',
+    'Rhyme Crafter': '☠️ Deals damage over time for 3 turns.',
+    'Punchline Machine': '💫 Stuns target, forcing opponent to skip next turn.',
+    'Words Bender': '🩸 Drains life from opponent to heal self.',
+    'Word Bender': '🩸 Drains life from opponent to heal self.',
+    'Chopper': '🌊 AoE Shockwave: Damages ALL enemy cards.',
+    'Show Maker': '📢 Permanently increases Attack of all allies.',
+    'ShowMaker': '📢 Permanently increases Attack of all allies.',
+    'Flow Switcher': '⚡ Gain an extra attack action immediately.',
+    'Notes Master': '🛡️ Taunt: Enemies MUST attack this card next turn.',
+    'Note Master': '🛡️ Taunt: Enemies MUST attack this card next turn.',
+    'Career Killer': '💀 INSTANTLY defeats target if HP is below 30%.',
+    'Battler': '🤐 Silences target: Disables their Special Attacks.',
+    'The Artist': '🎨 Copies stats of the strongest enemy card.',
+    'Freestyler': '🎲 50% chance for 3x Damage, 50% chance to fail.',
+    'Storyteller': '👻 Become Untargetable for 1 turn.',
+    'StoryTeller': '👻 Become Untargetable for 1 turn.',
+};
+
 // A collection of all possible cards in the game.
 // Old cards are marked with legacy: true to preserve their original unscaled appearance.
 export const allCards: Card[] = [
@@ -245,6 +265,13 @@ export const allCards: Card[] = [
   { id: 'r4', name: 'Lege-Cy', ovr: 90, rarity: 'rotm', image: 'https://i.imghippo.com/files/MnRi3278M.png', value: 180000, superpowers: ['StoryTeller'], stats: { lyrc: 89, flow: 88, sing: 92, live: 85, diss: 83, char: 88 }, legacy: true },
   { id: 'r5', name: 'Marwan Mousa', ovr: 91, rarity: 'rotm', image: 'https://i.imghippo.com/files/QFb6085DI.png', value: 234000, superpowers: ['StoryTeller', 'Word Bender'], stats: { lyrc: 91, flow: 90, sing: 90, live: 86, diss: 85, char: 90 }, legacy: true },
   { id: 'r6', name: 'Wegz', ovr: 91, rarity: 'rotm', image: 'https://i.imghippo.com/files/cci2034ZR.png', value: 250000, superpowers: ['The Artist', 'Notes Master'], stats: { lyrc: 88, flow: 88, sing: 93, live: 90, diss: 83, char: 90 }, legacy: true },
+  
+  // Legend
+  {
+    id: 'l1', name: 'The GOAT', ovr: 98, rarity: 'legend', image: 'https://api.dicebear.com/8.x/bottts/svg?seed=TheGOAT',
+    stats: { lyrc: 99, flow: 99, sing: 98, live: 98, diss: 98, char: 99 },
+    superpowers: ['Career Killer', 'The Artist', 'Words Bender', 'Flow Switcher'], value: 800000
+  },
   
   // Evo Cards
   { 
@@ -557,7 +584,7 @@ export const formationLayouts: Record<FormationLayoutId, FormationStructure> = {
       positions: {
           attackers: [{ id: 'lw', label: 'LW' }, { id: 'st', label: 'ST' }, { id: 'rw', label: 'RW' }],
           midfielders: [{ id: 'lm', label: 'LM' }, { id: 'cm1', label: 'CM' }, { id: 'cm2', label: 'CM' }, { id: 'rm', label: 'RM' }],
-          defenders: [{ id: 'cb1', label: 'CB' }, { id: 'cb2', label: 'CB' }, { id: 'cb3', 'label': 'CB' }],
+          defenders: [{ id: 'cb1', label: 'CB' }, { id: 'cb2', label: 'CB' }, { id: 'cb3', label: 'CB' }],
           goalkeeper: [{ id: 'gk', label: 'GK' }],
       },
       allPositions: ['lw', 'st', 'rw', 'lm', 'cm1', 'cm2', 'rm', 'cb1', 'cb2', 'cb3', 'gk'],

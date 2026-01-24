@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { GameState, User, FriendRequest, Friend, BattleCard } from '../../types';
 import { db, auth } from '../../firebaseConfig';
 import { collection, query, orderBy, limit, getDocs, where, addDoc, onSnapshot, doc, updateDoc, arrayUnion, writeBatch, getDoc, documentId } from 'firebase/firestore';
@@ -42,6 +42,13 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
     // New States for Features
     const [chatFriend, setChatFriend] = useState<Friend | null>(null);
 
+    const isMountedRef = useRef(true);
+
+    useEffect(() => {
+        isMountedRef.current = true;
+        return () => { isMountedRef.current = false; };
+    }, []);
+
     // --- Leaderboard Logic ---
     useEffect(() => {
         if (activeTab === 'leaderboard') {
@@ -72,40 +79,52 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
                             fullState: data 
                         });
                     });
-                    setLeaderboard(entries);
+                    if (isMountedRef.current) setLeaderboard(entries);
                 } catch (error) {
                     console.error("Leaderboard fetch error:", error);
                 } finally {
-                    setLoadingLB(false);
+                    if (isMountedRef.current) setLoadingLB(false);
                 }
             };
             fetchLeaderboard();
         }
     }, [activeTab]);
 
-    // --- Fetch Friend Stats ---
+    // --- Fetch Friend Stats (Chunked) ---
     useEffect(() => {
         if (activeTab === 'friends' && gameState.friends && gameState.friends.length > 0) {
             const fetchFriendsStats = async () => {
                 try {
                     const friendIds = gameState.friends.map(f => f.uid);
-                    // Split into chunks of 10 for 'in' query limit if needed, 
-                    // but for now simplistic approach: fetch up to 10
-                    const q = query(
-                        collection(db, 'users'),
-                        where(documentId(), 'in', friendIds.slice(0, 10))
-                    );
-                    
-                    const snapshot = await getDocs(q);
                     const stats: Record<string, { rank: string, blitzRank: number }> = {};
-                    snapshot.forEach(doc => {
-                        const data = doc.data() as GameState;
-                        stats[doc.id] = {
-                            rank: data.rank || 'Bronze',
-                            blitzRank: data.blitzRank || 5
-                        };
+                    
+                    // Firestore 'in' query supports max 10 items.
+                    const chunks = [];
+                    for (let i = 0; i < friendIds.length; i += 10) {
+                        chunks.push(friendIds.slice(i, i + 10));
+                    }
+
+                    const promises = chunks.map(chunk => {
+                        const q = query(
+                            collection(db, 'users'),
+                            where(documentId(), 'in', chunk)
+                        );
+                        return getDocs(q);
                     });
-                    setFriendsStats(stats);
+
+                    const snapshots = await Promise.all(promises);
+                    
+                    snapshots.forEach(snapshot => {
+                        snapshot.forEach(doc => {
+                            const data = doc.data() as GameState;
+                            stats[doc.id] = {
+                                rank: data.rank || 'Bronze',
+                                blitzRank: data.blitzRank || 5
+                            };
+                        });
+                    });
+                    
+                    if (isMountedRef.current) setFriendsStats(stats);
                 } catch (error) {
                     console.error("Error fetching friends stats:", error);
                 }
@@ -129,7 +148,7 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
             snapshot.forEach(doc => {
                 reqs.push({ id: doc.id, ...doc.data() } as FriendRequest);
             });
-            setFriendRequests(reqs);
+            if (isMountedRef.current) setFriendRequests(reqs);
         });
 
         return () => unsubscribe();
@@ -145,7 +164,7 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
         try {
             const docRef = doc(db, 'users', friend.uid);
             const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
+            if (docSnap.exists() && isMountedRef.current) {
                 const friendState = docSnap.data() as GameState;
                 setInspectUser({ state: friendState, username: friend.username });
             }
@@ -177,7 +196,7 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
             const snapshot = await getDocs(q);
 
             if (snapshot.empty) {
-                setSearchStatus(t('social_user_not_found'));
+                if (isMountedRef.current) setSearchStatus(t('social_user_not_found'));
                 return;
             }
 
@@ -186,12 +205,12 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
             const targetData = targetDoc.data();
 
             if (targetUid === auth.currentUser.uid) {
-                setSearchStatus("Cannot add yourself.");
+                if (isMountedRef.current) setSearchStatus("Cannot add yourself.");
                 return;
             }
             
             if (gameState.friends?.some(f => f.uid === targetUid)) {
-                setSearchStatus("Already friends.");
+                if (isMountedRef.current) setSearchStatus("Already friends.");
                 return;
             }
 
@@ -205,11 +224,13 @@ const Social: React.FC<SocialProps> = ({ gameState, currentUser, t, unreadFromFr
                 timestamp: Date.now()
             });
 
-            setSearchStatus(t('social_request_sent'));
-            setSearchUsername('');
+            if (isMountedRef.current) {
+                setSearchStatus(t('social_request_sent'));
+                setSearchUsername('');
+            }
         } catch (error) {
             console.error(error);
-            setSearchStatus("Error sending request.");
+            if (isMountedRef.current) setSearchStatus("Error sending request.");
         }
     };
 

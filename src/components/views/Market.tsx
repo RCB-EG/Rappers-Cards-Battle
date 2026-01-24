@@ -31,9 +31,10 @@ const getUpdatedCardData = (marketCard: MarketCard): MarketCard => {
     if (canonical) {
         return {
             ...marketCard,
-            ovr: canonical.ovr,
-            stats: canonical.stats,
-            // We keep specific instance data like ID, price, etc.
+            // We prioritize the snapshot data on the market card if it exists (Fix #6), 
+            // but fallback to canonical if the market card is old/legacy.
+            ovr: marketCard.ovr || canonical.ovr,
+            stats: marketCard.stats || canonical.stats,
         };
     }
     return marketCard;
@@ -54,24 +55,36 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
 
   // Process market items (handle resets visually if needed)
   const processedMarket = useMemo(() => {
-      return market.map(card => {
-          // Apply stat updates to existing listings
-          const updatedCard = getUpdatedCardData(card);
+      return market
+        .map(card => {
+            // Apply stat updates to existing listings
+            const updatedCard = getUpdatedCardData(card);
 
-          let expiresAt = updatedCard.expiresAt || 0;
-          const durationMs = (updatedCard.durationHours || 24) * 3600000;
-          
-          // Client-side auto-reset visualization logic requested
-          // If expired AND no bidder, calculate the current active window
-          if (now > expiresAt && !updatedCard.highestBidderId && durationMs > 0) {
-             const timeSinceExpiry = now - expiresAt;
-             const cycles = Math.ceil(timeSinceExpiry / durationMs);
-             expiresAt = expiresAt + (cycles * durationMs);
-          }
-          
-          return { ...updatedCard, displayExpiresAt: expiresAt };
-      });
-  }, [market, now]);
+            let expiresAt = updatedCard.expiresAt || 0;
+            const durationMs = (updatedCard.durationHours || 24) * 3600000;
+            
+            // Client-side auto-reset visualization logic requested
+            // If expired AND no bidder, calculate the current active window
+            if (now > expiresAt && !updatedCard.highestBidderId && durationMs > 0) {
+                const timeSinceExpiry = now - expiresAt;
+                const cycles = Math.ceil(timeSinceExpiry / durationMs);
+                expiresAt = expiresAt + (cycles * durationMs);
+            }
+            
+            return { ...updatedCard, displayExpiresAt: expiresAt };
+        })
+        .filter(card => {
+            // FIX #3: Market Expiration Logic
+            // If the item is expired based on its display logic AND has no bidder, hide it.
+            // Items with bidders must remain visible so they can be claimed/settled.
+            const timeRemaining = (card.displayExpiresAt || 0) - now;
+            const hasBidder = !!card.highestBidderId;
+            const isMyListing = card.sellerId === currentUserId;
+            
+            // Show if: Time remaining OR Has Bidder OR It's mine (so I can cancel/reclaim)
+            return timeRemaining > 0 || hasBidder || isMyListing;
+        });
+  }, [market, now, currentUserId]);
 
   const sortedAndFilteredMarket = useMemo(() => {
     let filtered = processedMarket.filter(card => 

@@ -316,7 +316,7 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
                 onDragOver={(e) => e.preventDefault()}
                 onDragEnter={handleDragEnterStorage}
                 onDragLeave={handleDragLeaveStorage}
-                className={`storage-container grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2 md:gap-4 justify-items-center p-2 md:p-4 rounded-lg min-h-[300px] bg-black/30 border border-gold-dark/30 transition-all duration-300 ${isOverStorage ? 'is-over-storage' : ''}`}
+                className={`storage-container grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2 md:gap-4 justify-items-center p-2 mx-6 md:mx-0 md:p-4 rounded-lg min-h-[300px] bg-black/30 border border-gold-dark/30 transition-all duration-300 ${isOverStorage ? 'is-over-storage' : ''}`}
             >
                 {sortedAndFilteredStorage.map(card => (
                      <div 
@@ -335,4 +335,3 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
 };
 
 export default Collection;
-    

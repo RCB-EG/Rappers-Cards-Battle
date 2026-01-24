@@ -45,7 +45,9 @@ import {
     deleteDoc, 
     runTransaction,
     where,
-    writeBatch
+    writeBatch,
+    increment,
+    arrayUnion
 } from 'firebase/firestore';
 
 import Header from './components/Header';
@@ -492,7 +494,7 @@ const App: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
-    // 6. Payout Listener (Seller Logic)
+    // 6. Payout Listener (Seller Logic - Fix: Atomic Updates)
     useEffect(() => {
         if (!firebaseUser) return;
 
@@ -514,21 +516,18 @@ const App: React.FC = () => {
 
             if (totalEarned > 0) {
                 try {
-                    // Execute batch delete of payout docs
+                    // Fix: Use increment for atomic update
+                    const userRef = doc(db, 'users', firebaseUser.uid);
+                    batch.update(userRef, { coins: increment(totalEarned) });
+                    
+                    // Execute batch delete + update
                     await batch.commit();
                     
-                    // Update local state and save to DB
-                    setGameState(prev => {
-                        const newCoins = prev.coins + totalEarned;
-                        // Trigger save immediately for consistency
-                        const userRef = doc(db, 'users', firebaseUser.uid);
-                        updateDoc(userRef, { coins: newCoins }).catch(e => console.error(e));
-                        return { ...prev, coins: newCoins };
-                    });
+                    // Note: We don't need to manually setGameState here because the
+                    // main onSnapshot listener on the user doc will pick up the coin change.
 
                     // Notify user
                     playSfx('rewardClaimed');
-                    // Simple summary
                     const msg = itemsSold.length === 1 
                         ? `You sold ${itemsSold[0]} for ${totalEarned} coins!` 
                         : `You sold ${itemsSold.length} items for ${totalEarned} coins!`;
@@ -757,7 +756,7 @@ const App: React.FC = () => {
 
                     // Refund Previous Highest Bidder (if exists)
                     if (currentCardData.highestBidderId && prevBidderRef && prevBidderData) {
-                        transaction.update(prevBidderRef, { coins: (prevBidderData.coins || 0) + currentCardData.bidPrice });
+                        transaction.update(prevBidderRef, { coins: increment(currentCardData.bidPrice) });
                     }
 
                     // Delete from Market
@@ -767,9 +766,10 @@ const App: React.FC = () => {
                     const { marketId, sellerId, price, buyNowPrice, bidPrice, startingPrice, highestBidderId, expiresAt, durationHours, createdAt, ...cardData } = currentCardData;
                     const newCard = { ...cardData, id: `${cardData.id}-${Date.now()}` };
                     
+                    // Fix: Use atomic increment for coins, arrayUnion for storage
                     transaction.update(userRef, {
-                        storage: [...userData.storage, newCard],
-                        coins: userData.coins - cost
+                        storage: arrayUnion(newCard),
+                        coins: increment(-cost)
                     });
 
                     // Pay Seller
@@ -789,7 +789,7 @@ const App: React.FC = () => {
 
                     // Refund Previous Highest Bidder
                     if (currentCardData.highestBidderId && prevBidderRef && prevBidderData) {
-                        transaction.update(prevBidderRef, { coins: (prevBidderData.coins || 0) + currentCardData.bidPrice });
+                        transaction.update(prevBidderRef, { coins: increment(currentCardData.bidPrice) });
                     }
 
                     // Update Market Card
@@ -798,9 +798,9 @@ const App: React.FC = () => {
                         highestBidderId: auth.currentUser!.uid
                     });
 
-                    // Deduct Coins from New Bidder
+                    // Deduct Coins from New Bidder (Atomic)
                     transaction.update(userRef, {
-                        coins: userData.coins - cost
+                        coins: increment(-cost)
                     });
                 }
             });
@@ -833,8 +833,14 @@ const App: React.FC = () => {
         }
         
         try {
-            await addDoc(collection(db, 'market'), {
-                ...card,
+            // FIX #6: Snapshot card stats
+            // We explicitly construct the market object to ensure all stats are deep-copied at this moment.
+            // This prevents future updates to `allCards` from affecting existing listings.
+            const marketItemData = {
+                ...card, // Spreads current basic props
+                stats: { ...card.stats }, // Deep copy stats
+                superpowers: [...card.superpowers], // Deep copy superpowers
+                ovr: card.ovr, // Explicitly set OVR
                 price: buyNowPrice, // Legacy support
                 buyNowPrice,
                 bidPrice: 0, // Starts at 0, first bid must be >= startingPrice
@@ -844,14 +850,23 @@ const App: React.FC = () => {
                 durationHours,
                 sellerId: firebaseUser.uid,
                 createdAt: Date.now()
-            });
+            };
 
+            await addDoc(collection(db, 'market'), marketItemData);
+
+            // Optimistic Local Update
             const newStorage = gameState.storage.filter(c => c.id !== card.id);
             const newFormation = { ...gameState.formation };
             Object.keys(newFormation).forEach(key => {
                 if (newFormation[key]?.id === card.id) {
                     newFormation[key] = null;
                 }
+            });
+
+            // Update DB (Atomic-ish: We rewrite the array, which is the best we can do for now)
+            await updateDoc(doc(db, 'users', firebaseUser.uid), {
+                storage: newStorage,
+                formation: newFormation
             });
 
             const newObjectives = applyObjectiveProgress(gameState.objectiveProgress, 'list_market_cards', 1);
@@ -879,17 +894,25 @@ const App: React.FC = () => {
              // Note: In a real app, verify no bids exist or refund bidder before deleting.
              // Our UI blocks cancelling if bids exist, but rules should enforce it.
              const { marketId, sellerId, price, buyNowPrice, bidPrice, startingPrice, highestBidderId, expiresAt, durationHours, createdAt, ...cardData } = marketCard;
-             updateGameState({ storage: [...gameState.storage, cardData as GameCard] });
+             
+             if (auth.currentUser) {
+                 await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                     storage: arrayUnion(cardData)
+                 });
+             }
+             
+             // Local update will be handled by onSnapshot of user doc
          } catch(e) {
              console.error("Cancel listing error:", e);
          }
     };
 
-    // ... (Keep existing pack, pick, sell, battle logic as is)
+    // ... (Keep existing pack, pick logic as is)
     
     const handleOpenPack = useCallback((packType: PackType, options: { isReward?: boolean, bypassLimit?: boolean, fromInventory?: boolean, currency?: 'coins' | 'bp' } = {}) => {
         const { isReward = false, bypassLimit = false, fromInventory = false, currency = 'coins' } = options;
         
+        // ... (Weighting logic unchanged) ...
         const getCardWeight = (card: GameCard) => {
             if (card.rarity === 'gold') return card.ovr < 87 ? 100 : 3; 
             if (card.rarity === 'rotm') return card.ovr <= 90 ? 50 : 1;
@@ -964,6 +987,19 @@ const App: React.FC = () => {
         
         let stateUpdates: Partial<GameState> = {};
         
+        // FIX #5: Atomic Updates for Pack Costs
+        if (auth.currentUser && !isReward && !fromInventory && !isDevMode) {
+            const userRef = doc(db, 'users', auth.currentUser.uid);
+            if (currency === 'coins') {
+                updateDoc(userRef, { coins: increment(-pack.cost) }).catch(console.error);
+                stateUpdates.coins = gameState.coins - pack.cost; // Optimistic
+            } else {
+                updateDoc(userRef, { battlePoints: increment(-pack.bpCost) }).catch(console.error);
+                stateUpdates.battlePoints = (gameState.battlePoints || 0) - pack.bpCost; // Optimistic
+            }
+        }
+
+        // Logic for free packs and objectives
         if (packType === 'free' && !bypassLimit && !fromInventory) {
             const twelveHours = 12 * 60 * 60 * 1000;
             const now = Date.now();
@@ -982,12 +1018,7 @@ const App: React.FC = () => {
             stateUpdates.objectiveProgress = applyObjectiveProgress(gameState.objectiveProgress, 'open_free_packs', 1);
 
         } else if (!isReward && !fromInventory) {
-            if (currency === 'coins') {
-                stateUpdates.coins = gameState.coins - pack.cost;
-            } else {
-                stateUpdates.battlePoints = (gameState.battlePoints || 0) - pack.bpCost;
-            }
-            
+            // Objective updates logic (Keep local for immediate feedback, save via hook)
             let currentObjectiveProgress = gameState.objectiveProgress;
             let currentActiveEvolution = gameState.activeEvolution;
 
@@ -1010,14 +1041,11 @@ const App: React.FC = () => {
             }
         }
 
-        // MOVED: Play sound logic now handled in PackAnimationModal or here based on settings
         if (settings.animationsOn) {
-            // Animation Modal handles the buildup sound on mount
             setPackCard(bestCard);
             setPendingPackCards(newCards);
             updateGameState(stateUpdates);
         } else {
-            // No animation, play reveal sound directly
             playSfx(getRevealSfxKey(bestCard.rarity));
             setPendingPackCards(newCards);
             updateGameState(stateUpdates);
@@ -1046,15 +1074,53 @@ const App: React.FC = () => {
             return;
         }
 
-        updateGameState({ storage: [...gameState.storage, card] });
+        // Fix: Use arrayUnion for safer storage update if possible, but cards are objects
+        // Fallback to reading state is necessary for non-primitive arrays in Firestore 
+        // without custom cloud functions, but we can do a direct updateDoc.
+        if (auth.currentUser) {
+            updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                storage: arrayUnion(card)
+            }).catch(console.error);
+        }
+
+        // Optimistic UI update
+        // We do NOT call updateGameState here to avoid overwriting the arrayUnion with a race-condition-prone full array write
+        setGameState(prev => ({ ...prev, storage: [...prev.storage, card] }));
+        
         setPendingPackCards(prev => prev.filter(c => c.id !== card.id));
     };
 
-    const handleQuickSell = (card: GameCard) => {
+    const handleQuickSell = async (card: GameCard) => {
         playSfx('purchase');
         const value = calculateQuickSellValue(card);
-        const updates: Partial<GameState> = { coins: gameState.coins + value };
         
+        // FIX #5: Atomic Coin Increment
+        if (auth.currentUser) {
+            const userRef = doc(db, 'users', auth.currentUser.uid);
+            // We still have to write the full storage array because removing object from array 
+            // via arrayRemove requires exact object match, which is brittle if we added dynamic props.
+            // But we use increment for coins.
+            const newStorage = gameState.storage.filter(c => c.id !== card.id);
+            
+            // Also handle formation check (must remove if quick selling from active squad)
+            const newFormation = { ...gameState.formation };
+            let foundInFormation = false;
+            Object.keys(newFormation).forEach(key => {
+               if (newFormation[key]?.id === card.id) {
+                   newFormation[key] = null;
+                   foundInFormation = true;
+               }
+            });
+
+            await updateDoc(userRef, {
+                coins: increment(value),
+                storage: newStorage,
+                ...(foundInFormation ? { formation: newFormation } : {})
+            });
+        }
+
+        // Local State Updates (Optimistic)
+        const updates: Partial<GameState> = { coins: gameState.coins + value };
         if (card.rarity === 'gold') {
              updates.activeEvolution = applyEvolutionTask(gameState.activeEvolution, 'quicksell_gold_card', 1);
         }
@@ -1086,7 +1152,10 @@ const App: React.FC = () => {
         }
 
         if (duplicateCard?.id === card.id) setDuplicateCard(null);
-        updateGameState(updates);
+        
+        // Update local state BUT skip the saveGameData call since we did it manually above
+        setGameState(prev => ({ ...prev, ...updates }));
+        
         if (cardOptions?.card.id === card.id) setCardOptions(null);
     };
 
@@ -1105,14 +1174,46 @@ const App: React.FC = () => {
             setCardOptions(null);
         }
     };
+
+    const handleSendToStorage = (card: GameCard) => {
+        const formationKey = Object.keys(gameState.formation).find(key => gameState.formation[key]?.id === card.id);
+        if (formationKey) {
+            const newFormation = { ...gameState.formation, [formationKey]: null };
+            const newStorage = [...gameState.storage, card];
+            updateGameState({ formation: newFormation, storage: newStorage });
+            setCardOptions(null);
+        }
+    };
     
-    const handleBattleResult = (amount: number, isWin: boolean, mode: 'ranked' | 'challenge' | 'blitz', squad: GameCard[]) => {
+    const handleBattleResult = async (amount: number, isWin: boolean, mode: 'ranked' | 'challenge' | 'blitz', squad: GameCard[]) => {
         // Reset direct battle ID if active
         if (directBattleId) setDirectBattleId(null);
 
         const updates: Partial<GameState> = {};
         // Increase XP gain for Blitz
         const xpGain = isWin ? (mode === 'blitz' ? 200 : 150) : (mode === 'blitz' ? 50 : 25);
+        
+        // FIX #5: Atomic Updates for Rewards
+        if (auth.currentUser) {
+            const userRef = doc(db, 'users', auth.currentUser.uid);
+            const batchUpdates: any = {
+                battlePoints: increment(amount),
+                xp: increment(xpGain)
+            };
+            
+            // Only update rank wins if ranked
+            if (mode === 'ranked' && isWin) {
+                // We do a simplified increment here. Logic for rank up handles visual resetting.
+                batchUpdates.rankWins = increment(1);
+            }
+            if (mode === 'blitz' && isWin) {
+                batchUpdates.blitzWins = increment(1);
+            }
+            
+            await updateDoc(userRef, batchUpdates);
+        }
+
+        // Optimistic UI Updates
         updates.battlePoints = (gameState.battlePoints || 0) + amount;
         updates.xp = (gameState.xp || 0) + xpGain;
 
@@ -1194,13 +1295,6 @@ const App: React.FC = () => {
                     // Loop rank 1
                     nextBlitzRank = 1; 
                 }
-
-                // Show Reward Modal (Reusing RankUp modal for Blitz)
-                // Passing a dummy 'newRank' type but handled visually via custom logic if needed, 
-                // or just accept Rank type limitation and customize modal content later if needed.
-                // For now, we assume standard RankUpModal can display the rewards. 
-                // To properly support Blitz Ranks in Modal, we might need to adjust Modal props or cast type.
-                // Using a custom alert or updating modal to support string rank.
                 
                 playSfx('rankUp');
                 
@@ -1214,10 +1308,14 @@ const App: React.FC = () => {
             updates.blitzWins = newBlitzWins;
         }
 
+        // Apply local state updates (skipping manual saveGameData where we used updateDoc above is ideal, 
+        // but mixing them is okay as long as we know onSnapshot will eventually true-up the state)
         updateGameState(updates);
     };
     
+    // ... (FBC submit logic remains mostly local array manipulation, complex to make fully atomic without subcollections) ...
     const handleFbcSubmit = (challengeId: string, submittedCards: GameCard[]) => {
+        // ... (Existing logic) ...
         const challenge = fbcData.find(c => c.id === challengeId);
         if (!challenge) return;
 
@@ -1235,6 +1333,12 @@ const App: React.FC = () => {
         let rewardUpdate: Partial<GameState> = {};
 
         if (challenge.reward.type === 'coins' && challenge.reward.amount) {
+            // Atomic update for coins
+            if (auth.currentUser) {
+                updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                    coins: increment(challenge.reward.amount)
+                }).catch(console.error);
+            }
             rewardUpdate.coins = gameState.coins + challenge.reward.amount;
         } else if (challenge.reward.type === 'pack' && challenge.reward.details) {
             rewardUpdate.ownedPacks = [...gameState.ownedPacks, challenge.reward.details];
@@ -1267,7 +1371,20 @@ const App: React.FC = () => {
     };
 
     const handleStartEvo = (evoId: string, cardId: string) => {
-        updateGameState({ activeEvolution: { evoId, cardId, tasks: {} } });
+        const evoDef = evoData.find(e => e.id === evoId);
+        if (!evoDef) return;
+
+        const tasks: Record<string, number> = {};
+        evoDef.tasks.forEach(t => tasks[t.id] = 0);
+
+        updateGameState({
+            activeEvolution: {
+                evoId,
+                cardId,
+                tasks
+            }
+        });
+        playSfx('buttonClick');
     };
 
     const handleClaimEvo = () => {
@@ -1324,9 +1441,26 @@ const App: React.FC = () => {
             }
         };
         
-        if (obj.reward.type === 'coins') {
-            updates.coins = gameState.coins + (obj.reward.amount || 0);
-        } else if (obj.reward.type === 'pack') {
+        // Atomic updates where possible
+        if (auth.currentUser) {
+            const userRef = doc(db, 'users', auth.currentUser.uid);
+            if (obj.reward.type === 'coins' && obj.reward.amount) {
+                updateDoc(userRef, { coins: increment(obj.reward.amount) }).catch(console.error);
+                updates.coins = gameState.coins + obj.reward.amount;
+            } else if (obj.reward.type === 'coins_and_pick') {
+                if (obj.reward.amount) {
+                    updateDoc(userRef, { coins: increment(obj.reward.amount) }).catch(console.error);
+                    updates.coins = gameState.coins + obj.reward.amount;
+                }
+            }
+        } else {
+            // Guest fallback
+            if (obj.reward.type === 'coins') updates.coins = gameState.coins + (obj.reward.amount || 0);
+            if (obj.reward.type === 'coins_and_pick' && obj.reward.amount) updates.coins = gameState.coins + obj.reward.amount;
+        }
+
+        // Non-currency rewards handled via full state update
+        if (obj.reward.type === 'pack') {
             updates.ownedPacks = [...gameState.ownedPacks, obj.reward.packType!];
         } else if (obj.reward.type === 'card') {
             const card = allCards.find(c => c.id === obj.reward.cardId);
@@ -1338,12 +1472,9 @@ const App: React.FC = () => {
             if (pickConfig) {
                 updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, pickConfig];
             }
-        } else if (obj.reward.type === 'coins_and_pick') {
-            if (obj.reward.amount) updates.coins = gameState.coins + obj.reward.amount;
-            if (obj.reward.playerPickId) {
-                const pickConfig = playerPickConfigs[obj.reward.playerPickId];
-                if (pickConfig) updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, pickConfig];
-            }
+        } else if (obj.reward.type === 'coins_and_pick' && obj.reward.playerPickId) {
+            const pickConfig = playerPickConfigs[obj.reward.playerPickId];
+            if (pickConfig) updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, pickConfig];
         }
         
         updateGameState(updates);
@@ -1356,6 +1487,7 @@ const App: React.FC = () => {
         });
     };
 
+    // ... (Player Pick logic unchanged) ...
     const handlePlayerPickComplete = (selectedCards: GameCard[]) => {
         const newCards: GameCard[] = [];
         selectedCards.forEach(card => {
@@ -1516,6 +1648,7 @@ const App: React.FC = () => {
                 onListCard={(c) => setCardToList(c)}
                 onQuickSell={handleQuickSell}
                 onAddToFormation={handleAddToFormation}
+                onSendToStorage={handleSendToStorage}
                 isFormationFull={Object.values(gameState.formation).every(c => c !== null)}
                 t={t}
             />
