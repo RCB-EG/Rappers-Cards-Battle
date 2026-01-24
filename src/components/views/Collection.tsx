@@ -228,15 +228,15 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
 
     return (
         <div className="animate-fadeIn">
-             <div className="controls-bar flex flex-col md:flex-row justify-between items-center mb-4 gap-4 bg-black/20 p-4 rounded-lg">
-                <div className="formation-stats flex gap-6 items-center">
+             <div className="controls-bar flex flex-col md:flex-row justify-between items-center mb-1 gap-2 bg-black/20 p-2 rounded-lg">
+                <div className="formation-stats flex gap-4 items-center">
                     <div>
-                        <h3 className="text-gray-400 text-sm uppercase tracking-wide">{t('formation')}</h3>
-                        <span className="text-2xl text-white font-header">{formationCardCount}/11</span>
+                        <h3 className="text-gray-400 text-xs uppercase tracking-wide">{t('formation')}</h3>
+                        <span className="text-xl text-white font-header">{formationCardCount}/11</span>
                     </div>
                     <div>
-                        <h3 className="text-gray-400 text-sm uppercase tracking-wide">Rating</h3>
-                        <span className="text-2xl text-gold-light font-header">{formationRating}</span>
+                        <h3 className="text-gray-400 text-xs uppercase tracking-wide">Rating</h3>
+                        <span className="text-xl text-gold-light font-header">{formationRating}</span>
                     </div>
                 </div>
                 
@@ -245,19 +245,19 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
                         id="formation-layout-selector"
                         value={gameState.formationLayout}
                         onChange={e => handleLayoutChange(e.target.value as FormationLayoutId)}
-                        className="bg-darker-gray border border-gold-dark/30 text-white p-2 rounded-md flex-grow md:flex-grow-0"
+                        className="bg-darker-gray border border-gold-dark/30 text-white p-1 rounded-md flex-grow md:flex-grow-0 text-sm"
                     >
                         {Object.values(formationLayouts).map(layout => (
                             <option key={layout.name} value={layout.name}>{layout.name}</option>
                         ))}
                     </select>
-                    <Button variant="sell" onClick={handleClearFormation} className="!py-2 !px-3 text-sm whitespace-nowrap">
-                        Clear Squad
+                    <Button variant="sell" onClick={handleClearFormation} className="!py-1 !px-2 text-xs whitespace-nowrap">
+                        Clear
                     </Button>
                 </div>
             </div>
 
-            <div className="formation-pitch mb-8">
+            <div className="formation-pitch mb-4 md:mb-8">
                 {['attackers', 'midfielders', 'defenders', 'goalkeeper'].map(rowKey => (
                     <div key={rowKey} className="formation-row">
                         {currentLayout.positions[rowKey as keyof typeof currentLayout.positions].map(pos => (
@@ -289,10 +289,10 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
                 ))}
             </div>
 
-            <div className="controls-bar flex flex-col md:flex-row justify-between items-center mt-6 mb-4 gap-4">
-                <h3 className="text-2xl font-header text-white">{t('storage')} ({gameState.storage.length})</h3>
-                <div className="filter-group flex flex-col sm:flex-row gap-2 items-center w-full md:w-auto">
-                    <select id="filter-collection-rarity" value={rarityFilter} onChange={e => setRarityFilter(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-2 rounded-md w-full sm:w-auto">
+            <div className="controls-bar flex flex-col md:flex-row justify-between items-center mt-2 mb-2 gap-2">
+                <h3 className="text-xl font-header text-white">{t('storage')} ({gameState.storage.length})</h3>
+                <div className="filter-group flex flex-row gap-2 items-center w-full md:w-auto">
+                    <select id="filter-collection-rarity" value={rarityFilter} onChange={e => setRarityFilter(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-1 rounded-md w-full sm:w-auto text-sm">
                         <option value="all">All Rarities</option>
                         <option value="bronze">Bronze</option>
                         <option value="silver">Silver</option>
@@ -302,7 +302,7 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
                         <option value="legend">Legend</option>
                         <option value="event">Event</option>
                     </select>
-                    <select id="sort-collection" value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-2 rounded-md w-full sm:w-auto">
+                    <select id="sort-collection" value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-1 rounded-md w-full sm:w-auto text-sm">
                         <option value="value-desc">{t('sort_value_desc')}</option>
                         <option value="value-asc">{t('sort_value_asc')}</option>
                         <option value="name-asc">{t('sort_name_asc')}</option>
@@ -316,7 +316,7 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
                 onDragOver={(e) => e.preventDefault()}
                 onDragEnter={handleDragEnterStorage}
                 onDragLeave={handleDragLeaveStorage}
-                className={`storage-container grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4 justify-items-center p-4 rounded-lg min-h-[300px] bg-black/30 border border-gold-dark/30 transition-all duration-300 ${isOverStorage ? 'is-over-storage' : ''}`}
+                className={`storage-container grid grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2 md:gap-4 justify-items-center p-2 md:p-4 rounded-lg min-h-[300px] bg-black/30 border border-gold-dark/30 transition-all duration-300 ${isOverStorage ? 'is-over-storage' : ''}`}
             >
                 {sortedAndFilteredStorage.map(card => (
                      <div 
@@ -326,7 +326,7 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
                         onClick={() => handleCardClick(card, 'storage')}
                         className={`${gameState.activeEvolution?.cardId === card.id ? 'cursor-not-allowed' : 'cursor-grab'} ${draggingCardId === card.id ? 'opacity-40' : ''}`}
                      >
-                        <Card card={card} origin="storage" isEvolving={gameState.activeEvolution?.cardId === card.id} />
+                        <Card card={card} origin="storage" isEvolving={gameState.activeEvolution?.cardId === card.id} className="!w-[100px] !h-[150px] md:!w-[180px] md:!h-[270px]" />
                     </div>
                 ))}
             </div>
@@ -335,3 +335,4 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
 };
 
 export default Collection;
+    

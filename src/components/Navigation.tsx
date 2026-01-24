@@ -69,7 +69,7 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setCurrentView, t,
   };
 
   return (
-    <nav className="mobile-nav-container flex gap-2 md:gap-4 mb-8 flex-wrap justify-center pb-2">
+    <nav className="mobile-nav-container flex gap-2 md:gap-4 mb-4 md:mb-8 flex-wrap justify-center pb-2">
       {navItems.map(item => (
         <NavTab
           key={item.view}
@@ -86,3 +86,4 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setCurrentView, t,
 };
 
 export default Navigation;
+    
