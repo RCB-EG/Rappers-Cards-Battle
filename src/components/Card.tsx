@@ -57,8 +57,6 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
     ? `scale(${card.customScale})` 
     : `scale(${scaleX}, ${scaleY})`;
 
-  const isLoading = !imageLoaded && !imageError;
-
   return (
     <div
       className={cardContainerClasses}
@@ -68,41 +66,27 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
       onContextMenu={(e) => e.preventDefault()}
       {...props}
     >
-      {/* Base layer: Card Background (Frame). Always visible to provide structure. */}
-      <div className={`absolute inset-0 z-0 bg-cover bg-center`} style={{backgroundImage: `url('${bgUrl}')`}} />
-      
-      {/* Loading State - Spinner */}
-      {isLoading && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 backdrop-blur-[1px]">
-            <div className="w-8 h-8 border-4 border-gold-light/50 border-t-gold-light rounded-full animate-spin"></div>
-        </div>
+      {/* Base layer: Card Background (Frame). Hidden if image loaded and not animating to prevent clipping/double-borders. */}
+      {(!imageLoaded || origin === 'animation') && (
+         <div className={`absolute inset-0 z-0 bg-cover bg-center`} style={{backgroundImage: `url('${bgUrl}')`}} />
       )}
-
+      
       {/* Detail layer: Character Image */}
       {!imageError && (
         <img 
-          className={`absolute inset-0 w-full h-full object-cover z-10 transition-opacity duration-500 ease-out ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+          className="absolute inset-0 w-full h-full object-cover z-10 transition-transform duration-200"
           style={{ transform: transformStyle }}
           src={card.image} 
           alt={card.name}
-          loading="lazy"
           onLoad={() => setImageLoaded(true)}
-          onError={() => { 
-              // console.warn(`Failed to load image for ${card.name}`);
-              setImageError(true); 
-              setImageLoaded(true); 
-          }}
+          onError={() => { setImageError(true); setImageLoaded(true); }}
         />
       )}
 
-      {/* Fallback if image fails - Show silhouette/question mark instead of initials box */}
+      {/* Fallback Initials if image fails */}
       {imageError && (
-         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center">
-            {/* We keep the background frame visible, just overlay a subtle indicator */}
-            <div className="bg-black/50 p-2 rounded-full backdrop-blur-sm border border-white/10">
-                <span className="text-2xl opacity-70">👤</span>
-            </div>
-            <span className="text-[10px] text-white/70 mt-2 px-2 text-center font-bold bg-black/40 rounded">{card.name}</span>
+         <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900">
+            <span className="text-6xl font-header text-white/20 uppercase">{card.name.substring(0, 2)}</span>
          </div>
       )}
     </div>
