@@ -31,8 +31,11 @@ const getUpdatedCardData = (marketCard: MarketCard): MarketCard => {
     if (canonical) {
         return {
             ...marketCard,
-            // We prioritize the snapshot data on the market card if it exists (Fix #6), 
-            // but fallback to canonical if the market card is old/legacy.
+            // Force visual sync with master data to fix broken images/stats in old listings
+            image: canonical.image,
+            superpowers: canonical.superpowers,
+            // We prioritize the snapshot data on the market card if it exists (for stats variability if implemented), 
+            // but fallback to canonical if the market card is old/legacy or missing data.
             ovr: marketCard.ovr || canonical.ovr,
             stats: marketCard.stats || canonical.stats,
         };
