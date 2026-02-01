@@ -1,4 +1,6 @@
 
+import { allCards } from '../data/gameData';
+
 export const rarityBgUrls: Record<string, string> = {
     bronze: 'https://i.imghippo.com/files/TmM6820WtQ.png',
     silver: 'https://i.imghippo.com/files/zC9861peQ.png',
@@ -21,12 +23,13 @@ export const packImageUrls = [
 ];
 
 export const preloadCriticalAssets = async (): Promise<void> => {
-    const urls = [
+    // 1. Critical UI assets first
+    const criticalUrls = [
         ...Object.values(rarityBgUrls),
         ...packImageUrls
     ];
 
-    const promises = urls.map(src => {
+    const loadPromises = criticalUrls.map(src => {
         return new Promise<void>((resolve) => {
             const img = new Image();
             img.src = src;
@@ -35,5 +38,28 @@ export const preloadCriticalAssets = async (): Promise<void> => {
         });
     });
 
-    await Promise.all(promises);
+    await Promise.all(loadPromises);
+
+    // 2. Start loading card images in background (non-blocking)
+    // We chunk them to avoid freezing the main thread
+    const cardImages = allCards.map(c => c.image);
+    
+    // Helper to load a batch
+    const loadBatch = async (urls: string[]) => {
+        const promises = urls.map(src => new Promise<void>(resolve => {
+            const img = new Image();
+            img.src = src;
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+        }));
+        await Promise.all(promises);
+    };
+
+    // Load in chunks of 5
+    const chunkSize = 5;
+    for (let i = 0; i < cardImages.length; i += chunkSize) {
+        // Trigger but don't await the full chain for 'critical' start
+        // This effectively lazy loads them after critical assets
+        loadBatch(cardImages.slice(i, i + chunkSize));
+    }
 };
