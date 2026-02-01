@@ -378,7 +378,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 if (data.player2TimeRemaining !== undefined) setP2Timer(data.player2TimeRemaining);
 
                 // --- Visual Effects Triggering ---
-                // Check if lastAction exists and if the timestamp (number) has changed
                 if (data.lastAction && data.lastAction.timestamp !== lastProcessedMoveRef.current) {
                     lastProcessedMoveRef.current = data.lastAction.timestamp;
                     
@@ -389,7 +388,30 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     const attackerNode = attackerId ? cardRefs.current[attackerId] : null;
 
                     // 1. Special Effects (Layer 1)
-                    if (actionType.includes('Chopper')) triggerSpecialEffect('shockwave');
+                    if (actionType.includes('Chopper')) {
+                        // Chopper Visuals: Center shockwave
+                        triggerSpecialEffect('shockwave');
+                        
+                        // Apply damage visuals to ALL opponents
+                        const isP1Me = data.player1.uid === currentUserUid;
+                        const enemyTeam = isP1Me ? data.player2.team : data.player1.team;
+                        
+                        enemyTeam.forEach(c => {
+                            if (c.currentHp > 0) {
+                                const node = cardRefs.current[c.instanceId];
+                                if (node) {
+                                    const rect = node.getBoundingClientRect();
+                                    const cx = rect.left + rect.width / 2;
+                                    const cy = rect.top + rect.height / 2;
+                                    spawnParticles(cx, cy, '#ffffff', 10);
+                                    showFloatText(cx, cy - 30, `-${data.lastAction?.damage}`, '#fff', 1.2);
+                                    setShakeCardId(c.instanceId);
+                                    setShakeIntensity(2);
+                                }
+                            }
+                        });
+                        setTimeout(() => { if (isMountedRef.current) setShakeCardId(null) }, 500);
+                    }
                     else if (actionType.includes('Show Maker') || actionType.includes('ShowMaker')) triggerSpecialEffect('spotlight');
                     else if (actionType.includes('Rhyme')) {
                         if (targetNode) {
@@ -421,9 +443,15 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                             triggerSpecialEffect('notes', rect.left + rect.width/2, rect.top + rect.height/2);
                         }
                     }
+                    else if (actionType.includes('Flow')) {
+                        if (attackerNode) {
+                            const rect = attackerNode.getBoundingClientRect();
+                            showFloatText(rect.left + rect.width/2, rect.top, "EXTRA TURN!", "#00c7e2", 2);
+                        }
+                    }
 
-                    // 2. Damage Effects (Shake/Text/Particles) & Projectiles
-                    if (attackerNode && targetNode && data.lastAction.damage > 0) {
+                    // 2. Targeted Damage Effects
+                    if (!actionType.includes('Chopper') && attackerNode && targetNode && data.lastAction.damage > 0) {
                         const startRect = attackerNode.getBoundingClientRect();
                         const endRect = targetNode.getBoundingClientRect();
                         
@@ -482,11 +510,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                         }
                     }
                 }
-
-                if (data.winner) {
-                    const isWin = data.winner === currentUserUid;
-                    onBattleEnd(isWin ? 200 : 50, isWin); 
-                }
             }
         });
         return () => unsub();
@@ -533,8 +556,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
 
     const handleClaimTimeoutWin = async (winnerUid: string) => {
         if (!battleId || !battleState) return;
-        
-        // Prevent spamming
         if (battleState.status === 'finished') return;
 
         try {
@@ -551,7 +572,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         if (!battleId || !battleState || !currentUserUid || battleState.turn !== currentUserUid || !selectedAttackerId) return;
         
         try {
-            // Optimistic Update
+            // Optimistic Update UI
             const myAttackerId = selectedAttackerId;
             const chosenAction = selectedAction;
             setSelectedAttackerId(null); 
@@ -565,7 +586,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 const currentData = freshDoc.data() as OnlineBattleState;
                 if (currentData.turn !== currentUserUid) throw "Not your turn";
 
-                // Resolve last move timestamp safely from server data
                 let lastServerTime = Date.now();
                 if (currentData.lastMoveTimestamp) {
                     if (typeof (currentData.lastMoveTimestamp as any).toMillis === 'function') {
@@ -585,7 +605,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 if (attackerIndex === -1) throw "Attacker not found";
                 const attacker = myTeam[attackerIndex];
 
-                // Remove used superpower from available list
+                // Remove used superpower
                 let newMyTeam = [...myTeam];
                 if (chosenAction !== 'standard') {
                     newMyTeam[attackerIndex] = {
@@ -594,14 +614,13 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     };
                 }
 
-                // Superpower Logic
                 let newEnemyTeam = [...enemyTeam];
                 let damageDealt = 0;
                 let isCrit = false;
                 let logMsg = "";
                 let shouldSwitchTurn = true;
 
-                // --- LOGIC SWITCH ---
+                // --- LOGIC ---
                 if (chosenAction === 'Chopper') {
                     // AoE Damage
                     damageDealt = Math.floor(attacker.atk * 0.6);
@@ -659,7 +678,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     logMsg = `${attacker.name} switches flow! Extra Action!`;
                 }
                 else {
-                    // Targeted Attacks (Standard, Punchline, Rhymes Crafter, Career Killer, Freestyler)
+                    // Targeted Attacks
                     if (!target) throw "Target required";
                     const targetIndex = newEnemyTeam.findIndex(c => c.instanceId === target.instanceId);
                     if (targetIndex === -1) throw "Target not found";
@@ -671,7 +690,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     if (chosenAction === 'Freestyler') {
                         if (Math.random() < 0.5) { multiplier = 3.0; isCrit = true; } else { multiplier = 0; }
                     } else if (chosenAction === 'Career Killer') {
-                        if (targetCard.currentHp < targetCard.maxHp * 0.3) { damageDealt = targetCard.currentHp; isCrit = true; multiplier = 0; } // Instant kill logic handled manually
+                        if (targetCard.currentHp < targetCard.maxHp * 0.3) { damageDealt = targetCard.currentHp; isCrit = true; multiplier = 0; } 
                     } else if (isCrit) {
                         multiplier = 1.5;
                     }
@@ -682,7 +701,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
 
                     targetCard = { ...targetCard, currentHp: Math.max(0, targetCard.currentHp - damageDealt) };
 
-                    // Apply Status Effects
+                    // Status Effects
                     if (['Punchline Machine', 'Punchline'].includes(chosenAction)) {
                         targetCard.activeEffects = [...targetCard.activeEffects, { type: 'stun', duration: 1 } as ActiveEffect];
                         logMsg = `${attacker.name} stuns ${target.name}!`;
@@ -702,15 +721,10 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     newEnemyTeam[targetIndex] = targetCard;
                 }
 
-                // Check Win
                 const enemyAlive = newEnemyTeam.some(c => c.currentHp > 0);
                 const winner = !enemyAlive ? currentUserUid : null;
 
-                // Timer Math using Server Timestamp Delta
-                // FIX: Clamp time spent to avoid negative values (exploitation)
-                // Use Date.now() for client-side move time, against last SERVER committed time.
                 const timeSpent = Math.max(0, Date.now() - lastServerTime); 
-                
                 let newP1Time = currentData.player1TimeRemaining || 120000;
                 let newP2Time = currentData.player2TimeRemaining || 120000;
                 if (blitzMode) {
@@ -718,10 +732,8 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     else newP2Time = Math.max(0, newP2Time - timeSpent);
                 }
 
-                // Next Turn Logic
                 let nextTurn = shouldSwitchTurn ? (isP1 ? currentData.player2.uid : currentData.player1.uid) : currentData.turn;
 
-                // Action Data for Visuals
                 const actionData: BattleAction = {
                     attackerId: attacker.instanceId,
                     targetId: target ? target.instanceId : null,
@@ -737,7 +749,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     [`${enemyKey}.team`]: newEnemyTeam,
                     turn: nextTurn,
                     lastAction: actionData,
-                    lastMoveTimestamp: serverTimestamp(), // Sync with Server Time
+                    lastMoveTimestamp: serverTimestamp(),
                     logs: [logMsg, ...currentData.logs.slice(0, 4)],
                     winner: winner,
                     status: winner ? 'finished' : 'active',
@@ -760,8 +772,11 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 status: 'finished',
                 logs: [`${currentUserUid === battleState.player1.uid ? battleState.player1.username : battleState.player2.username} forfeited!`, ...battleState.logs]
             });
+            setShowForfeitModal(false);
         } catch (e) { console.error(e); }
     };
+
+    // --- RENDER ---
 
     if (status === 'lobby') {
         return (
@@ -798,7 +813,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
 
         return (
             <div className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center animate-fadeIn overflow-hidden">
-                {/* VS Background */}
                 <div className="absolute inset-0 flex">
                     <div className="w-1/2 bg-blue-900/30 border-r-2 border-white/10 relative">
                         <div className="absolute inset-0 bg-cover bg-center opacity-20 grayscale" style={{ backgroundImage: `url(${myData.avatar || ''})` }}></div>
@@ -807,20 +821,14 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                         <div className="absolute inset-0 bg-cover bg-center opacity-20 grayscale" style={{ backgroundImage: `url(${oppData.avatar || ''})` }}></div>
                     </div>
                 </div>
-
-                {/* VS Badge */}
                 <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20">
                     <div className="text-8xl font-header text-white drop-shadow-[0_0_20px_#FFD700] animate-pulse">VS</div>
                 </div>
-
-                {/* Content Grid */}
                 <div className="relative z-10 w-full max-w-6xl grid grid-cols-2 gap-8 px-4 h-full py-10">
-                    {/* Player (Left) */}
                     <div className="flex flex-col items-center justify-center animate-slideRight">
                         <img src={myData.avatar || 'https://api.dicebear.com/8.x/bottts/svg?seed=me'} className="w-32 h-32 rounded-full border-4 border-blue-500 shadow-[0_0_30px_#3b82f6] mb-4 bg-gray-800" />
                         <h2 className="font-header text-4xl text-blue-400 mb-2">{myData.username}</h2>
                         <div className="flex gap-4 mb-8">
-                            {/* Cards Preview */}
                             {myData.team.slice(0, 5).map((card, i) => (
                                 <div key={i} className="transform scale-75 -ml-4 first:ml-0 shadow-lg">
                                     <Card card={card} className="!w-[80px] !h-[120px]" />
@@ -828,13 +836,10 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                             ))}
                         </div>
                     </div>
-
-                    {/* Opponent (Right) */}
                     <div className="flex flex-col items-center justify-center animate-slideLeft">
                         <img src={oppData.avatar || 'https://api.dicebear.com/8.x/bottts/svg?seed=opp'} className="w-32 h-32 rounded-full border-4 border-red-500 shadow-[0_0_30px_#ef4444] mb-4 bg-gray-800" />
                         <h2 className="font-header text-4xl text-red-400 mb-2">{oppData.username}</h2>
                         <div className="flex gap-4 mb-8">
-                            {/* Cards Preview */}
                             {oppData.team.slice(0, 5).map((card, i) => (
                                 <div key={i} className="transform scale-75 -ml-4 first:ml-0 shadow-lg">
                                     <Card card={card} className="!w-[80px] !h-[120px]" />
@@ -843,16 +848,11 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                         </div>
                     </div>
                 </div>
-
-                {/* Ready Button / Timer */}
                 <div className="absolute bottom-10 z-30 flex flex-col items-center gap-2">
                     <p className="text-gray-400 uppercase tracking-widest text-sm">Battle starts in</p>
                     <div className="text-6xl font-header text-white">{faceOffTimer}</div>
-                    
                     {!imReady && (
-                        <Button variant="cta" onClick={() => setImReady(true)} className="w-48 mt-4 animate-bounce">
-                            I'M READY
-                        </Button>
+                        <Button variant="cta" onClick={() => setImReady(true)} className="w-48 mt-4 animate-bounce">I'M READY</Button>
                     )}
                     {imReady && <p className="text-green-400 font-bold mt-4">Waiting for opponent...</p>}
                 </div>
@@ -860,7 +860,32 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         );
     }
 
-    if (status === 'active' || status === 'finished') {
+    if (status === 'finished' && battleState) {
+        const isWin = battleState.winner === currentUserUid;
+        return (
+            <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/90 animate-fadeIn text-center">
+                <h2 className={`font-header text-8xl mb-4 drop-shadow-[0_0_30px_rgba(255,255,255,0.5)] ${isWin ? 'text-green-400' : 'text-red-600'}`}>
+                    {isWin ? "VICTORY" : "DEFEAT"}
+                </h2>
+                <div className="bg-white/10 p-8 rounded-xl border border-white/20 backdrop-blur-md max-w-md w-full mb-8">
+                    <div className="text-xl text-gray-300 mb-2">Winner</div>
+                    <div className="text-3xl font-bold text-white mb-6">
+                        {isWin ? battleState.player1.username === battleState.player1.username ? 'You' : 'Opponent' : 'Opponent'}
+                    </div>
+                    {isWin && (
+                        <div className="flex items-center justify-center gap-2 text-gold-light text-2xl font-bold animate-pulse">
+                            <span>+ {blitzMode ? '200 BP' : '100 Rank Points'}</span>
+                        </div>
+                    )}
+                </div>
+                <Button variant="default" onClick={onExit} className="w-48 text-xl py-3 border-2 border-white/50 hover:border-white">
+                    Exit Battle
+                </Button>
+            </div>
+        );
+    }
+
+    if (status === 'active') {
         if (!battleState || !currentUserUid) return <div className="text-center text-white">Loading Battle State...</div>;
 
         const isP1 = battleState.player1.uid === currentUserUid;
@@ -869,20 +894,18 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         const isMyTurn = battleState.turn === currentUserUid;
         const myTime = isP1 ? p1Timer : p2Timer;
         const oppTime = isP1 ? p2Timer : p1Timer;
+        const activeAttacker = selectedAttackerId ? myData.team.find(c => c.instanceId === selectedAttackerId) : null;
 
         return (
             <div className="relative w-full max-w-6xl mx-auto min-h-[80vh] flex flex-col justify-between py-4 animate-fadeIn">
                 
                 {/* Forfeit Button */}
-                {!battleState.winner && (
-                    <div className="absolute top-0 right-0 z-[60]">
-                        <Button variant="sell" onClick={() => setShowForfeitModal(true)} className="py-1 px-3 text-xs bg-red-900/80 border-red-700 hover:bg-red-800">
-                            Give Up
-                        </Button>
-                    </div>
-                )}
+                <div className="absolute top-0 right-0 z-[60]">
+                    <Button variant="sell" onClick={() => setShowForfeitModal(true)} className="py-1 px-3 text-xs bg-red-900/80 border-red-700 hover:bg-red-800">
+                        Give Up
+                    </Button>
+                </div>
 
-                {/* Confirm Forfeit Modal */}
                 <Modal isOpen={showForfeitModal} onClose={() => setShowForfeitModal(false)} title="Give Up?">
                     <p className="text-white mb-6">Are you sure you want to forfeit? This will count as a loss.</p>
                     <div className="flex justify-center gap-4">
@@ -900,7 +923,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     <div key={ft.id} className="fixed text-4xl font-header font-bold z-50 pointer-events-none drop-shadow-md transition-transform" 
                         style={{ left: ft.x, top: ft.y, color: ft.color, transform: `scale(${ft.scale})` }}>{ft.text}</div>
                 ))}
-                {/* Visual Projectiles */}
                 {projectiles.map(p => {
                     const angle = Math.atan2(p.endY - p.startY, p.endX - p.startX);
                     const colors: Record<string, string> = {
@@ -941,13 +963,11 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 {/* Opponent Team (Top) */}
                 <div className="flex flex-col items-center">
                     <div className="flex items-center gap-4 mb-2">
-                        {/* Opponent Timer - BLITZ ONLY */}
                         {blitzMode && (
                             <div className={`bg-black/80 px-3 py-1 rounded border ${oppTime < 30000 ? 'border-red-500 text-red-500 animate-pulse' : 'border-gray-600 text-gray-300'}`}>
                                 <span className="font-mono font-bold text-lg">{formatTime(oppTime)}</span>
                             </div>
                         )}
-                        
                         <div className="flex items-center gap-3 bg-black/50 px-4 py-1 rounded-full border border-red-900/50">
                             <img src={oppData.avatar || 'https://api.dicebear.com/8.x/bottts/svg?seed=opp'} className="w-8 h-8 rounded-full bg-gray-700" />
                             <span className="text-red-400 font-bold">{oppData.username}</span>
@@ -971,16 +991,16 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     </div>
                 </div>
 
-                {/* Battle Info / Turn Indicator */}
-                <div className="flex flex-col items-center justify-center gap-4 my-2">
+                {/* Turn Indicator */}
+                <div className="flex flex-col items-center justify-center gap-2 my-2">
                     <div className={`text-2xl font-header px-8 py-2 rounded-full border-2 transition-all shadow-lg ${isMyTurn ? 'bg-blue-600/80 border-blue-400 text-white scale-110' : 'bg-red-900/50 border-red-800 text-gray-300'}`}>
-                        {battleState.winner ? (battleState.winner === currentUserUid ? "VICTORY!" : "DEFEAT") : (isMyTurn ? "YOUR TURN" : "OPPONENT'S TURN")}
+                        {isMyTurn ? "YOUR TURN" : "OPPONENT'S TURN"}
                     </div>
                     <div className="text-xs text-gray-400 bg-black/60 px-3 py-1 rounded border border-gray-700">{battleState.logs[0]}</div>
                 </div>
 
                 {/* My Team (Bottom) */}
-                <div className="flex flex-col items-center">
+                <div className="flex flex-col items-center mb-24">
                     <div className="flex justify-center gap-2 md:gap-4 flex-wrap mb-4">
                         {myData.team.map(card => {
                             const canAct = isMyTurn && card.currentHp > 0 && !card.activeEffects.some(e => e.type === 'stun');
@@ -998,47 +1018,51 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                             );
                         })}
                     </div>
-                    
-                    {/* Controls & Timer */}
-                    <div className="flex items-center gap-4">
-                        {isMyTurn && selectedAttackerId && (
-                            <div className="flex flex-col items-center gap-2 bg-black/80 p-2 rounded-lg border border-gold-dark/50 animate-slideUp">
-                                {/* Action Description */}
-                                {selectedAction !== 'standard' && (
-                                    <div className="text-gold-light text-xs md:text-sm text-center w-full border-b border-white/10 pb-1">
-                                        {SUPERPOWER_DESC[selectedAction] || "Special Ability"}
-                                    </div>
-                                )}
-                                
-                                <div className="flex gap-2 flex-wrap justify-center">
-                                    <button onClick={() => setSelectedAction('standard')} className={`px-4 py-1 rounded border font-bold text-sm ${selectedAction === 'standard' ? 'bg-white text-black' : 'bg-transparent text-gray-300'}`}>Attack</button>
-                                    {myData.team.find(c => c.instanceId === selectedAttackerId)?.availableSuperpowers.map(sp => {
-                                        const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'The Artist', 'Storyteller', 'StoryTeller', 'Flow Switcher'].includes(sp);
-                                        return (
-                                            <button 
-                                                key={sp} 
-                                                onClick={() => { 
-                                                    setSelectedAction(sp); 
-                                                    if (isImmediate) executeAction(null); 
-                                                }} 
-                                                className={`px-4 py-1 rounded border font-bold text-sm ${selectedAction === sp ? 'bg-blue-500 text-white' : 'bg-transparent text-blue-300 border-blue-900'}`}
-                                            >
-                                                {sp}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* My Timer - BLITZ ONLY */}
-                        {blitzMode && (
-                            <div className={`bg-black/80 px-4 py-2 rounded-lg border-2 shadow-lg ${myTime < 30000 ? 'border-red-500 text-red-500 animate-pulse bg-red-900/20' : 'border-blue-400 text-white'}`}>
-                                <span className="font-mono font-bold text-2xl">{formatTime(myTime)}</span>
-                            </div>
-                        )}
-                    </div>
+                    {/* My Timer - BLITZ ONLY */}
+                    {blitzMode && (
+                        <div className={`bg-black/80 px-4 py-2 rounded-lg border-2 shadow-lg ${myTime < 30000 ? 'border-red-500 text-red-500 animate-pulse bg-red-900/20' : 'border-blue-400 text-white'}`}>
+                            <span className="font-mono font-bold text-2xl">{formatTime(myTime)}</span>
+                        </div>
+                    )}
                 </div>
+
+                {/* Fixed Control Overlay */}
+                {isMyTurn && activeAttacker && (
+                    <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-lg px-4">
+                        <div className="bg-black/90 p-4 rounded-xl border-2 border-gold-light shadow-[0_0_30px_rgba(0,0,0,0.8)] flex flex-col items-center animate-slideUp">
+                            <h3 className="text-gold-light font-header text-xl mb-2">{activeAttacker.name}</h3>
+                            {selectedAction !== 'standard' && (
+                                <div className="text-blue-300 text-xs mb-3 text-center border-b border-blue-500/30 pb-1 w-full">
+                                    {SUPERPOWER_DESC[selectedAction]}
+                                </div>
+                            )}
+                            
+                            <div className="flex gap-2 flex-wrap justify-center w-full">
+                                <button 
+                                    onClick={() => setSelectedAction('standard')} 
+                                    className={`px-4 py-2 rounded-lg font-bold text-sm border-2 transition-all ${selectedAction === 'standard' ? 'bg-white text-black border-gold-light scale-105 shadow-glow' : 'bg-gray-800 text-gray-300 border-gray-600 hover:bg-gray-700'}`}
+                                >
+                                    Attack ({activeAttacker.atk})
+                                </button>
+                                {activeAttacker.availableSuperpowers.map(sp => {
+                                    const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'The Artist', 'Storyteller', 'StoryTeller', 'Flow Switcher'].includes(sp);
+                                    return (
+                                        <button 
+                                            key={sp} 
+                                            onClick={() => { 
+                                                setSelectedAction(sp); 
+                                                if (isImmediate) executeAction(null); 
+                                            }} 
+                                            className={`px-4 py-2 rounded-lg font-bold text-sm border-2 flex items-center gap-2 transition-all ${selectedAction === sp ? 'bg-blue-600 text-white border-blue-300 scale-105 shadow-[0_0_15px_#2563eb]' : 'bg-gray-800 text-blue-300 border-blue-900 hover:border-blue-500'}`}
+                                        >
+                                            <span className="uppercase tracking-wider">{sp}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
