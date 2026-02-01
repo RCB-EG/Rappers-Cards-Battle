@@ -568,13 +568,13 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
     };
 
     // --- EXECUTE ACTION (Logic) ---
-    const executeAction = async (target: BattleCard | null) => {
+    const executeAction = async (target: BattleCard | null, actionOverride?: string) => {
         if (!battleId || !battleState || !currentUserUid || battleState.turn !== currentUserUid || !selectedAttackerId) return;
         
         try {
             // Optimistic Update UI
             const myAttackerId = selectedAttackerId;
-            const chosenAction = selectedAction;
+            const chosenAction = actionOverride || selectedAction;
             setSelectedAttackerId(null); 
             setSelectedAction('standard');
 
@@ -1051,7 +1051,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                                             key={sp} 
                                             onClick={() => { 
                                                 setSelectedAction(sp); 
-                                                if (isImmediate) executeAction(null); 
+                                                if (isImmediate) executeAction(null, sp); 
                                             }} 
                                             className={`px-4 py-2 rounded-lg font-bold text-sm border-2 flex items-center gap-2 transition-all ${selectedAction === sp ? 'bg-blue-600 text-white border-blue-300 scale-105 shadow-[0_0_15px_#2563eb]' : 'bg-gray-800 text-blue-300 border-blue-900 hover:border-blue-500'}`}
                                         >
