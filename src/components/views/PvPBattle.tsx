@@ -89,6 +89,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
     // Blitz Timers
     const [p1Timer, setP1Timer] = useState(120000);
     const [p2Timer, setP2Timer] = useState(120000);
+    const [serverTimeOffset, setServerTimeOffset] = useState(0);
     
     // Animation State
     const [projectiles, setProjectiles] = useState<Projectile[]>([]);
@@ -199,6 +200,27 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         };
     }, [status, currentUserUid]);
 
+    // Listener for when an opponent picks us up (Player 1 flow)
+    useEffect(() => {
+        if (status === 'searching' && currentUserUid) {
+            const q = query(
+                collection(db, 'battles'),
+                where('player1.uid', '==', currentUserUid),
+                where('status', 'in', ['preparing', 'active']),
+                limit(1)
+            );
+            
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                if (!snapshot.empty) {
+                    const doc = snapshot.docs[0];
+                    setBattleId(doc.id);
+                    // The main battle listener will handle the status switch to 'faceoff'
+                }
+            });
+            return () => unsubscribe();
+        }
+    }, [status, currentUserUid]);
+
     const findMatch = async () => {
         if (!currentUserUid) return;
         if (preparedTeam.length < 5) {
@@ -294,8 +316,8 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         }
 
         if (!matchFound && attempts >= 3) {
-             if (isMountedRef.current) setStatus('lobby');
-             alert("Could not connect to matchmaking server. Please try again.");
+             // We are now queuing via the transaction above (attempts === 2 branch)
+             // Just wait for listener to pick up match
         }
     };
 
@@ -326,6 +348,13 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         if (!battleId) return;
         const unsub = onSnapshot(doc(db, 'battles', battleId), (docSnap) => {
             if (docSnap.exists() && isMountedRef.current) {
+                // Calculate Server Time Offset
+                if (docSnap.metadata && docSnap.readTime) {
+                    const serverTime = docSnap.readTime.toMillis();
+                    const localTime = Date.now();
+                    setServerTimeOffset(serverTime - localTime);
+                }
+
                 const data = docSnap.data() as OnlineBattleState;
                 
                 // --- FIX: Normalize Timestamp ---
@@ -468,20 +497,20 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         if (blitzMode && status === 'active' && battleState && !battleState.winner) {
             timerIntervalRef.current = window.setInterval(() => {
                 const now = Date.now();
-                // Safe timestamp derived from server data
-                const lastMove = battleState.lastMoveTimestamp || now;
-                const delta = now - lastMove;
+                // FIX: Use Offset-Corrected Server Time for local display accuracy
+                const serverNow = now + serverTimeOffset;
+                
+                const lastMove = battleState.lastMoveTimestamp || serverNow;
+                const delta = serverNow - lastMove;
 
                 // Update local visual timers
                 if (battleState.turn === battleState.player1.uid) {
                     const timeLeft = Math.max(0, (battleState.player1TimeRemaining || 120000) - delta);
                     setP1Timer(timeLeft);
                     
-                    // Timeout Check: If I am NOT Player 1, and P1 time is up, I claim the win
                     if (timeLeft === 0 && currentUserUid !== battleState.player1.uid) {
                         handleClaimTimeoutWin(battleState.player2.uid);
                     }
-                    // Self-Report: If I AM Player 1, and time is up, I admit defeat (fallback)
                     if (timeLeft === 0 && currentUserUid === battleState.player1.uid) {
                         handleClaimTimeoutWin(battleState.player2.uid);
                     }
@@ -490,7 +519,6 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                     const timeLeft = Math.max(0, (battleState.player2TimeRemaining || 120000) - delta);
                     setP2Timer(timeLeft);
 
-                    // Timeout Check: If I am NOT Player 2, and P2 time is up, I claim the win
                     if (timeLeft === 0 && currentUserUid !== battleState.player2.uid) {
                         handleClaimTimeoutWin(battleState.player1.uid);
                     }
@@ -501,7 +529,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
             }, 1000);
         }
         return () => { if (timerIntervalRef.current) clearInterval(timerIntervalRef.current); }
-    }, [blitzMode, status, battleState?.turn, battleState?.lastMoveTimestamp, currentUserUid]);
+    }, [blitzMode, status, battleState?.turn, battleState?.lastMoveTimestamp, currentUserUid, serverTimeOffset]);
 
     const handleClaimTimeoutWin = async (winnerUid: string) => {
         if (!battleId || !battleState) return;
@@ -679,8 +707,10 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                 const winner = !enemyAlive ? currentUserUid : null;
 
                 // Timer Math using Server Timestamp Delta
-                // We use Date.now() for the *current* execution time, but compare against last server time
-                const timeSpent = Date.now() - lastServerTime; 
+                // FIX: Clamp time spent to avoid negative values (exploitation)
+                // Use Date.now() for client-side move time, against last SERVER committed time.
+                const timeSpent = Math.max(0, Date.now() - lastServerTime); 
+                
                 let newP1Time = currentData.player1TimeRemaining || 120000;
                 let newP2Time = currentData.player2TimeRemaining || 120000;
                 if (blitzMode) {
@@ -983,7 +1013,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                                 <div className="flex gap-2 flex-wrap justify-center">
                                     <button onClick={() => setSelectedAction('standard')} className={`px-4 py-1 rounded border font-bold text-sm ${selectedAction === 'standard' ? 'bg-white text-black' : 'bg-transparent text-gray-300'}`}>Attack</button>
                                     {myData.team.find(c => c.instanceId === selectedAttackerId)?.availableSuperpowers.map(sp => {
-                                        const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'The Artist', 'Storyteller', 'StoryTeller'].includes(sp);
+                                        const isImmediate = ['Show Maker', 'ShowMaker', 'Chopper', 'Notes Master', 'Note Master', 'The Artist', 'Storyteller', 'StoryTeller', 'Flow Switcher'].includes(sp);
                                         return (
                                             <button 
                                                 key={sp} 

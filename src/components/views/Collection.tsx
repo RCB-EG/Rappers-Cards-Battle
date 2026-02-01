@@ -96,42 +96,54 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
         newLayout.allPositions.forEach(pos => newFormation[pos] = null);
 
         // Buckets for migration
-        let gkCard: CardType | null = null;
-        const fieldPlayers: CardType[] = [];
+        const cardsToPlace: { card: CardType, oldRole: string }[] = [];
 
-        // Harvest current cards
+        // Harvest current cards and their old roles
         Object.keys(currentFormation).forEach(posId => {
             const card = currentFormation[posId];
-            if (!card) return;
-            if (getRole(posId) === 'gk') gkCard = card;
-            else fieldPlayers.push(card);
-        });
-
-        // 1. Fill GK
-        const newGkPos = newLayout.allPositions.find(p => getRole(p) === 'gk');
-        if (newGkPos && gkCard) {
-            newFormation[newGkPos] = gkCard;
-        } else if (gkCard) {
-            // Should not happen as all formations have GK, but safely return to storage
-            fieldPlayers.push(gkCard); 
-        }
-
-        // 2. Fill Field Players strictly sequentially into available slots
-        // This ignores roles (DEF/MID/ATT) temporarily to prioritize keeping cards in the squad
-        const newFieldPositions = newLayout.allPositions.filter(p => getRole(p) !== 'gk');
-        
-        newFieldPositions.forEach(posId => {
-            if (fieldPlayers.length > 0) {
-                newFormation[posId] = fieldPlayers.shift()!;
+            if (card) {
+                cardsToPlace.push({ card, oldRole: getRole(posId) });
             }
         });
 
-        // Any cards still not placed return to storage
+        // Helper to fill slots
+        const fillSlots = (role: string) => {
+            const targetSlots = newLayout.allPositions.filter(pos => getRole(pos) === role && newFormation[pos] === null);
+            const candidates = cardsToPlace.filter(c => c.oldRole === role);
+            
+            targetSlots.forEach(slot => {
+                if (candidates.length > 0) {
+                    const match = candidates.shift()!;
+                    newFormation[slot] = match.card;
+                    // Remove from main pool
+                    const idx = cardsToPlace.indexOf(match);
+                    if (idx > -1) cardsToPlace.splice(idx, 1);
+                }
+            });
+        };
+
+        // 1. Fill by Role Priority
+        fillSlots('gk');
+        fillSlots('def');
+        fillSlots('mid');
+        fillSlots('att');
+
+        // 2. Fill remaining empty slots with any remaining players (Out of Position)
+        const remainingEmptySlots = newLayout.allPositions.filter(pos => newFormation[pos] === null);
+        remainingEmptySlots.forEach(slot => {
+            if (cardsToPlace.length > 0) {
+                const match = cardsToPlace.shift()!;
+                newFormation[slot] = match.card;
+            }
+        });
+
+        // 3. Move any remaining cards to storage
+        const overflowCards = cardsToPlace.map(c => c.card);
         
         setGameState({
             formationLayout: newLayoutId,
             formation: newFormation,
-            storage: [...gameState.storage, ...fieldPlayers]
+            storage: [...gameState.storage, ...overflowCards]
         });
     };
     

@@ -96,6 +96,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     const [battleLog, setBattleLog] = useState<string[]>([]);
     const [isAnimating, setIsAnimating] = useState(false);
     const [reward, setReward] = useState(0);
+    const [isBattleReady, setIsBattleReady] = useState(false);
     
     // UI Modals
     const [showRankRewards, setShowRankRewards] = useState(false);
@@ -544,15 +545,20 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
 
     // PvE Game Over
     useEffect(() => {
-        if (phase !== 'battle') return;
+        if (phase !== 'battle' || !isBattleReady) return;
+        
         const playerAlive = playerTeam.some(c => c.currentHp > 0);
         const cpuAlive = cpuTeam.some(c => c.currentHp > 0);
 
         if (!playerAlive) {
             setPhase('result');
+            setIsBattleReady(false);
             stopBattleTheme(musicVolume, musicOn); 
             onBattleWin(0, false, subMode === 'online' || subMode === 'invite' || subMode === 'blitz' ? 'challenge' : subMode, playerTeam); 
         } else if (!cpuAlive) {
+            // Safety check: ensure CPU team was actually populated and is now dead, not just empty
+            if (cpuTeam.length === 0) return;
+
             const cpuStrength = cpuTeam.reduce((sum, c) => sum + c.ovr, 0);
             const basePoints = Math.floor(cpuStrength * 0.6);
             const survivorBonus = playerTeam.filter(c => c.currentHp > 0).length * 25;
@@ -561,16 +567,17 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
 
             setReward(calculatedReward);
             setPhase('result');
+            setIsBattleReady(false);
             stopBattleTheme(musicVolume, musicOn); 
             playSfx('success');
             const resultMode = subMode === 'online' || subMode === 'invite' ? 'challenge' : subMode;
             onBattleWin(calculatedReward, true, resultMode as 'ranked' | 'challenge' | 'blitz', playerTeam); 
         }
-    }, [playerTeam, cpuTeam, phase, subMode]);
+    }, [playerTeam, cpuTeam, phase, subMode, isBattleReady]);
 
     // PvE AI Logic
     useEffect(() => {
-        if (phase !== 'battle' || turn !== 'cpu' || isAnimating || skipNextTurn === 'cpu' || subMode === 'online' || subMode === 'invite' || subMode === 'blitz') return;
+        if (phase !== 'battle' || turn !== 'cpu' || isAnimating || skipNextTurn === 'cpu' || subMode === 'online' || subMode === 'invite' || subMode === 'blitz' || !isBattleReady) return;
 
         let difficulty = 'normal';
         if (subMode === 'ranked') difficulty = rankSystem[gameState.rank].aiDifficulty;
@@ -611,7 +618,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
             } else { setTurn('player'); }
         }, 1200);
         return () => clearTimeout(timer);
-    }, [turn, isAnimating, phase, subMode, skipNextTurn, forcedCpuAttackerId]);
+    }, [turn, isAnimating, phase, subMode, skipNextTurn, forcedCpuAttackerId, isBattleReady]);
 
     const goToTactics = () => {
         const selected = availableCards.filter(c => selectedCardIds.includes(c.id));
@@ -639,6 +646,10 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
             onStartInviteBattle(playerTeam);
             return;
         }
+        
+        // Reset readiness to prevent premature game over checks
+        setIsBattleReady(false);
+
         let ovrRange: [number, number] = [60, 70];
         if (subMode === 'ranked') ovrRange = rankSystem[gameState.rank].cpuOvrRange;
         else if (subMode === 'challenge') {
@@ -655,12 +666,17 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         }
 
         setCpuTeam(newCpuTeam);
-        setPhase('battle');
         setBattleLog(["Battle Started! Player's Turn."]);
         setTurn('player');
         setSkipNextTurn(null);
         setReward(0);
-        playBattleTheme(musicVolume, musicOn);
+        
+        // Use timeout to ensure state has settled before enabling game logic
+        setTimeout(() => {
+            setPhase('battle');
+            setIsBattleReady(true);
+            playBattleTheme(musicVolume, musicOn);
+        }, 100);
     };
 
     const handleBattleStart = () => {
@@ -1036,7 +1052,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
                 )}
                 <div className="flex flex-col gap-3 mt-8 w-full max-w-xs">
                     {(subMode === 'challenge' || subMode === 'ranked') && (
-                        <Button variant="keep" onClick={() => { setPlayerTeam(resetPlayerTeam(playerTeam)); setPhase('battle'); setTurn('player'); setReward(0); }} className="w-full">{t('battle_opt_same_tactics')}</Button>
+                        <Button variant="keep" onClick={() => { setPlayerTeam(resetPlayerTeam(playerTeam)); startBattle(); }} className="w-full">{t('battle_opt_same_tactics')}</Button>
                     )}
                     <Button variant="default" onClick={handleReturnToTactics} className="w-full">{t('battle_opt_change_tactics')}</Button>
                     <Button variant="default" onClick={() => { setPhase('selection'); setSelectedCardIds([]); }} className="w-full">{t('battle_opt_new_squad')}</Button>
