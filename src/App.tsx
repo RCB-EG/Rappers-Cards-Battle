@@ -128,6 +128,9 @@ const App: React.FC = () => {
     const gameStateRef = useRef(gameState);
     useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
 
+    // Simple Admin Check (Extendable)
+    const isAdmin = isDevMode || (currentUser?.email === 'admin@rappers.com');
+
     // --- Asset Preloading ---
     useEffect(() => {
         const loadAssets = async () => {
@@ -655,6 +658,58 @@ const App: React.FC = () => {
 
     // --- Actions ---
 
+    const handleClaimMarketItem = async (card: MarketCard) => {
+        if (!auth.currentUser || !card.marketId) return;
+
+        try {
+            await runTransaction(db, async (transaction) => {
+                const cardRef = doc(db, 'market', card.marketId!);
+                const cardDoc = await transaction.get(cardRef);
+                if (!cardDoc.exists()) throw "Item already claimed.";
+
+                const cardData = cardDoc.data() as MarketCard;
+                const isWinner = cardData.highestBidderId === auth.currentUser!.uid;
+                const isOwner = cardData.sellerId === auth.currentUser!.uid;
+
+                if (!isWinner && !isOwner) throw "Not authorized.";
+
+                // Clean data for storage
+                const { marketId, sellerId, price, buyNowPrice, bidPrice, startingPrice, highestBidderId, expiresAt, durationHours, createdAt, ...baseCardData } = cardData;
+                const newCard = { ...baseCardData, id: `${baseCardData.id}-${Date.now()}` };
+
+                if (isWinner) {
+                    // Winner claims item. Trigger Payout to Seller.
+                    const userRef = doc(db, 'users', auth.currentUser!.uid);
+                    transaction.update(userRef, { storage: arrayUnion(newCard) });
+                    
+                    // Create Payout for Seller
+                    const newPayoutRef = doc(collection(db, 'payouts'));
+                    transaction.set(newPayoutRef, {
+                        receiverId: cardData.sellerId,
+                        amount: cardData.bidPrice,
+                        cardName: cardData.name,
+                        timestamp: Date.now()
+                    });
+                } else if (isOwner) {
+                    // Owner reclaiming unsold item
+                    if (cardData.highestBidderId) throw "Cannot reclaim sold item.";
+                    const userRef = doc(db, 'users', auth.currentUser!.uid);
+                    transaction.update(userRef, { storage: arrayUnion(newCard) });
+                }
+
+                // Delete from Market
+                transaction.delete(cardRef);
+            });
+
+            playSfx('rewardClaimed');
+            setMessageModal({ title: 'Success', message: 'Item claimed successfully.' });
+
+        } catch (e) {
+            console.error("Claim failed:", e);
+            setMessageModal({ title: 'Error', message: 'Could not claim item.' });
+        }
+    };
+
     // This function handles both "Buy Now" (using buyNowPrice) and "Bid" (using input amount)
     const handleMarketAction = async (marketCard: MarketCard) => {
         if (!auth.currentUser) {
@@ -689,10 +744,10 @@ const App: React.FC = () => {
         
         // Only check duplicates on Full Purchase, allow bidding on duplicates if you want (but risk stuck value)
         if (actionType === 'buy') {
-            const alreadyInStorage = gameState.storage.some((c: GameCard) => c.name === marketCard.name);
-            const alreadyInFormation = (Object.values(gameState.formation) as (GameCard | null)[]).some(c => c?.name === marketCard.name);
+            const alreadyInStorage = gameState.storage.some((c: GameCard) => c.name === marketCard.name && c.rarity === marketCard.rarity);
+            const alreadyInFormation = (Object.values(gameState.formation) as (GameCard | null)[]).some(c => c?.name === marketCard.name && c?.rarity === marketCard.rarity);
             if (alreadyInStorage || alreadyInFormation) {
-                setMessageModal({ title: 'Duplicate Found', message: `You already own ${marketCard.name}.` });
+                setMessageModal({ title: 'Duplicate Found', message: `You already own ${marketCard.rarity} ${marketCard.name}.` });
                 return;
             }
         }
@@ -987,15 +1042,23 @@ const App: React.FC = () => {
         
         let stateUpdates: Partial<GameState> = {};
         
-        // FIX #5: Atomic Updates for Pack Costs
-        if (auth.currentUser && !isReward && !fromInventory && !isDevMode) {
-            const userRef = doc(db, 'users', auth.currentUser.uid);
+        // FIX #5: Atomic Updates for Pack Costs & Guest Mode Handling
+        if (!isReward && !fromInventory && !isDevMode) {
+            // Apply cost to local state immediately (Guest & Optimistic UI)
             if (currency === 'coins') {
-                updateDoc(userRef, { coins: increment(-pack.cost) }).catch(console.error);
-                stateUpdates.coins = gameState.coins - pack.cost; // Optimistic
+                stateUpdates.coins = gameState.coins - pack.cost;
             } else {
-                updateDoc(userRef, { battlePoints: increment(-pack.bpCost) }).catch(console.error);
-                stateUpdates.battlePoints = (gameState.battlePoints || 0) - pack.bpCost; // Optimistic
+                stateUpdates.battlePoints = (gameState.battlePoints || 0) - pack.bpCost;
+            }
+
+            // Sync with Firebase if user is logged in
+            if (auth.currentUser) {
+                const userRef = doc(db, 'users', auth.currentUser.uid);
+                if (currency === 'coins') {
+                    updateDoc(userRef, { coins: increment(-pack.cost) }).catch(console.error);
+                } else {
+                    updateDoc(userRef, { battlePoints: increment(-pack.bpCost) }).catch(console.error);
+                }
             }
         }
 
@@ -1065,8 +1128,8 @@ const App: React.FC = () => {
     };
 
     const handleKeepCard = (card: GameCard) => {
-        const alreadyInStorage = gameState.storage.some((c: GameCard) => c.name === card.name);
-        const alreadyInFormation = (Object.values(gameState.formation) as (GameCard | null)[]).some(c => c?.name === card.name);
+        const alreadyInStorage = gameState.storage.some((c: GameCard) => c.name === card.name && c.rarity === card.rarity);
+        const alreadyInFormation = (Object.values(gameState.formation) as (GameCard | null)[]).some(c => c?.name === card.name && c?.rarity === card.rarity);
         
         if (alreadyInStorage || alreadyInFormation) {
             setDuplicateCard(card);
@@ -1534,6 +1597,7 @@ const App: React.FC = () => {
                         currentUser={currentUser}
                         onToggleDevMode={() => setIsDevMode(!isDevMode)} 
                         isDevMode={isDevMode}
+                        isAdmin={isAdmin}
                         onOpenSettings={() => setModals({...modals, settings: true})}
                         onOpenHowToPlay={() => setModals({...modals, howToPlay: true})}
                         onOpenLogin={() => setModals({...modals, login: true})}
@@ -1567,7 +1631,17 @@ const App: React.FC = () => {
                                 />
                             )}
                             {view === 'collection' && <Collection gameState={gameState} setGameState={updateGameState} setCardForOptions={setCardOptions} t={t} />}
-                            {view === 'market' && <Market market={gameState.market} onBuyCard={handleMarketAction} onCancelListing={handleCancelListing} currentUserId={currentUser?.username || ''} t={t} userCoins={gameState.coins} />}
+                            {view === 'market' && (
+                                <Market 
+                                    market={gameState.market} 
+                                    onBuyCard={handleMarketAction} 
+                                    onCancelListing={handleCancelListing}
+                                    onClaimCard={handleClaimMarketItem}
+                                    currentUserId={currentUser?.username ? auth.currentUser?.uid || 'guest' : 'guest'} 
+                                    t={t} 
+                                    userCoins={gameState.coins} 
+                                />
+                            )}
                             {view === 'battle' && (
                                 directBattleId ? (
                                     <PvPBattle

@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import Modal from './Modal';
 import Button from '../Button';
@@ -18,6 +19,7 @@ const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ isOpen, onClose, t }) =
         { titleKey: 'how_to_play_cards_title', textKey: 'how_to_play_cards_text' },
         { titleKey: 'how_to_play_market_title', textKey: 'how_to_play_market_text' },
         { titleKey: 'how_to_play_challenges_title', textKey: 'how_to_play_challenges_text' },
+        { titleKey: 'how_to_play_blitz_title', textKey: 'how_to_play_blitz_text' },
     ];
     
     const currentPage = pages[page];

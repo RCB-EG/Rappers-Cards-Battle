@@ -3,13 +3,15 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { MarketCard, Card as CardType } from '../../types';
 import Card from '../Card';
 import BuyModal from '../modals/BuyModal';
+import Button from '../Button';
 import { TranslationKey } from '../../utils/translations';
 import { allCards } from '../../data/gameData';
 
 interface MarketProps {
   market: MarketCard[];
-  onBuyCard: (card: MarketCard) => void; // Legacy prop name, now handles logic routing
+  onBuyCard: (card: MarketCard) => void;
   onCancelListing: (card: MarketCard) => void;
+  onClaimCard: (card: MarketCard) => void; // New prop for claiming expired/won items
   currentUserId: string;
   t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
   userCoins: number;
@@ -25,14 +27,10 @@ const formatDuration = (ms: number) => {
 
 // Helper to merge old market data with current game definitions
 const getUpdatedCardData = (marketCard: MarketCard): MarketCard => {
-    // Attempt to find the canonical card definition by name and rarity
     const canonical = allCards.find(c => c.name === marketCard.name && c.rarity === marketCard.rarity);
-    
     if (canonical) {
         return {
             ...marketCard,
-            // We prioritize the snapshot data on the market card if it exists (Fix #6), 
-            // but fallback to canonical if the market card is old/legacy.
             ovr: marketCard.ovr || canonical.ovr,
             stats: marketCard.stats || canonical.stats,
         };
@@ -40,7 +38,7 @@ const getUpdatedCardData = (marketCard: MarketCard): MarketCard => {
     return marketCard;
 };
 
-const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, currentUserId, t, userCoins }) => {
+const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, onClaimCard, currentUserId, t, userCoins }) => {
   const [cardToBuy, setCardToBuy] = useState<MarketCard | null>(null);
   const [sortBy, setSortBy] = useState('ending_soon');
   const [rarityFilter, setRarityFilter] = useState('all');
@@ -53,18 +51,14 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
       return () => clearInterval(timer);
   }, []);
 
-  // Process market items (handle resets visually if needed)
   const processedMarket = useMemo(() => {
       return market
         .map(card => {
-            // Apply stat updates to existing listings
             const updatedCard = getUpdatedCardData(card);
-
             let expiresAt = updatedCard.expiresAt || 0;
             const durationMs = (updatedCard.durationHours || 24) * 3600000;
             
-            // Client-side auto-reset visualization logic requested
-            // If expired AND no bidder, calculate the current active window
+            // Client-side visual fix for items that theoretically auto-renew if no bidder
             if (now > expiresAt && !updatedCard.highestBidderId && durationMs > 0) {
                 const timeSinceExpiry = now - expiresAt;
                 const cycles = Math.ceil(timeSinceExpiry / durationMs);
@@ -74,15 +68,14 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
             return { ...updatedCard, displayExpiresAt: expiresAt };
         })
         .filter(card => {
-            // FIX #3: Market Expiration Logic
-            // If the item is expired based on its display logic AND has no bidder, hide it.
-            // Items with bidders must remain visible so they can be claimed/settled.
+            // FIX: Show items if Time Remaining OR Has Bidder OR Is Mine
+            // This ensures finished auctions are visible to be claimed
             const timeRemaining = (card.displayExpiresAt || 0) - now;
             const hasBidder = !!card.highestBidderId;
             const isMyListing = card.sellerId === currentUserId;
+            const isMyBid = card.highestBidderId === currentUserId;
             
-            // Show if: Time remaining OR Has Bidder OR It's mine (so I can cancel/reclaim)
-            return timeRemaining > 0 || hasBidder || isMyListing;
+            return timeRemaining > 0 || hasBidder || isMyListing || isMyBid;
         });
   }, [market, now, currentUserId]);
 
@@ -108,12 +101,10 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
     return filtered;
   }, [processedMarket, sortBy, rarityFilter, searchTerm]);
 
-  // Unified Handler passed to BuyModal
   const handleMarketAction = (card: MarketCard, action: 'buy' | 'bid' | 'cancel', bidAmount?: number) => {
     if (action === 'cancel') {
         onCancelListing(card);
     } else if (action === 'buy') {
-        // Fix: Explicitly check for buyNowPrice, fallback to legacy price, ensure it's a number
         const safePrice = card.buyNowPrice || card.price || 0;
         onBuyCard({ ...card, bidPrice: safePrice }); 
     } else if (action === 'bid' && bidAmount) {
@@ -126,7 +117,6 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
     <div className="animate-fadeIn">
       <h2 className="font-header text-4xl text-white text-center mb-6 [text-shadow:0_0_5px_#00c7e2,0_0_10px_#00c7e2]">{t('header_market')}</h2>
       
-      {/* Controls */}
       <div className="controls-bar flex justify-between items-center mt-6 mb-4 flex-wrap gap-4 p-4 bg-black/20 rounded-lg">
         <div className="filter-group flex gap-2 items-center">
           <input 
@@ -158,29 +148,51 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, cur
         </div>
       </div>
 
-      {/* Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-6 justify-items-center p-4 rounded-lg min-h-[300px] bg-black/30 border border-gold-dark/30">
         {sortedAndFilteredMarket.length > 0 ? (
           sortedAndFilteredMarket.map(card => {
             const isOwner = card.sellerId === currentUserId;
-            const timeLeft = Math.max(0, (card.displayExpiresAt || 0) - now);
             const isWinning = card.highestBidderId === currentUserId;
             const hasBids = !!card.highestBidderId;
             const displayBuyPrice = card.buyNowPrice || card.price || 0;
+            
+            // Expiry logic check
+            const timeLeft = (card.displayExpiresAt || 0) - now;
+            const isExpired = timeLeft <= 0;
+            
+            // "Claim" state logic
+            const showClaim = isExpired && (
+                (isWinning) || // Winner claiming item
+                (isOwner && !hasBids) // Seller reclaiming unsold item
+            );
 
             return (
-                <div key={card.id} className="cursor-pointer relative group w-full max-w-[180px]" onClick={() => setCardToBuy(card)}>
+                <div key={card.id} className="cursor-pointer relative group w-full max-w-[180px]" onClick={() => !showClaim && setCardToBuy(card)}>
                     <Card card={card} origin="market" className="!w-full !h-auto aspect-[2/3]" />
                     
                     {/* Timer Badge */}
-                    <div className={`absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold shadow-md z-20 ${timeLeft < 300000 ? 'bg-red-600 text-white animate-pulse' : 'bg-black/70 text-gray-300'}`}>
+                    <div className={`absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold shadow-md z-20 ${isExpired ? 'bg-gray-800 text-gray-400' : timeLeft < 300000 ? 'bg-red-600 text-white animate-pulse' : 'bg-black/70 text-gray-300'}`}>
                         {formatDuration(timeLeft)}
                     </div>
 
-                    {/* Winning Badge */}
-                    {isWinning && (
+                    {/* Status Badge */}
+                    {isWinning && !isExpired && (
                         <div className="absolute top-2 left-2 bg-green-500 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-md z-20">
                             Winning
+                        </div>
+                    )}
+
+                    {/* Claim Button Overlay */}
+                    {showClaim && (
+                        <div className="absolute inset-0 bg-black/60 z-30 flex flex-col items-center justify-center p-2 rounded-lg">
+                            <span className="text-gold-light font-bold mb-2 text-center text-sm">Auction Ended</span>
+                            <Button 
+                                variant="keep" 
+                                onClick={(e) => { e.stopPropagation(); onClaimCard(card); }} 
+                                className="!py-1 !px-3 text-xs w-full shadow-gold-glow animate-pulse"
+                            >
+                                {isWinning ? t('claim_item') : t('reclaim_card')}
+                            </Button>
                         </div>
                     )}
 

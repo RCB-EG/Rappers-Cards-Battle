@@ -10,6 +10,7 @@ interface HeaderProps {
     currentUser: CurrentUser;
     onToggleDevMode: () => void;
     isDevMode: boolean;
+    isAdmin: boolean;
     onOpenSettings: () => void;
     onOpenHowToPlay: () => void;
     onOpenLogin: () => void;
@@ -20,7 +21,7 @@ interface HeaderProps {
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
 }
 
-const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode, isDevMode, onOpenSettings, onOpenHowToPlay, onOpenLogin, onOpenSignUp, onLogout, lang, setLang, t }) => {
+const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode, isDevMode, isAdmin, onOpenSettings, onOpenHowToPlay, onOpenLogin, onOpenSignUp, onLogout, lang, setLang, t }) => {
     const formationValue = Object.values(gameState.formation).reduce((sum: number, card) => sum + ((card as Card)?.value || 0), 0);
     const displayName = currentUser ? currentUser.username : t('user_guest');
     const avatarSrc = currentUser?.avatar || `https://api.dicebear.com/8.x/bottts/svg?seed=guest&backgroundColor=b6e3f4,c0aede,d1d4f9`;
@@ -61,7 +62,9 @@ const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode
                     {currentUser && (
                        <Button onClick={onLogout} className="px-4 py-2 text-sm">{t('logout')}</Button>
                     )}
-                     <Button onClick={onToggleDevMode} className="px-4 py-2 text-sm">{isDevMode ? "Dev Mode (ON)" : t('dev_mode')}</Button>
+                    {isAdmin && (
+                        <Button onClick={onToggleDevMode} className="px-4 py-2 text-sm">{isDevMode ? "Dev Mode (ON)" : t('dev_mode')}</Button>
+                    )}
                 </div>
                 <div className="lang-switcher flex">
                     <button onClick={() => setLang('ar')} className={`px-3 py-1 bg-dark-gray border border-gold-dark/30 text-gray-400 transition-colors duration-200 rounded-r-md ${lang === 'ar' ? 'bg-gold-light text-black' : ''}`}>AR</button>

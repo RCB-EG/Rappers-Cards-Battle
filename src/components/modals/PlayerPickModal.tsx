@@ -170,8 +170,8 @@ const PlayerPickModal: React.FC<PlayerPickModalProps> = ({ config, onComplete, s
                                 
                                 // Check duplication
                                 const isDuplicate = 
-                                    storage.some(c => c.name === card.name) || 
-                                    (Object.values(formation) as (CardType | null)[]).some(c => c?.name === card.name);
+                                    storage.some(c => c.name === card.name && c.rarity === card.rarity) || 
+                                    (Object.values(formation) as (CardType | null)[]).some(c => c?.name === card.name && c?.rarity === card.rarity);
 
                                 // Use Drop Shadow filter instead of Box Shadow for shape-conforming glow
                                 const glowStyle = isRevealed ? {

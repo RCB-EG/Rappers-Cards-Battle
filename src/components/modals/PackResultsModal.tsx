@@ -27,7 +27,7 @@ const PackResultsModal: React.FC<PackResultsModalProps> = ({ cards, onKeep, onSe
         <Modal isOpen={true} onClose={() => {}} title="Pack Results" size="xl">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 my-4 justify-items-center">
             {cards.map((card) => {
-            const isDuplicate = storage.some(s => s.name === card.name);
+            const isDuplicate = storage.some(s => s.name === card.name && s.rarity === card.rarity);
             const sellValue = calculateQuickSellValue(card);
 
             return (
