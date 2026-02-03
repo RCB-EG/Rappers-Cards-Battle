@@ -4,15 +4,22 @@ import Modal from './Modal';
 import Button from '../Button';
 import Card from '../Card';
 import { Card as CardType, PackType, PlayerPickConfig } from '../../types';
-import { allCards, playerPickConfigs } from '../../data/gameData';
+import { playerPickConfigs } from '../../data/gameData';
 import { TranslationKey } from '../../utils/translations';
 
 export interface RewardData {
-    type: 'coins' | 'pack' | 'card' | 'player_pick' | 'coins_and_pick';
+    type: 'coins' | 'pack' | 'card' | 'player_pick' | 'coins_and_pick' | 'admin_gift_bundle';
     amount?: number;
     packType?: PackType;
     cardId?: string;
     playerPickId?: string;
+    // For admin bundle
+    message?: string;
+    coins?: number;
+    bp?: number;
+    packs?: PackType[];
+    picks?: string[];
+    cards?: string[];
 }
 
 interface RewardModalProps {
@@ -21,6 +28,7 @@ interface RewardModalProps {
     reward: RewardData | null;
     title?: string;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
+    allCards: CardType[];
 }
 
 const packImages: Record<PackType, string> = {
@@ -31,7 +39,7 @@ const packImages: Record<PackType, string> = {
     legendary: 'https://i.postimg.cc/63Fm6md7/Legendary.png',
 };
 
-const RewardModal: React.FC<RewardModalProps> = ({ isOpen, onClose, reward, title = "Reward Claimed!", t }) => {
+const RewardModal: React.FC<RewardModalProps> = ({ isOpen, onClose, reward, title = "Reward Claimed!", t, allCards }) => {
     if (!isOpen || !reward) return null;
 
     const renderContent = () => {
@@ -81,7 +89,7 @@ const RewardModal: React.FC<RewardModalProps> = ({ isOpen, onClose, reward, titl
                                 <p className="text-white text-sm font-bold">1 of {pickConfig?.totalOptions}</p>
                             </div>
                         </div>
-                        <span className="text-white font-header text-2xl">{pickConfig ? t(pickConfig.nameKey as TranslationKey) : 'Player Pick'}</span>
+                        <span className="text-white font-header text-2xl">{pickConfig ? (pickConfig.name || t(pickConfig.nameKey as TranslationKey)) : 'Player Pick'}</span>
                     </div>
                 );
             case 'coins_and_pick':
@@ -106,8 +114,55 @@ const RewardModal: React.FC<RewardModalProps> = ({ isOpen, onClose, reward, titl
                                     <div className="absolute inset-0 bg-black/20" />
                                     <span className="text-4xl z-10">❓</span>
                                 </div>
-                                <span className="text-white font-header text-lg text-center max-w-[120px] leading-tight">{comboPickConfig ? t(comboPickConfig.nameKey as TranslationKey) : 'Pick'}</span>
+                                <span className="text-white font-header text-lg text-center max-w-[120px] leading-tight">{comboPickConfig ? (comboPickConfig.name || t(comboPickConfig.nameKey as TranslationKey)) : 'Pick'}</span>
                             </div>
+                        </div>
+                    </div>
+                );
+            case 'admin_gift_bundle':
+                return (
+                    <div className="flex flex-col items-center gap-4 animate-fadeIn w-full">
+                        {reward.message && (
+                            <p className="text-lg text-gold-light italic text-center bg-black/30 p-4 rounded-lg border border-gold-dark/30 mb-2 max-w-md">
+                                "{reward.message}"
+                            </p>
+                        )}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
+                            {reward.coins ? (
+                                <div className="bg-black/40 p-2 rounded flex flex-col items-center border border-gray-700">
+                                    <span className="text-2xl">💰</span>
+                                    <span className="text-gold-light font-bold">{reward.coins.toLocaleString()}</span>
+                                    <span className="text-xs text-gray-400">Coins</span>
+                                </div>
+                            ) : null}
+                            {reward.bp ? (
+                                <div className="bg-black/40 p-2 rounded flex flex-col items-center border border-gray-700">
+                                    <span className="text-2xl text-blue-400">BP</span>
+                                    <span className="text-blue-200 font-bold">{reward.bp.toLocaleString()}</span>
+                                    <span className="text-xs text-gray-400">Points</span>
+                                </div>
+                            ) : null}
+                            {(reward.packs || []).map((pid, i) => (
+                                <div key={`p-${i}`} className="bg-black/40 p-2 rounded flex flex-col items-center border border-gray-700">
+                                    <span className="text-2xl">📦</span>
+                                    <span className="text-white font-bold text-xs capitalize text-center">{pid} Pack</span>
+                                </div>
+                            ))}
+                            {(reward.picks || []).map((pid, i) => (
+                                <div key={`pp-${i}`} className="bg-black/40 p-2 rounded flex flex-col items-center border border-gray-700">
+                                    <span className="text-2xl">❓</span>
+                                    <span className="text-white font-bold text-xs text-center">{pid} Pick</span>
+                                </div>
+                            ))}
+                            {(reward.cards || []).map((cid, i) => {
+                                const cName = allCards.find(c => c.id === cid)?.name || cid;
+                                return (
+                                    <div key={`c-${i}`} className="bg-black/40 p-2 rounded flex flex-col items-center border border-gray-700">
+                                        <span className="text-2xl">🃏</span>
+                                        <span className="text-white font-bold text-xs text-center">{cName}</span>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 );
@@ -118,15 +173,11 @@ const RewardModal: React.FC<RewardModalProps> = ({ isOpen, onClose, reward, titl
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={title} size="lg">
-            <div className="py-10 flex justify-center w-full min-h-[300px] items-center bg-black/20 rounded-xl border border-white/5 relative overflow-hidden">
-                {/* Background Glow */}
-                <div className="absolute inset-0 bg-radial-gradient from-gold-dark/20 to-transparent opacity-50 pointer-events-none" />
-                <div className="z-10">
-                    {renderContent()}
-                </div>
+            <div className="my-8">
+                {renderContent()}
             </div>
-            <div className="mt-8 flex justify-center">
-                <Button variant="cta" onClick={onClose} className="w-full max-w-xs text-xl py-4 shadow-gold-glow animate-pulse">Collect Reward</Button>
+            <div className="flex justify-center">
+                <Button variant="cta" onClick={onClose} className="w-48 shadow-lg text-xl py-3 animate-pulse">{t('collect')}</Button>
             </div>
         </Modal>
     );

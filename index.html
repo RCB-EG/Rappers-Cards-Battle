@@ -246,6 +246,12 @@
       .tier-4 .animation-vignette { animation: vignette-4 3.5s forwards; }
       .tier-4 .animation-flare { animation: flare-4 1.5s 2.0s ease-in-out forwards; }
       
+      /* Tier 5: Ultimate / God Tier (More chaotic and faster spin at end) */
+      .tier-5 #animation-card-container { animation: spin-5 4.0s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards; }
+      .tier-5 .animation-vignette { animation: vignette-4 4.0s forwards; } /* reuse vignette */
+      .tier-5 .animation-flare { animation: flare-5 1.5s 2.5s ease-in-out forwards; }
+      .tier-5 .god-rays { animation: rotate-rays-fast 10s linear infinite; opacity: 1; mix-blend-mode: hard-light; }
+
       /* Aggressive Shake before reveal */
       .tier-4 #animation-card-container.pre-reveal {
           animation: spin-4-shake 2.5s cubic-bezier(0.6, -0.28, 0.735, 0.045) forwards, shake-card 0.4s 2s infinite;
@@ -267,7 +273,17 @@
           90% { transform: scale(1.4) rotateY(180deg); } 
           100% { transform: scale(1.1) rotateY(360deg); } /* BAM */
       }
-        @keyframes vignette-4 {
+      
+      @keyframes spin-5 {
+          0% { transform: scale(0.1) rotateY(0deg); filter: brightness(0); }
+          20% { transform: scale(1.0) rotateY(720deg); filter: brightness(1); }
+          40% { transform: scale(0.8) rotateY(1440deg); }
+          60% { transform: scale(1.5) rotateY(2160deg) rotateZ(10deg); } /* Giant pause */
+          80% { transform: scale(1.5) rotateY(2160deg) rotateZ(-10deg); filter: brightness(2) contrast(2); }
+          100% { transform: scale(1.2) rotateY(2520deg) rotateZ(0deg); filter: brightness(1); }
+      }
+
+      @keyframes vignette-4 {
           0%, 100% { opacity: 0; }
           10%, 90% { opacity: 1; }
       }
@@ -276,6 +292,13 @@
             10% { opacity: 1; transform: translate(-50%, -50%) scale(2); } /* Explosion */
             100% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
       }
+      @keyframes flare-5 {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.1); }
+            10% { opacity: 1; transform: translate(-50%, -50%) scale(4); background: radial-gradient(circle, white 10%, transparent 80%); } /* Massive Explosion */
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(0.1); }
+      }
+      
+      @keyframes rotate-rays-fast { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(360deg); } }
 
       /* --- ENHANCED CARD VISUALS --- */
       .card-container {
@@ -307,12 +330,19 @@
         0%, 100% { filter: drop-shadow(0 0 5px #33ffdd) drop-shadow(0 0 10px #1ac0aa); }
         50% { filter: drop-shadow(0 0 10px #8affef) drop-shadow(0 0 20px #33ffdd); }
       }
+      
+      /* Generic Dynamic Glow */
+      @keyframes pulse-glow-dynamic {
+        0%, 100% { filter: drop-shadow(0 0 4px var(--glow-color)) drop-shadow(0 0 8px var(--glow-color)); }
+        50% { filter: drop-shadow(0 0 8px var(--glow-color)) drop-shadow(0 0 16px var(--glow-color)); }
+      }
 
       .rarity-gold { animation: pulse-glow-gold 4s infinite ease-in-out; }
       .rarity-rotm { animation: pulse-glow-rotm 3.5s infinite ease-in-out; }
       .rarity-icon { animation: pulse-glow-icon 2.5s infinite ease-in-out; }
       .rarity-legend { animation: pulse-glow-legend 3s infinite ease-in-out; }
       .rarity-event { animation: pulse-glow-event 2.5s infinite ease-in-out; }
+      .rarity-dynamic { animation: pulse-glow-dynamic 4s infinite ease-in-out; }
 
       /* Legendary Card Shimmer Effect */
       @keyframes shimmer-effect {
@@ -599,6 +629,14 @@
       .animate-shake-mild { animation: shake-mild 0.4s ease-in-out; }
       @keyframes shake-mild { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(2px, 0); } }
       
+      @keyframes slideDown {
+          0% { transform: translate(-50%, -100%); opacity: 0; }
+          100% { transform: translate(-50%, 0); opacity: 1; }
+      }
+      .animate-slideDown {
+          animation: slideDown 0.5s ease-out forwards;
+      }
+
       /* --- MOBILE OPTIMIZATIONS (screens smaller than 768px) --- */
       @media (max-width: 768px) {
         body {

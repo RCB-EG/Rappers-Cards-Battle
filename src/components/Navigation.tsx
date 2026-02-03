@@ -12,9 +12,10 @@ interface NavigationProps {
       evo: number;
       fbc: number;
       store: number;
-      social: number; // Added social count
+      social: number;
   };
   isDisabled?: boolean;
+  isAdmin?: boolean; // New prop
 }
 
 const NavTab: React.FC<{
@@ -24,18 +25,30 @@ const NavTab: React.FC<{
   onClick: (view: GameView) => void;
   notificationCount: number;
   disabled?: boolean;
-}> = ({ label, view, isActive, onClick, notificationCount, disabled }) => {
-  const baseClasses = "relative px-4 md:px-8 py-2 font-header text-2xl md:text-3xl tracking-wider transition-all duration-300 bg-gradient-to-b from-gray-700 to-dark-gray text-gold-dark/70 [clip-path:polygon(0%_50%,8%_0%,92%_0%,100%_50%,92%_100%,8%_100%)] border-t-2 border-b-2 border-t-gray-500 border-b-gray-800 shadow-blue-glow/40";
-  const activeClasses = "bg-gradient-to-b from-gray-600 to-gray-800 text-gold-light scale-105 z-10 shadow-[0_0_10px_#00c7e2,0_0_5px_rgba(255,255,255,0.5)]";
+  isAdminTab?: boolean; // Style differentiator
+}> = ({ label, view, isActive, onClick, notificationCount, disabled, isAdminTab }) => {
+  const baseClasses = "relative px-4 md:px-8 py-2 font-header text-2xl md:text-3xl tracking-wider transition-all duration-300 [clip-path:polygon(0%_50%,8%_0%,92%_0%,100%_50%,92%_100%,8%_100%)] border-t-2 border-b-2 shadow-blue-glow/40";
+  
+  const normalClasses = "bg-gradient-to-b from-gray-700 to-dark-gray text-gold-dark/70 border-t-gray-500 border-b-gray-800";
+  const adminClasses = "bg-gradient-to-b from-red-900 to-black text-red-400 border-red-700";
+
+  const activeNormal = "bg-gradient-to-b from-gray-600 to-gray-800 text-gold-light scale-105 z-10 shadow-[0_0_10px_#00c7e2,0_0_5px_rgba(255,255,255,0.5)]";
+  const activeAdmin = "bg-gradient-to-b from-red-800 to-black text-white scale-105 z-10 shadow-[0_0_15px_#ef4444]";
+
   const hoverClasses = "hover:text-gold-light hover:shadow-blue-glow hover:scale-105 cursor-pointer";
   const disabledClasses = "opacity-50 grayscale cursor-not-allowed";
+
+  let classes = baseClasses;
+  if (disabled) classes += ` ${disabledClasses} ${normalClasses}`;
+  else if (isAdminTab) classes += ` ${isActive ? activeAdmin : `${adminClasses} ${hoverClasses}`}`;
+  else classes += ` ${isActive ? activeNormal : `${normalClasses} ${hoverClasses}`}`;
 
   return (
     <div className="relative">
       <button
         onClick={() => !disabled && onClick(view)}
         disabled={disabled}
-        className={`${baseClasses} ${isActive ? activeClasses : disabled ? disabledClasses : hoverClasses}`}
+        className={classes}
       >
         {label}
       </button>
@@ -48,7 +61,7 @@ const NavTab: React.FC<{
   );
 };
 
-const Navigation: React.FC<NavigationProps> = ({ currentView, setCurrentView, t, notificationCounts, isDisabled = false }) => {
+const Navigation: React.FC<NavigationProps> = ({ currentView, setCurrentView, t, notificationCounts, isDisabled = false, isAdmin = false }) => {
   const navItems: { labelKey: TranslationKey; view: GameView }[] = [
     { labelKey: 'nav_store', view: 'store' },
     { labelKey: 'nav_cards', view: 'collection' },
@@ -81,9 +94,19 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setCurrentView, t,
           disabled={isDisabled}
         />
       ))}
+      {isAdmin && (
+          <NavTab 
+            label="ADMIN"
+            view="admin"
+            isActive={currentView === 'admin'}
+            onClick={setCurrentView}
+            notificationCount={0}
+            disabled={isDisabled}
+            isAdminTab={true}
+          />
+      )}
     </nav>
   );
 };
 
 export default Navigation;
-    

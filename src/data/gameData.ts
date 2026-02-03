@@ -1,5 +1,11 @@
 
-import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective, PlayerPickConfig, Rank, BlitzRank } from '../types';
+import { Card, PackType, PackData, FBCChallenge, Evolution, FormationLayoutId, Stats, Objective, PlayerPickConfig, Rank, BlitzRank, Rarity } from '../types';
+
+export const DEV_EMAILS = [
+    'manualman6@gmail.com'
+];
+
+export const PROMO_RARITIES: Rarity[] = ['rotm', 'legend', 'event'];
 
 const generateStats = (ovr: number): Stats => {
     const base = ovr > 70 ? ovr - 10 : ovr - 5;
@@ -279,11 +285,11 @@ export const allCards: Card[] = [
     name: 'Abo El Anwar', 
     ovr: 87, 
     rarity: 'event',
-    image: 'https://i.imghippo.com/files/fZo8874.png', 
+    image: 'https://res.cloudinary.com/dajbohgkl/image/upload/v1770119243/Abo_El_Anwar_Evo_87_Rhyme_Crafter_x1xj7f.webp', 
     value: 32000, 
     isPackable: false,
     superpowers: ['Rhyme Crafter'], 
-    stats: { lyrc: 85, flow: 86, sing: 84, live: 84, diss: 84, char: 85 },
+    stats: { lyrc: 88, flow: 86, sing: 85, live: 90, diss: 84, char: 89 },
     legacy: true
   },
    { 
@@ -291,11 +297,11 @@ export const allCards: Card[] = [
     name: 'Tommy Gun', 
     ovr: 84, 
     rarity: 'event',
-    image: 'https://i.imghippo.com/files/ohZa7371j.png', 
+    image: 'https://res.cloudinary.com/dajbohgkl/image/upload/v1770119243/Tommy_Gun_Evo_84_t1wn9r.webp', 
     value: 7800, 
     isPackable: false,
     superpowers: ['Flow Switcher'], 
-    stats: { lyrc: 82, flow: 84, sing: 87, live: 87, diss: 81, char: 80 },
+    stats: { lyrc: 85, flow: 88, sing: 82, live: 86, diss: 83, char: 85 },
     legacy: true
   },
   
@@ -305,11 +311,11 @@ export const allCards: Card[] = [
     name: 'Shehab',
     ovr: 87,
     rarity: 'gold',
-    image: 'https://res.cloudinary.com/dajbohgkl/image/upload/v1769854289/Shehab_Gold_87_Note_Master_gco0ez.webp',
+    image: 'https://i.imghippo.com/files/of4978Axs.png',
     value: 44000,
     isPackable: false,
     superpowers: ['Note Master'],
-    stats: generateStats(87),
+    stats: { lyrc: 86, flow: 87, sing: 85, live: 88, diss: 84, char: 86 },
     legacy: true
   },
   {
@@ -317,11 +323,11 @@ export const allCards: Card[] = [
     name: 'Tommy Gun',
     ovr: 83,
     rarity: 'gold',
-    image: 'https://res.cloudinary.com/dajbohgkl/image/upload/v1769854289/Tommy_Gun_Gold_83_gbsyxa.webp',
+    image: 'https://i.imghippo.com/files/vEc7611qrg.png',
     value: 4500,
     isPackable: false,
     superpowers: [],
-    stats: generateStats(83),
+    stats: { lyrc: 82, flow: 84, sing: 80, live: 85, diss: 81, char: 83 },
     legacy: true
   },
   {
@@ -329,11 +335,11 @@ export const allCards: Card[] = [
     name: 'Shabjdeed',
     ovr: 85,
     rarity: 'gold',
-    image: 'https://res.cloudinary.com/dajbohgkl/image/upload/v1769854288/Shabjdeed_Gold_85_hx4sua.webp',
+    image: 'https://i.imghippo.com/files/wgqS8075ng.png',
     value: 39500,
     isPackable: false,
     superpowers: [],
-    stats: generateStats(85),
+    stats: { lyrc: 85, flow: 86, sing: 84, live: 87, diss: 83, char: 85 },
     legacy: true
   },
   
@@ -343,11 +349,11 @@ export const allCards: Card[] = [
     name: 'Ra3',
     ovr: 85,
     rarity: 'gold',
-    image: 'https://res.cloudinary.com/dajbohgkl/image/upload/v1769854286/Ra3_Gold_85_Rhyme_Crafter_pvfzfy.webp',
+    image: 'https://i.imghippo.com/files/iH4359ueo.png',
     value: 34000,
     isPackable: false,
     superpowers: ['Rhyme Crafter'],
-    stats: generateStats(85),
+    stats: { lyrc: 84, flow: 85, sing: 82, live: 86, diss: 88, char: 84 },
     legacy: true
   },
 ];
@@ -402,32 +408,7 @@ export const packs: Record<PackType, PackData> = {
   },
 };
 
-export const playerPickConfigs: Record<string, PlayerPickConfig> = {
-    '1of2': { id: '1of2', nameKey: 'pp_1of2', pickCount: 1, totalOptions: 2, minOvr: 70 },
-    '1of3_75': { id: '1of3_75', nameKey: 'pp_1of3_75', pickCount: 1, totalOptions: 3, minOvr: 75 },
-    '1of3_78': { id: '1of3_78', nameKey: 'pp_1of3_78', pickCount: 1, totalOptions: 3, minOvr: 78 },
-    '1of5': { id: '1of5', nameKey: 'pp_1of5', pickCount: 1, totalOptions: 5, minOvr: 80 },
-    '2of10': { id: '2of10', nameKey: 'pp_2of10', pickCount: 2, totalOptions: 10, minOvr: 85 },
-    // New Picks for Blitz Mode
-    '1of4_80': { id: '1of4_80', nameKey: 'pp_1of4_80', pickCount: 1, totalOptions: 4, minOvr: 80 },
-    '2of5_82': { id: '2of5_82', nameKey: 'pp_2of5_82', pickCount: 2, totalOptions: 5, minOvr: 82 },
-    '2of10_85': { id: '2of10_85', nameKey: 'pp_2of10_85', pickCount: 2, totalOptions: 10, minOvr: 85 },
-    '1of2_icon': { id: '1of2_icon', nameKey: 'pp_1of2_icon', pickCount: 1, totalOptions: 2, minOvr: 85, rarityGuarantee: 'icon' },
-    '1of2_rotm': { id: '1of2_rotm', nameKey: 'pp_1of2_rotm', pickCount: 1, totalOptions: 2, minOvr: 85, rarityGuarantee: 'rotm' }
-};
-
 export const fbcData: FBCChallenge[] = [
-    {
-        id: 'daily_bronze',
-        title: 'fbc_daily_bronze_title',
-        description: 'fbc_daily_bronze_desc',
-        repeatable: 'daily',
-        requirements: {
-            cardCount: 1,
-            exactRarityCount: { bronze: 1 },
-        },
-        reward: { type: 'pack', details: 'bronze' }
-    },
     {
         id: 'shehab_debut',
         title: 'shehab_debut_title',
@@ -485,8 +466,9 @@ export const evoData: Evolution[] = [
             rarity: 'gold',
         },
         tasks: [
-            { id: 'open_special_packs', description: 'Open 1 Special Pack', target: 1 },
-            { id: 'play_battle_abo', description: 'Play 1 battle with Gold Abo El Anwar in your squad', target: 1 },
+            { id: 'open_special_packs', description: 'Open 2 Special Packs', target: 2 },
+            { id: 'list_cards_market', description: 'List 2 cards on the market', target: 2 },
+            { id: 'quicksell_gold_card', description: 'Quick sell a Gold card', target: 1 }
         ],
         resultCardId: 'evo_abo_1'
     },
@@ -508,29 +490,37 @@ export const evoData: Evolution[] = [
 
 export const objectivesData: Objective[] = [
     // Daily
-    { id: 'd_login', type: 'daily', titleKey: 'obj_daily_login_title', tasks: [{ id: 'daily_login_task', descriptionKey: 'obj_daily_login_task', target: 1 }], reward: { type: 'pack', packType: 'builder' } },
     { id: 'd1', type: 'daily', titleKey: 'obj_open_free_pack_title', tasks: [{ id: 'open_free_packs', descriptionKey: 'obj_open_free_pack_task', target: 1 }], reward: { type: 'coins', amount: 250 } },
     { id: 'd2', type: 'daily', titleKey: 'obj_list_card_title', tasks: [{ id: 'list_market_cards', descriptionKey: 'obj_list_card_task', target: 1 }], reward: { type: 'coins', amount: 500 } },
-    { id: 'd3', type: 'daily', titleKey: 'obj_play_battle_title', tasks: [{ id: 'play_any_battle', descriptionKey: 'obj_play_battle_task', target: 1 }], reward: { type: 'coins', amount: 600 } },
-    { id: 'd4', type: 'daily', titleKey: 'obj_play_challenge_title', tasks: [{ id: 'play_challenge_battle', descriptionKey: 'obj_play_challenge_task', target: 3 }], reward: { type: 'coins', amount: 1600 } },
-    { id: 'd5', type: 'daily', titleKey: 'obj_win_challenge_title', tasks: [{ id: 'win_challenge_battle', descriptionKey: 'obj_win_challenge_task', target: 5 }], reward: { type: 'coins_and_pick', amount: 4000, playerPickId: '1of3_75' } },
     // Weekly
     { id: 'w1', type: 'weekly', titleKey: 'obj_open_builder_packs_title', tasks: [{ id: 'open_builder_packs', descriptionKey: 'obj_open_builder_packs_task', target: 5 }], reward: { type: 'pack', packType: 'builder' } },
     { id: 'w2', type: 'weekly', titleKey: 'obj_complete_fbc_title', tasks: [{ id: 'complete_fbcs', descriptionKey: 'obj_complete_fbc_task', target: 1 }], reward: { type: 'coins', amount: 2000 } },
-    { id: 'w3', type: 'weekly', titleKey: 'obj_player_pick_title', tasks: [{ id: 'open_builder_packs', descriptionKey: 'obj_open_builder_packs_pick_task', target: 3 }], reward: { type: 'player_pick', playerPickId: '1of3_78' } },
     // Milestone
     {
         id: 'milestone_a_step_ahead',
         type: 'milestone',
         titleKey: 'obj_a_step_ahead_title',
         tasks: [
+            { id: 'complete_evos', descriptionKey: 'obj_task_complete_evo', target: 1 },
             { id: 'complete_fbcs', descriptionKey: 'obj_task_complete_fbc', target: 1 },
-            { id: 'win_ranked_games', descriptionKey: 'obj_task_win_ranked_5', target: 5 }
+            { id: 'formation_11_gold', descriptionKey: 'obj_task_formation_11_gold', target: 1 }
         ],
         reward: { type: 'card', cardId: 'obj_ra3_1' }
     }
 ];
 
+export const playerPickConfigs: Record<string, PlayerPickConfig> = {
+    '1of2': { id: '1of2', nameKey: 'pp_1of2', pickCount: 1, totalOptions: 2, minOvr: 70 },
+    '1of3_75': { id: '1of3_75', nameKey: 'pp_1of3_75', pickCount: 1, totalOptions: 3, minOvr: 75 },
+    '1of3_78': { id: '1of3_78', nameKey: 'pp_1of3_78', pickCount: 1, totalOptions: 3, minOvr: 78 },
+    '1of5': { id: '1of5', nameKey: 'pp_1of5', pickCount: 1, totalOptions: 5, minOvr: 80 },
+    '1of4_80': { id: '1of4_80', nameKey: 'pp_1of4_80', pickCount: 1, totalOptions: 4, minOvr: 80 },
+    '2of5_82': { id: '2of5_82', nameKey: 'pp_2of5_82', pickCount: 2, totalOptions: 5, minOvr: 82 },
+    '2of10': { id: '2of10', nameKey: 'pp_2of10', pickCount: 2, totalOptions: 10, minOvr: 85 },
+    '2of10_85': { id: '2of10_85', nameKey: 'pp_2of10_85', pickCount: 2, totalOptions: 10, minOvr: 85 },
+    '1of2_icon': { id: '1of2_icon', nameKey: 'pp_1of2_icon', pickCount: 1, totalOptions: 2, minOvr: 88, rarityGuarantee: 'icon' },
+    '1of2_rotm': { id: '1of2_rotm', nameKey: 'pp_1of2_rotm', pickCount: 1, totalOptions: 2, minOvr: 88, rarityGuarantee: 'rotm' },
+};
 
 interface Position {
   id: string;
@@ -584,7 +574,7 @@ export const formationLayouts: Record<FormationLayoutId, FormationStructure> = {
       positions: {
           attackers: [{ id: 'lw', label: 'LW' }, { id: 'st', label: 'ST' }, { id: 'rw', label: 'RW' }],
           midfielders: [{ id: 'lm', label: 'LM' }, { id: 'cm1', label: 'CM' }, { id: 'cm2', label: 'CM' }, { id: 'rm', label: 'RM' }],
-          defenders: [{ id: 'cb1', label: 'CB' }, { id: 'cb2', label: 'CB' }, { id: 'cb3', label: 'CB' }],
+          defenders: [{ id: 'cb1', label: 'CB' }, { id: 'cb2', label: 'CB' }, { id: 'cb3', 'label': 'CB' }],
           goalkeeper: [{ id: 'gk', label: 'GK' }],
       },
       allPositions: ['lw', 'st', 'rw', 'lm', 'cm1', 'cm2', 'rm', 'cb1', 'cb2', 'cb3', 'gk'],

@@ -5,6 +5,7 @@ import { formationLayouts } from '../../data/gameData';
 import Card from '../Card';
 import Button from '../Button';
 import { TranslationKey } from '../../utils/translations';
+import { useRarity } from '../../contexts/RarityContext';
 
 interface CollectionProps {
     gameState: GameState;
@@ -35,6 +36,8 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
     const [isOverStorage, setIsOverStorage] = useState(false);
     const [sortBy, setSortBy] = useState('value-desc');
     const [rarityFilter, setRarityFilter] = useState('all');
+    
+    const { sortedRarities } = useRarity();
 
     const formationCardCount = useMemo(() => Object.values(gameState.formation).filter(Boolean).length, [gameState.formation]);
 
@@ -304,15 +307,11 @@ const Collection: React.FC<CollectionProps> = ({ gameState, setGameState, setCar
             <div className="controls-bar flex flex-col md:flex-row justify-between items-center mt-2 mb-2 gap-2">
                 <h3 className="text-xl font-header text-white">{t('storage')} ({gameState.storage.length})</h3>
                 <div className="filter-group flex flex-row gap-2 items-center w-full md:w-auto">
-                    <select id="filter-collection-rarity" value={rarityFilter} onChange={e => setRarityFilter(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-1 rounded-md w-full sm:w-auto text-sm">
+                    <select id="filter-collection-rarity" value={rarityFilter} onChange={e => setRarityFilter(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-1 rounded-md w-full sm:w-auto text-sm capitalize">
                         <option value="all">All Rarities</option>
-                        <option value="bronze">Bronze</option>
-                        <option value="silver">Silver</option>
-                        <option value="gold">Gold</option>
-                        <option value="rotm">ROTM</option>
-                        <option value="icon">Icon</option>
-                        <option value="legend">Legend</option>
-                        <option value="event">Event</option>
+                        {sortedRarities.map(r => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                        ))}
                     </select>
                     <select id="sort-collection" value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-1 rounded-md w-full sm:w-auto text-sm">
                         <option value="value-desc">{t('sort_value_desc')}</option>

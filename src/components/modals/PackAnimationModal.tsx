@@ -4,6 +4,7 @@ import { Card as CardType } from '../../types';
 import Card from '../Card';
 import Button from '../Button';
 import { sfx, getRevealSfxKey } from '../../data/sounds';
+import { useRarity } from '../../contexts/RarityContext';
 
 interface PackAnimationModalProps {
   card: CardType | null;
@@ -42,30 +43,33 @@ class Particle {
     }
 }
 
-const getAnimationDetails = (rarity: CardType['rarity']) => {
-    switch (rarity) {
-        case 'silver':
-            return { tier: 2, revealDelay: 1100, totalDuration: 2500 };
-        case 'gold':
-            return { tier: 3, revealDelay: 1600, totalDuration: 3500 };
-        case 'rotm':
-        case 'icon':
-        case 'legend':
-        case 'event':
-            return { tier: 4, revealDelay: 2000, totalDuration: 4000 };
-        case 'bronze':
-        default:
-            return { tier: 1, revealDelay: 800, totalDuration: 2000 };
-    }
-};
-
 const PackAnimationModal: React.FC<PackAnimationModalProps> = ({ card, onAnimationEnd, playSfx }) => {
     const [isRevealing, setIsRevealing] = useState(false);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const animFrameRef = useRef<number | null>(null);
     const hasPlayedBuildup = useRef(false);
+    
+    const { getRarityDef } = useRarity();
 
-    const animationDetails = useMemo(() => card ? getAnimationDetails(card.rarity) : null, [card]);
+    // Use dynamic rarity definition for animation config
+    const animationDetails = useMemo(() => {
+        if (!card) return null;
+        const def = getRarityDef(card.rarity);
+        const tier = def.animationTier || 1;
+        
+        switch (tier) {
+            case 5: // Ultimate
+                return { tier: 5, revealDelay: 4500, totalDuration: 7500 };
+            case 4: // Legendary
+                return { tier: 4, revealDelay: 2000, totalDuration: 4000 };
+            case 3: // Epic
+                return { tier: 3, revealDelay: 1600, totalDuration: 3500 };
+            case 2: // Rare
+                return { tier: 2, revealDelay: 1100, totalDuration: 2500 };
+            default: // Basic
+                return { tier: 1, revealDelay: 800, totalDuration: 2000 };
+        }
+    }, [card, getRarityDef]);
 
     useEffect(() => {
         // Trigger buildup immediately on mount
@@ -112,9 +116,14 @@ const PackAnimationModal: React.FC<PackAnimationModalProps> = ({ card, onAnimati
             if (card.rarity === 'legend') colors = ['#FF00FF', '#00FFFF', '#FFFFFF']; // Cyberpunk
             if (card.rarity === 'event') colors = ['#00FFCC', '#FFFFFF', '#0099FF'];
             if (card.rarity === 'icon') colors = ['#00C7E2', '#FFFFFF'];
+            
+            // Tier 5 gets custom rainbow colors or specific logic
+            if (animationDetails.tier === 5) {
+                 colors = ['#FF0000', '#FF7F00', '#FFFF00', '#00FF00', '#0000FF', '#4B0082', '#9400D3'];
+            }
 
             // Spawn explosion
-            for (let i = 0; i < 150; i++) {
+            for (let i = 0; i < (animationDetails.tier === 5 ? 300 : 150); i++) {
                 particles.push(new Particle(canvas.width, canvas.height, colors));
             }
 
@@ -141,19 +150,11 @@ const PackAnimationModal: React.FC<PackAnimationModalProps> = ({ card, onAnimati
     if (!card || !animationDetails) return null;
 
     const { tier } = animationDetails;
-
-    const rarityGlowColors: Record<CardType['rarity'], string> = {
-        bronze: '#cd7f32',
-        silver: '#c0c0c0',
-        gold: '#ffd700',
-        rotm: '#e364a7',
-        icon: '#00c7e2',
-        legend: '#ffffff',
-        event: '#33ffdd'
-    };
-    const rarityColor = rarityGlowColors[card.rarity] || '#FFD700';
+    const rarityDef = getRarityDef(card.rarity);
+    const rarityColor = rarityDef.color || '#FFD700';
     
-    const containerClasses = `fixed inset-0 bg-black z-[200] flex justify-center items-center overflow-hidden tier-${tier} ${isRevealing && tier === 4 ? 'shake-screen' : ''}`;
+    // Tier 5 uses specific styles in index.html, tier-5 class
+    const containerClasses = `fixed inset-0 bg-black z-[200] flex justify-center items-center overflow-hidden tier-${tier} ${isRevealing && tier >= 4 ? 'shake-screen' : ''}`;
     
     const cardContainerClasses = `
         relative

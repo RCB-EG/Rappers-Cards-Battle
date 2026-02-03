@@ -4,7 +4,7 @@ import { GameState, Card as CardType, Rarity, PackType, Rank, BattleCard, Active
 import Card from '../Card';
 import Button from '../Button';
 import Modal from '../modals/Modal';
-import { allCards, superpowerIcons, rankSystem, playerPickConfigs, blitzRankSystem, SUPERPOWER_DESC } from '../../data/gameData';
+import { superpowerIcons, rankSystem, playerPickConfigs, blitzRankSystem, SUPERPOWER_DESC } from '../../data/gameData';
 import { TranslationKey } from '../../utils/translations';
 import { sfx } from '../../data/sounds';
 import { playBattleTheme, stopBattleTheme } from '../../utils/sound';
@@ -19,9 +19,10 @@ interface BattleProps {
     musicVolume: number;
     musicOn: boolean;
     setIsBattleActive: (isActive: boolean) => void;
-    setupInvite?: BattleInvite | null; // Trigger for invite setup flow
-    onStartInviteBattle?: (team: BattleCard[]) => void; // Callback to finalize invite
+    setupInvite?: BattleInvite | null; 
+    onStartInviteBattle?: (team: BattleCard[]) => void; 
     currentUser?: User | null;
+    allCards: CardType[];
 }
 
 // Visual Types for PvE
@@ -84,7 +85,7 @@ const packImages: Record<PackType, string> = {
     legendary: 'https://i.postimg.cc/63Fm6md7/Legendary.png',
 };
 
-const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, musicVolume, musicOn, setIsBattleActive, setupInvite, onStartInviteBattle, currentUser }) => {
+const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, musicVolume, musicOn, setIsBattleActive, setupInvite, onStartInviteBattle, currentUser, allCards }) => {
     const [phase, setPhase] = useState<'mode_select' | 'selection' | 'tactics' | 'battle' | 'result' | 'pvp'>('mode_select');
     const [subMode, setSubMode] = useState<'ranked' | 'challenge' | 'online' | 'invite' | 'blitz'>('ranked');
     const [playerTeam, setPlayerTeam] = useState<BattleCard[]>([]);
@@ -659,6 +660,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
 
         const newCpuTeam: BattleCard[] = [];
         for (let i = 0; i < teamSize; i++) {
+            // FIX: Use allCards prop instead of hardcoded
             let pool = allCards.filter(c => c.ovr >= ovrRange[0] && c.ovr <= ovrRange[1]);
             if (pool.length === 0) pool = allCards;
             const randomCard = pool[Math.floor(Math.random() * pool.length)];

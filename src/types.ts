@@ -1,9 +1,19 @@
 
-export type Rarity = 'bronze' | 'silver' | 'gold' | 'icon' | 'rotm' | 'legend' | 'event';
+export type Rarity = string;
 
-export type GameView = 'store' | 'collection' | 'market' | 'battle' | 'fbc' | 'evo' | 'objectives' | 'social';
+// Dynamic Rarity Configuration
+export interface RarityDefinition {
+    id: string;
+    name: string;
+    rank: number; // For sorting
+    color: string; // Hex code for glow/shadow
+    baseImage: string; // URL for the card background
+    animationTier: number; // 1: Basic, 2: Rare, 3: Epic, 4: Legendary, 5: Ultimate
+}
 
-export type PackType = 'free' | 'bronze' | 'builder' | 'special' | 'legendary';
+export type GameView = 'store' | 'collection' | 'market' | 'battle' | 'fbc' | 'evo' | 'objectives' | 'social' | 'admin';
+
+export type PackType = string;
 
 export type FormationLayoutId = '4-4-2' | '4-3-3' | '5-3-2' | '3-4-3';
 
@@ -49,9 +59,14 @@ export interface MarketCard extends Card {
 export interface PackData {
   cost: number;
   bpCost: number;
-  rarityChances: {
-    [key in Rarity]?: number;
-  };
+  rarityChances: Record<string, number>;
+  requiredPromos?: Rarity[];
+  // Dynamic Pack Fields
+  id?: string;
+  name?: string;
+  image?: string;
+  description?: string;
+  active?: boolean;
 }
 
 export interface FBCChallenge {
@@ -64,10 +79,10 @@ export interface FBCChallenge {
     repeatable?: 'daily';
     requirements: {
         cardCount: number;
-        exactRarityCount?: { [key in Rarity]?: number };
+        exactRarityCount?: { [key: string]: number };
         minAvgOvr?: number;
         minTotalValue?: number;
-        minRarityCount?: { [key in Rarity]?: number };
+        minRarityCount?: { [key: string]: number };
     };
     reward: {
         type: 'pack' | 'card' | 'coins';
@@ -128,6 +143,19 @@ export interface Settings {
   animationsOn: boolean;
 }
 
+export interface GlobalSettings {
+    maintenanceMode: boolean;
+    marketEnabled: boolean;
+    battlesEnabled: boolean;
+    announcement?: {
+        active: boolean;
+        message: string;
+        type: 'info' | 'warning' | 'success';
+    };
+    disabledCardIds?: string[];
+    activePromos?: Rarity[];
+}
+
 export interface User {
     username: string;
     email?: string;
@@ -147,6 +175,11 @@ export interface PlayerPickConfig {
     totalOptions: number;
     minOvr: number;
     rarityGuarantee?: Rarity;
+    // Dynamic fields
+    name?: string;
+    cost?: number;
+    image?: string;
+    active?: boolean;
 }
 
 export interface Friend {
@@ -183,6 +216,22 @@ export interface ChatMessage {
     timestamp: number;
 }
 
+export interface InboxMessage {
+    id: string;
+    type: 'admin_gift';
+    title: string;
+    message: string;
+    rewards: {
+        coins?: number;
+        bp?: number;
+        packs?: PackType[];
+        picks?: string[]; // IDs
+        cards?: string[]; // IDs
+    };
+    timestamp: number;
+    claimed?: boolean;
+}
+
 export interface GameState {
   version: number;
   userId: string;
@@ -217,6 +266,7 @@ export interface GameState {
   ownedPlayerPicks: PlayerPickConfig[];
   activePlayerPick: PlayerPickConfig | null;
   friends: Friend[];
+  banned?: boolean;
 }
 
 export interface Deal {

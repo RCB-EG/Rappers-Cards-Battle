@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { TranslationKey } from '../../utils/translations';
 import { GameState, Card as CardType, FBCChallenge, Rarity, PackType } from '../../types';
-import { fbcData, allCards } from '../../data/gameData';
+import { fbcData } from '../../data/gameData';
 import Button from '../Button';
 import Card from '../Card';
 import { sfx } from '../../data/sounds';
@@ -12,6 +12,7 @@ interface FBCProps {
     onFbcSubmit: (challengeId: string, submittedCards: CardType[]) => void;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
     playSfx: (soundKey: keyof typeof sfx) => void;
+    allCards: CardType[];
 }
 
 type FbcViewMode = 'list' | 'group' | 'submission';
@@ -57,7 +58,7 @@ const checkRequirements = (submission: CardType[], requirements: FBCChallenge['r
     return { checks, allMet: Object.values(checks).every(Boolean) };
 };
 
-const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx }) => {
+const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards }) => {
     const [viewMode, setViewMode] = useState<FbcViewMode>('list');
     const [selectedChallenge, setSelectedChallenge] = useState<FBCChallenge | null>(null);
     const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -89,9 +90,9 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx }) => {
     }, [availableChallenges]);
 
     const availablePlayerCards = useMemo(() => {
-        const allCards = [...Object.values(gameState.formation).filter(Boolean) as CardType[], ...gameState.storage];
+        const playerCards = [...Object.values(gameState.formation).filter(Boolean) as CardType[], ...gameState.storage];
         const submissionIds = new Set(submission.map(c => c.id));
-        return allCards.filter(c => !submissionIds.has(c.id));
+        return playerCards.filter(c => !submissionIds.has(c.id));
     }, [gameState.formation, gameState.storage, submission]);
 
     const { checks, allMet } = useMemo(() => {

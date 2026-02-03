@@ -5,16 +5,17 @@ import Card from '../Card';
 import BuyModal from '../modals/BuyModal';
 import Button from '../Button';
 import { TranslationKey } from '../../utils/translations';
-import { allCards } from '../../data/gameData';
+import { useRarity } from '../../contexts/RarityContext';
 
 interface MarketProps {
   market: MarketCard[];
   onBuyCard: (card: MarketCard) => void;
   onCancelListing: (card: MarketCard) => void;
-  onClaimCard: (card: MarketCard) => void; // New prop for claiming expired/won items
+  onClaimCard: (card: MarketCard) => void; 
   currentUserId: string;
   t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
   userCoins: number;
+  allCards: CardType[];
 }
 
 const formatDuration = (ms: number) => {
@@ -25,27 +26,27 @@ const formatDuration = (ms: number) => {
     return `${m}m ${Math.floor((ms % 60000) / 1000)}s`;
 };
 
-// Helper to merge old market data with current game definitions
-const getUpdatedCardData = (marketCard: MarketCard): MarketCard => {
-    const canonical = allCards.find(c => c.name === marketCard.name && c.rarity === marketCard.rarity);
-    if (canonical) {
-        return {
-            ...marketCard,
-            ovr: marketCard.ovr || canonical.ovr,
-            stats: marketCard.stats || canonical.stats,
-        };
-    }
-    return marketCard;
-};
-
-const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, onClaimCard, currentUserId, t, userCoins }) => {
+const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, onClaimCard, currentUserId, t, userCoins, allCards }) => {
   const [cardToBuy, setCardToBuy] = useState<MarketCard | null>(null);
   const [sortBy, setSortBy] = useState('ending_soon');
   const [rarityFilter, setRarityFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [now, setNow] = useState(Date.now());
+  const { sortedRarities } = useRarity();
 
-  // Timer Tick
+  // Helper to merge old market data with current game definitions
+  const getUpdatedCardData = (marketCard: MarketCard): MarketCard => {
+      const canonical = allCards.find(c => c.name === marketCard.name && c.rarity === marketCard.rarity);
+      if (canonical) {
+          return {
+              ...marketCard,
+              ovr: marketCard.ovr || canonical.ovr,
+              stats: marketCard.stats || canonical.stats,
+          };
+      }
+      return marketCard;
+  };
+
   useEffect(() => {
       const timer = setInterval(() => setNow(Date.now()), 1000);
       return () => clearInterval(timer);
@@ -77,7 +78,7 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, onC
             
             return timeRemaining > 0 || hasBidder || isMyListing || isMyBid;
         });
-  }, [market, now, currentUserId]);
+  }, [market, now, currentUserId, allCards]);
 
   const sortedAndFilteredMarket = useMemo(() => {
     let filtered = processedMarket.filter(card => 
@@ -126,15 +127,11 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, onC
             onChange={e => setSearchTerm(e.target.value)}
             className="bg-darker-gray border border-gold-dark/30 text-white p-2 rounded-md"
           />
-          <select value={rarityFilter} onChange={e => setRarityFilter(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-2 rounded-md">
+          <select value={rarityFilter} onChange={e => setRarityFilter(e.target.value)} className="bg-darker-gray border border-gold-dark/30 text-white p-2 rounded-md capitalize">
             <option value="all">All Rarities</option>
-            <option value="bronze">Bronze</option>
-            <option value="silver">Silver</option>
-            <option value="gold">Gold</option>
-            <option value="rotm">ROTM</option>
-            <option value="icon">Icon</option>
-            <option value="legend">Legend</option>
-            <option value="event">Event</option>
+            {sortedRarities.map(r => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
           </select>
         </div>
         <div className="filter-group flex gap-2 items-center">
@@ -156,33 +153,28 @@ const Market: React.FC<MarketProps> = ({ market, onBuyCard, onCancelListing, onC
             const hasBids = !!card.highestBidderId;
             const displayBuyPrice = card.buyNowPrice || card.price || 0;
             
-            // Expiry logic check
             const timeLeft = (card.displayExpiresAt || 0) - now;
             const isExpired = timeLeft <= 0;
             
-            // "Claim" state logic
             const showClaim = isExpired && (
-                (isWinning) || // Winner claiming item
-                (isOwner && !hasBids) // Seller reclaiming unsold item
+                (isWinning) || 
+                (isOwner && !hasBids) 
             );
 
             return (
                 <div key={card.id} className="cursor-pointer relative group w-full max-w-[180px]" onClick={() => !showClaim && setCardToBuy(card)}>
                     <Card card={card} origin="market" className="!w-full !h-auto aspect-[2/3]" />
                     
-                    {/* Timer Badge */}
                     <div className={`absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold shadow-md z-20 ${isExpired ? 'bg-gray-800 text-gray-400' : timeLeft < 300000 ? 'bg-red-600 text-white animate-pulse' : 'bg-black/70 text-gray-300'}`}>
                         {formatDuration(timeLeft)}
                     </div>
 
-                    {/* Status Badge */}
                     {isWinning && !isExpired && (
                         <div className="absolute top-2 left-2 bg-green-500 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-md z-20">
                             Winning
                         </div>
                     )}
 
-                    {/* Claim Button Overlay */}
                     {showClaim && (
                         <div className="absolute inset-0 bg-black/60 z-30 flex flex-col items-center justify-center p-2 rounded-lg">
                             <span className="text-gold-light font-bold mb-2 text-center text-sm">Auction Ended</span>

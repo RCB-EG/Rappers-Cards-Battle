@@ -76,7 +76,7 @@ const RankUpModal: React.FC<RankUpModalProps> = ({ isOpen, onClose, newRank, rew
                                     {countNum > 1 && <div className="absolute -top-2 -right-2 bg-red-600 text-white text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full border-2 border-darker-gray shadow-sm">{countNum}</div>}
                                 </div>
                                 <span className="text-white font-bold text-sm mt-2">{countNum}x</span>
-                                <span className="text-gray-400 text-xs text-center leading-tight h-6 flex items-center">{pickConfig ? t(pickConfig.nameKey as TranslationKey).replace(' Pick', '') : pickId}</span>
+                                <span className="text-gray-400 text-xs text-center leading-tight h-6 flex items-center">{pickConfig ? (pickConfig.name || t(pickConfig.nameKey as TranslationKey).replace(' Pick', '')) : pickId}</span>
                             </div>
                         );
                     })}

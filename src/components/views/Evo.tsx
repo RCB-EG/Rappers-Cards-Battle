@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { TranslationKey } from '../../utils/translations';
 import { GameState, Card as CardType, Evolution } from '../../types';
-import { evoData, allCards } from '../../data/gameData';
+import { evoData } from '../../data/gameData';
 import Button from '../Button';
 import Card from '../Card';
 import { sfx } from '../../data/sounds';
@@ -12,6 +13,7 @@ interface EvoProps {
     onClaimEvo: () => void;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
     playSfx: (soundKey: keyof typeof sfx) => void;
+    allCards: CardType[];
 }
 
 const isCardEligible = (card: CardType, eligibility: Evolution['eligibility']) => {
@@ -21,7 +23,7 @@ const isCardEligible = (card: CardType, eligibility: Evolution['eligibility']) =
     return true;
 };
 
-const Evo: React.FC<EvoProps> = ({ gameState, onStartEvo, onClaimEvo, t, playSfx }) => {
+const Evo: React.FC<EvoProps> = ({ gameState, onStartEvo, onClaimEvo, t, playSfx, allCards }) => {
     const [selectedEvo, setSelectedEvo] = useState<Evolution | null>(null);
     const { activeEvolution } = gameState;
 

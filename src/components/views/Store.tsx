@@ -1,10 +1,12 @@
 
-import React, { useState } from 'react';
-import { PackType, GameState, PlayerPickConfig } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { PackType, GameState, PlayerPickConfig, GlobalSettings, PackData } from '../../types';
 import Modal from '../modals/Modal';
 import Button from '../Button';
-import { packs } from '../../data/gameData';
+import { packs as defaultPacks } from '../../data/gameData';
 import { TranslationKey } from '../../utils/translations';
+import { db } from '../../firebaseConfig';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 interface StoreProps {
   onOpenPack: (packType: PackType, options?: { isReward?: boolean, bypassLimit?: boolean, fromInventory?: boolean, currency?: 'coins' | 'bp' }) => void;
@@ -12,18 +14,56 @@ interface StoreProps {
   gameState: GameState;
   isDevMode: boolean;
   t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
+  globalSettings: GlobalSettings;
 }
 
-const Store: React.FC<StoreProps> = ({ onOpenPack, onOpenInventoryPick, gameState, isDevMode, t }) => {
+const Store: React.FC<StoreProps> = ({ onOpenPack, onOpenInventoryPick, gameState, isDevMode, t, globalSettings }) => {
     const [confirmingPack, setConfirmingPack] = useState<PackType | null>(null);
+    const [dynamicPacks, setDynamicPacks] = useState<Record<string, PackData>>({});
+    
     const { coins, battlePoints, freePacksOpenedToday, lastFreePackResetTime, ownedPacks, ownedPlayerPicks } = gameState;
 
-    const packDetails = {
-        free: { src: 'https://i.postimg.cc/R0sYyFhL/Free.png', label: t('pack_free') },
-        bronze: { src: 'https://i.imghippo.com/files/KCG5562T.png', label: t('pack_bronze') },
-        builder: { src: 'https://i.postimg.cc/1z5Tv6mz/Builder.png', label: t('pack_builder') },
-        special: { src: 'https://i.postimg.cc/sxS0M4cT/Special.png', label: t('pack_special') },
-        legendary: { src: 'https://i.postimg.cc/63Fm6md7/Legendary.png', label: t('pack_legendary') }
+    // Fetch dynamic packs from Firestore
+    useEffect(() => {
+        const unsub = onSnapshot(doc(db, 'settings', 'packs'), (docSnap) => {
+            if (docSnap.exists()) {
+                setDynamicPacks(docSnap.data() as Record<string, PackData>);
+            }
+        });
+        return () => unsub();
+    }, []);
+
+    // Merge default and dynamic packs. Dynamic packs override defaults with same ID.
+    const allPacks: Record<string, PackData> = { ...defaultPacks, ...dynamicPacks };
+
+    // Define display details (image, label) for packs
+    const getPackDisplay = (type: PackType) => {
+        const pack = allPacks[type];
+        
+        // Fallback for deleted packs that users might still own
+        if (!pack) {
+            return {
+                src: 'https://i.imghippo.com/files/cGUh9927EWc.png',
+                label: type || 'Unknown Pack'
+            };
+        }
+
+        const defaultDetails: Record<string, {src: string, label: string}> = {
+            free: { src: 'https://i.postimg.cc/R0sYyFhL/Free.png', label: t('pack_free') },
+            bronze: { src: 'https://i.imghippo.com/files/KCG5562T.png', label: t('pack_bronze') },
+            builder: { src: 'https://i.postimg.cc/1z5Tv6mz/Builder.png', label: t('pack_builder') },
+            special: { src: 'https://i.postimg.cc/sxS0M4cT/Special.png', label: t('pack_special') },
+            legendary: { src: 'https://i.postimg.cc/63Fm6md7/Legendary.png', label: t('pack_legendary') }
+        };
+
+        if (pack.name || pack.image) {
+            return {
+                src: pack.image || defaultDetails[type]?.src || 'https://i.imghippo.com/files/cGUh9927EWc.png',
+                label: pack.name || defaultDetails[type]?.label || type
+            };
+        }
+        
+        return defaultDetails[type] || { src: 'https://i.imghippo.com/files/cGUh9927EWc.png', label: type };
     };
 
     const twelveHours = 12 * 60 * 60 * 1000;
@@ -42,52 +82,74 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, onOpenInventoryPick, gameStat
         }
     };
     
-    // Group owned packs by type
+    // Group owned packs
     const ownedPacksCount = ownedPacks.reduce((acc, type) => {
         acc[type] = (acc[type] || 0) + 1;
         return acc;
     }, {} as Record<PackType, number>);
 
-    // Group owned picks by ID
+    // Group owned picks
     const ownedPicksCount = ownedPlayerPicks.reduce((acc, pick) => {
         acc[pick.id] = acc[pick.id] ? { ...acc[pick.id], count: acc[pick.id].count + 1 } : { config: pick, count: 1 };
         return acc;
     }, {} as Record<string, { config: PlayerPickConfig, count: number }>);
 
     const hasInventory = ownedPacks.length > 0 || ownedPlayerPicks.length > 0;
-    
-    const currentPackData = confirmingPack ? packs[confirmingPack] : null;
+    const currentPackData = confirmingPack ? allPacks[confirmingPack] : null;
+
+    // Filter available packs for the store view (hide inactive ones)
+    const availablePacks = (Object.keys(allPacks) as PackType[]).filter(packType => {
+        const pack = allPacks[packType];
+        if (!pack) return false;
+        // Check active status (default true if undefined)
+        if (pack.active === false) return false;
+        
+        if (packType === 'bronze') return false; // Hidden utility pack
+        if (pack.requiredPromos) {
+            const activePromos = globalSettings.activePromos || [];
+            return pack.requiredPromos.every(p => activePromos.includes(p));
+        }
+        return true;
+    });
 
     return (
         <div className="animate-fadeIn">
-            {/* Inventory Section */}
+            {/* Inventory Section (Shows ALL owned items, even inactive ones) */}
             {hasInventory && (
                 <div className="mb-12 bg-black/30 p-6 rounded-xl border border-gold-dark/30">
                     <h3 className="font-header text-3xl text-gold-light mb-6 text-center shadow-gold-glow">Owned Packs & Picks</h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6 justify-items-center">
                         {/* Owned Packs */}
-                        {Object.entries(ownedPacksCount).map(([type, count]) => (
-                            <div key={`owned-${type}`} className="flex flex-col items-center">
-                                <div className="relative group">
-                                    <img 
-                                        src={packDetails[type as PackType]?.src || packDetails['free'].src} 
-                                        alt={packDetails[type as PackType]?.label || type} 
-                                        className="w-32 rounded-md mb-2 transition-transform hover:scale-105"
-                                    />
-                                    <div className="absolute -top-2 -right-2 bg-red-600 text-white font-bold rounded-full w-8 h-8 flex items-center justify-center border-2 border-white shadow-md">
-                                        {count}
+                        {Object.entries(ownedPacksCount).map(([type, count]) => {
+                            const display = getPackDisplay(type);
+                            // Safety: check if pack exists in config, otherwise it might fail to open properly
+                            // Note: We check against allPacks, so inactive packs are still valid here.
+                            const isPackValid = !!allPacks[type] || type === 'free'; 
+
+                            return (
+                                <div key={`owned-${type}`} className="flex flex-col items-center">
+                                    <div className="relative group">
+                                        <img 
+                                            src={display.src} 
+                                            alt={display.label} 
+                                            className="w-32 rounded-md mb-2 transition-transform hover:scale-105 grayscale-[30%] hover:grayscale-0"
+                                        />
+                                        <div className="absolute -top-2 -right-2 bg-red-600 text-white font-bold rounded-full w-8 h-8 flex items-center justify-center border-2 border-white shadow-md">
+                                            {count}
+                                        </div>
                                     </div>
+                                    <span className="text-sm text-gray-300 mb-2 text-center leading-tight">{display.label}</span>
+                                    <Button 
+                                        variant="keep" 
+                                        onClick={() => onOpenPack(type as PackType, { fromInventory: true })} 
+                                        className="py-1 px-4 text-sm"
+                                        disabled={!isPackValid}
+                                    >
+                                        {isPackValid ? 'Open' : 'Unavailable'}
+                                    </Button>
                                 </div>
-                                <span className="text-sm text-gray-300 mb-2">{packDetails[type as PackType]?.label || type}</span>
-                                <Button 
-                                    variant="keep" 
-                                    onClick={() => onOpenPack(type as PackType, { fromInventory: true })} 
-                                    className="py-1 px-4 text-sm"
-                                >
-                                    Open
-                                </Button>
-                            </div>
-                        ))}
+                            );
+                        })}
 
                         {/* Owned Picks */}
                         {Object.values(ownedPicksCount).map(({ config, count }) => (
@@ -107,7 +169,7 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, onOpenInventoryPick, gameStat
                                         {count}
                                     </div>
                                 </div>
-                                <span className="text-sm text-gray-300 mb-2">{t(config.nameKey as TranslationKey)}</span>
+                                <span className="text-sm text-gray-300 mb-2">{config.name || t(config.nameKey as TranslationKey)}</span>
                                 <Button variant="keep" onClick={() => onOpenInventoryPick(config)} className="py-1 px-4 text-sm">
                                     Open
                                 </Button>
@@ -119,9 +181,11 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, onOpenInventoryPick, gameStat
 
             <h2 className="font-header text-4xl text-white text-center mb-6 [text-shadow:0_0_5px_#00c7e2,0_0_10px_#00c7e2]">{t('header_packs')}</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-10 justify-items-center">
-                {(Object.keys(packs) as PackType[]).filter(p => p !== 'bronze').map(packType => {
+                {availablePacks.map(packType => {
                     const isFreePack = packType === 'free';
-                    const isDisabled = isFreePack ? (packsLeft <= 0 && !isDevMode) : false; // Cost check happens on confirm
+                    const isDisabled = isFreePack ? (packsLeft <= 0 && !isDevMode) : false;
+                    const display = getPackDisplay(packType);
+                    const packInfo = allPacks[packType];
 
                     return (
                         <div key={packType} className="flex flex-col items-center">
@@ -137,15 +201,15 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, onOpenInventoryPick, gameStat
                                 className="pack-item group flex flex-col items-center max-w-[150px] transition-transform duration-300 ease-in-out disabled:filter disabled:grayscale disabled:cursor-not-allowed enabled:hover:-translate-y-1"
                             >
                                 <img 
-                                    src={packDetails[packType].src} 
-                                    alt={packDetails[packType].label} 
+                                    src={display.src} 
+                                    alt={display.label} 
                                     className="w-full rounded-md mb-1 transition-all duration-300 ease-in-out group-enabled:group-hover:scale-105 group-enabled:group-hover:drop-shadow-[0_0_10px_#FFD700]"
                                 />
                             </button>
                             {isFreePack ? (
                                 <div className="text-center">
                                     <span className="text-lg text-gold-light [text-shadow:0_0_5px_#B8860B]">
-                                        {packDetails[packType].label}
+                                        {display.label}
                                     </span>
                                     <span className="block text-sm text-gray-400 h-5">
                                         {packsLeft > 0 ? `(${packsLeft} left)` : `(Resets later)`}
@@ -154,11 +218,13 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, onOpenInventoryPick, gameStat
                             ) : (
                                 <div className="flex flex-col items-center">
                                     <span className="text-lg text-gold-light [text-shadow:0_0_5px_#B8860B]">
-                                        {packs[packType].cost} {t('coins')}
+                                        {packInfo.cost} {t('coins')}
                                     </span>
-                                    <span className="text-sm text-blue-glow font-bold">
-                                        {packs[packType].bpCost} BP
-                                    </span>
+                                    {packInfo.bpCost > 0 && (
+                                        <span className="text-sm text-blue-glow font-bold">
+                                            {packInfo.bpCost} BP
+                                        </span>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -166,7 +232,7 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, onOpenInventoryPick, gameStat
                 })}
             </div>
 
-            <Modal isOpen={!!confirmingPack} onClose={() => setConfirmingPack(null)} title={`Confirm ${confirmingPack} Pack`}>
+            <Modal isOpen={!!confirmingPack} onClose={() => setConfirmingPack(null)} title={`Confirm ${getPackDisplay(confirmingPack || '').label}`}>
                 {currentPackData && (
                     <div className="text-center text-white">
                         <div className="text-left my-4 p-4 bg-black/20 rounded-md">
@@ -188,14 +254,16 @@ const Store: React.FC<StoreProps> = ({ onOpenPack, onOpenInventoryPick, gameStat
                                 Buy for {currentPackData.cost} {t('coins')}
                             </Button>
                             
-                            <Button 
-                                variant="ok" 
-                                onClick={() => handleConfirm('bp')}
-                                disabled={!isDevMode && (battlePoints || 0) < currentPackData.bpCost}
-                                className="w-full !bg-blue-600 !border-blue-400 disabled:!bg-gray-600"
-                            >
-                                Buy for {currentPackData.bpCost} BP
-                            </Button>
+                            {currentPackData.bpCost > 0 && (
+                                <Button 
+                                    variant="ok" 
+                                    onClick={() => handleConfirm('bp')}
+                                    disabled={!isDevMode && (battlePoints || 0) < currentPackData.bpCost}
+                                    className="w-full !bg-blue-600 !border-blue-400 disabled:!bg-gray-600"
+                                >
+                                    Buy for {currentPackData.bpCost} BP
+                                </Button>
+                            )}
 
                             <Button variant="default" onClick={() => setConfirmingPack(null)}>{t('cancel')}</Button>
                         </div>

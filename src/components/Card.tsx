@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card as CardType } from '../types';
-import { rarityBgUrls } from '../utils/assets';
+import { useRarity } from '../contexts/RarityContext';
 
 interface CardProps {
   card: CardType;
@@ -14,6 +14,7 @@ interface CardProps {
 const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = false, ...props }) => {
   const [imageError, setImageError] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const { getRarityDef } = useRarity();
 
   // Reset states when card changes
   useEffect(() => {
@@ -21,7 +22,11 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
     setImageLoaded(false);
   }, [card.image, card.id]);
 
+  const rarityDef = getRarityDef(card.rarity);
+  const isDefaultRarity = ['bronze', 'silver', 'gold', 'rotm', 'icon', 'legend', 'event'].includes(card.rarity);
+
   const specialRarityClass = card.rarity === 'legend' ? 'is-legendary' : card.rarity === 'event' ? 'is-event' : '';
+  const dynamicClass = !isDefaultRarity ? 'rarity-dynamic' : `rarity-${card.rarity}`;
 
   const cardContainerClasses = `
     card-container 
@@ -31,22 +36,24 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
     drop-shadow-[0_5px_10px_rgba(0,0,0,0.7)] 
     transition-transform duration-200 ease-in-out 
     hover:-translate-y-1 hover:scale-105 hover:drop-shadow-[0_8px_20px_rgba(0,0,0,0.9)]
-    rarity-${card.rarity}
+    ${dynamicClass}
     ${specialRarityClass}
     ${isEvolving ? 'is-evolving' : ''}
     ${className}
   `;
   
-  // Style to prevent mobile context menu and selection
+  // Style to prevent mobile context menu and selection + Dynamic Rarity Color
   const cardStyle: React.CSSProperties = {
     WebkitTouchCallout: 'none', // iOS Safari
     userSelect: 'none',
     WebkitUserSelect: 'none', // Safari
     MozUserSelect: 'none', // Firefox
     msUserSelect: 'none', // IE/Edge
+    // @ts-ignore - Custom CSS variable
+    '--glow-color': rarityDef.color
   };
 
-  const bgUrl = rarityBgUrls[card.rarity] || rarityBgUrls['gold'];
+  const bgUrl = rarityDef.baseImage;
 
   // Default scale logic: New cards (non-legacy) get 1.05X width by default
   const defaultScaleX = card.legacy ? 1 : 1.05;
@@ -56,6 +63,10 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
   const transformStyle = card.customScale 
     ? `scale(${card.customScale})` 
     : `scale(${scaleX}, ${scaleY})`;
+
+  const imgStyle: React.CSSProperties = {
+      transform: transformStyle
+  };
 
   return (
     <div
@@ -75,7 +86,7 @@ const Card: React.FC<CardProps> = ({ card, className = '', origin, isEvolving = 
       {!imageError && (
         <img 
           className="absolute inset-0 w-full h-full object-cover z-10 transition-transform duration-200"
-          style={{ transform: transformStyle }}
+          style={imgStyle}
           src={card.image} 
           alt={card.name}
           onLoad={() => setImageLoaded(true)}

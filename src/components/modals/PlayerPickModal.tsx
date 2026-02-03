@@ -4,7 +4,6 @@ import Modal from './Modal';
 import Button from '../Button';
 import Card from '../Card';
 import { Card as CardType, PlayerPickConfig } from '../../types';
-import { allCards } from '../../data/gameData';
 import { TranslationKey } from '../../utils/translations';
 import { sfx } from '../../data/sounds';
 import CardInspectModal from './CardInspectModal';
@@ -16,6 +15,7 @@ interface PlayerPickModalProps {
     formation: Record<string, CardType | null>;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
     playSfx: (key: keyof typeof sfx) => void;
+    allCards: CardType[];
 }
 
 const rarityColors: Record<string, string> = {
@@ -28,7 +28,7 @@ const rarityColors: Record<string, string> = {
     event: '#33ffdd'
 };
 
-const PlayerPickModal: React.FC<PlayerPickModalProps> = ({ config, onComplete, storage, formation, t, playSfx }) => {
+const PlayerPickModal: React.FC<PlayerPickModalProps> = ({ config, onComplete, storage, formation, t, playSfx, allCards }) => {
     const [candidates, setCandidates] = useState<CardType[]>([]);
     const [revealedIndices, setRevealedIndices] = useState<number[]>([]);
     const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
@@ -105,7 +105,7 @@ const PlayerPickModal: React.FC<PlayerPickModalProps> = ({ config, onComplete, s
         setCandidates(picks);
         setIsGenerating(false);
         
-    }, [config]);
+    }, [config, allCards]);
 
     // Sequential Reveal Effect
     useEffect(() => {
@@ -148,9 +148,11 @@ const PlayerPickModal: React.FC<PlayerPickModalProps> = ({ config, onComplete, s
         }
     };
 
+    const pickTitle = config.name || t(config.nameKey as TranslationKey);
+
     return (
         <>
-            <Modal isOpen={true} onClose={() => {}} title={t(config.nameKey as TranslationKey)} size="xl">
+            <Modal isOpen={true} onClose={() => {}} title={pickTitle} size="xl">
                 {isGenerating ? (
                     <div className="flex flex-col items-center justify-center h-64">
                         <div className="w-12 h-12 border-4 border-gold-light/30 border-t-gold-light rounded-full animate-spin mb-4"></div>

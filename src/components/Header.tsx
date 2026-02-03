@@ -1,6 +1,6 @@
 
-import React from 'react';
-import { GameState, Card, CurrentUser, BlitzRank } from '../types';
+import React, { useState, useEffect } from 'react';
+import { GameState, Card, CurrentUser, BlitzRank, GlobalSettings } from '../types';
 import Button from './Button';
 import { TranslationKey } from '../utils/translations';
 import { rankSystem, blitzRankSystem } from '../data/gameData';
@@ -19,9 +19,17 @@ interface HeaderProps {
     lang: 'en' | 'ar';
     setLang: (lang: 'en' | 'ar') => void;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
+    globalSettings?: GlobalSettings;
 }
 
-const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode, isDevMode, isAdmin, onOpenSettings, onOpenHowToPlay, onOpenLogin, onOpenSignUp, onLogout, lang, setLang, t }) => {
+const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode, isDevMode, isAdmin, onOpenSettings, onOpenHowToPlay, onOpenLogin, onOpenSignUp, onLogout, lang, setLang, t, globalSettings }) => {
+    const [isAnnouncementDismissed, setIsAnnouncementDismissed] = useState(false);
+
+    // Reset dismissal if the message changes so users see new announcements
+    useEffect(() => {
+        setIsAnnouncementDismissed(false);
+    }, [globalSettings?.announcement?.message]);
+
     const formationValue = Object.values(gameState.formation).reduce((sum: number, card) => sum + ((card as Card)?.value || 0), 0);
     const displayName = currentUser ? currentUser.username : t('user_guest');
     const avatarSrc = currentUser?.avatar || `https://api.dicebear.com/8.x/bottts/svg?seed=guest&backgroundColor=b6e3f4,c0aede,d1d4f9`;
@@ -49,7 +57,35 @@ const Header: React.FC<HeaderProps> = ({ gameState, currentUser, onToggleDevMode
 
     return (
         <header>
-            <div className="header-controls absolute top-4 left-4 right-4 flex justify-between items-center z-10">
+            {/* Global Announcement Floating Message */}
+            {globalSettings?.announcement?.active && globalSettings.announcement.message && !isAnnouncementDismissed && (
+                <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-[200] max-w-[90%] md:max-w-xl w-full animate-slideDown`}>
+                    <div className={`relative px-6 py-4 rounded-lg shadow-2xl border-2 flex items-start gap-4 ${
+                        globalSettings.announcement.type === 'warning' ? 'bg-red-900/95 border-red-500 text-white' :
+                        globalSettings.announcement.type === 'success' ? 'bg-green-900/95 border-green-500 text-white' :
+                        'bg-blue-900/95 border-blue-400 text-white'
+                    }`}>
+                        <div className="text-2xl">
+                            {globalSettings.announcement.type === 'warning' ? '⚠️' : 
+                             globalSettings.announcement.type === 'success' ? '✅' : '📢'}
+                        </div>
+                        <div className="flex-grow">
+                            <h4 className="font-header text-lg uppercase tracking-wider mb-1">Announcement</h4>
+                            <p className="text-sm md:text-base leading-relaxed text-gray-100">
+                                {globalSettings.announcement.message}
+                            </p>
+                        </div>
+                        <button 
+                            onClick={() => setIsAnnouncementDismissed(true)}
+                            className="text-white/70 hover:text-white font-bold text-xl leading-none"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            <div className="header-controls absolute top-4 left-4 right-4 flex justify-between items-center z-10 pt-8 md:pt-0">
                 <div className="flex items-center gap-2">
                     <Button onClick={onOpenSettings} className="px-4 py-2 text-sm">{t('settings')}</Button>
                     <Button onClick={onOpenHowToPlay} className="px-4 py-2 text-sm">{t('how_to_play')}</Button>

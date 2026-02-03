@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { GameState, Objective, PackType } from '../../types';
-import { objectivesData, allCards, playerPickConfigs } from '../../data/gameData';
+import { GameState, Objective, PackType, Card as CardType } from '../../types';
+import { objectivesData, playerPickConfigs } from '../../data/gameData';
 import Button from '../Button';
 import Card from '../Card';
 import { TranslationKey } from '../../utils/translations';
@@ -10,6 +10,7 @@ interface ObjectivesProps {
     gameState: GameState;
     onClaimReward: (objectiveId: string) => void;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
+    allCards: CardType[];
 }
 
 const packImages: Record<PackType, string> = {
@@ -28,7 +29,7 @@ const formatTimeLeft = (ms: number) => {
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 };
 
-const renderRewardText = (objective: Objective, t: ObjectivesProps['t']) => {
+const renderRewardText = (objective: Objective, t: ObjectivesProps['t'], allCards: CardType[]) => {
     const { reward } = objective;
     if (reward.type === 'coins') {
         return `${reward.amount} ${t('coins')}`;
@@ -42,11 +43,11 @@ const renderRewardText = (objective: Objective, t: ObjectivesProps['t']) => {
     }
     if (reward.type === 'player_pick') {
         const pick = playerPickConfigs[reward.playerPickId!]
-        return pick ? t(pick.nameKey as TranslationKey) : 'Player Pick';
+        return pick ? (pick.name || t(pick.nameKey as TranslationKey)) : 'Player Pick';
     }
     if (reward.type === 'coins_and_pick') {
         const pick = playerPickConfigs[reward.playerPickId!]
-        return `${reward.amount} ${t('coins')} + ${pick ? t(pick.nameKey as TranslationKey) : 'Pick'}`;
+        return `${reward.amount} ${t('coins')} + ${pick ? (pick.name || t(pick.nameKey as TranslationKey)) : 'Pick'}`;
     }
     return 'Reward';
 };
@@ -58,7 +59,8 @@ const ObjectiveGroup: React.FC<{
     onClaimReward: (objectiveId: string) => void;
     t: ObjectivesProps['t'];
     timerMs?: number;
-}> = ({ titleKey, objectives, gameState, onClaimReward, t, timerMs }) => (
+    allCards: CardType[];
+}> = ({ titleKey, objectives, gameState, onClaimReward, t, timerMs, allCards }) => (
     <div className="mb-8">
         <div className="flex justify-between items-baseline mb-3">
             <h3 className="font-header text-3xl text-gold-light">{t(titleKey)}</h3>
@@ -121,10 +123,10 @@ const ObjectiveGroup: React.FC<{
                                 ) : isPackReward ? (
                                     <div className="flex flex-col items-center">
                                         <img src={packImages[obj.reward.packType!]} alt={obj.reward.packType} className="w-24 h-auto object-contain drop-shadow-md mb-2 hover:scale-105 transition-transform" />
-                                        <p className="text-gold-light font-bold text-lg">{renderRewardText(obj, t)}</p>
+                                        <p className="text-gold-light font-bold text-lg">{renderRewardText(obj, t, allCards)}</p>
                                     </div>
                                 ) : (
-                                    <p className="text-gold-light font-bold text-xl">{renderRewardText(obj, t)}</p>
+                                    <p className="text-gold-light font-bold text-xl">{renderRewardText(obj, t, allCards)}</p>
                                 )}
                                 <Button variant={progress.claimed || !allTasksComplete ? 'default' : 'keep'} onClick={() => onClaimReward(obj.id)} disabled={!allTasksComplete || progress.claimed}>
                                     {progress.claimed ? t('completed') : t('claim')}
@@ -139,7 +141,7 @@ const ObjectiveGroup: React.FC<{
 );
 
 
-const Objectives: React.FC<ObjectivesProps> = ({ gameState, onClaimReward, t }) => {
+const Objectives: React.FC<ObjectivesProps> = ({ gameState, onClaimReward, t, allCards }) => {
     const [now, setNow] = useState(Date.now());
 
     useEffect(() => {
@@ -158,9 +160,9 @@ const Objectives: React.FC<ObjectivesProps> = ({ gameState, onClaimReward, t }) 
         <div className="animate-fadeIn">
             <h2 className="font-header text-4xl text-white text-center mb-6 [text-shadow:0_0_5px_#00c7e2,0_0_10px_#00c7e2]">{t('header_objectives')}</h2>
             
-            <ObjectiveGroup titleKey="milestone_objectives" objectives={milestoneObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} />
-            <ObjectiveGroup titleKey="daily_objectives" objectives={dailyObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} timerMs={nextDailyReset - now} />
-            <ObjectiveGroup titleKey="weekly_objectives" objectives={weeklyObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} timerMs={nextWeeklyReset - now} />
+            <ObjectiveGroup titleKey="milestone_objectives" objectives={milestoneObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} allCards={allCards} />
+            <ObjectiveGroup titleKey="daily_objectives" objectives={dailyObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} timerMs={nextDailyReset - now} allCards={allCards} />
+            <ObjectiveGroup titleKey="weekly_objectives" objectives={weeklyObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} timerMs={nextWeeklyReset - now} allCards={allCards} />
 
         </div>
     );
