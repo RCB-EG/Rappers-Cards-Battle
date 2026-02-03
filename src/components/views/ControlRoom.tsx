@@ -1,11 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../../firebaseConfig';
-import { doc, getDoc, updateDoc, setDoc, onSnapshot, increment, collection, query, where, getDocs, arrayUnion, arrayRemove, writeBatch, deleteField, addDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, onSnapshot, increment, collection, query, where, getDocs, arrayUnion, arrayRemove, writeBatch, deleteField } from 'firebase/firestore';
 import Button from '../Button';
-import { GlobalSettings, GameState, Card, Rarity, Stats, RarityDefinition, PackData, PlayerPickConfig, InboxMessage } from '../../types';
+import { GlobalSettings, GameState, Card, Rarity, Stats, RarityDefinition, PackData, PlayerPickConfig } from '../../types';
 import { TranslationKey } from '../../utils/translations';
-import { packs as defaultPacks, playerPickConfigs as defaultPicks } from '../../data/gameData';
+import { PROMO_RARITIES, SUPERPOWER_DESC, packs as defaultPacks, playerPickConfigs as defaultPicks } from '../../data/gameData';
 import CardComponent from '../Card';
 import { useRarity } from '../../contexts/RarityContext';
 
@@ -36,16 +36,11 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
     const [userMessage, setUserMessage] = useState('');
     const [isLoadingUser, setIsLoadingUser] = useState(false);
 
-    // Gifting State
-    const [giftType, setGiftType] = useState<'coins' | 'bp' | 'pack' | 'pick' | 'card'>('coins');
-    const [giftAmount, setGiftAmount] = useState<number>(10000);
-    const [giftId, setGiftId] = useState<string>(''); // For pack/pick/card ID
-    const [giftMessage, setGiftMessage] = useState<string>('Here is a reward from the team!');
-    const [giftSearch, setGiftSearch] = useState(''); // For card search
-
     // Card Management State
     const [cardSearch, setCardSearch] = useState('');
     const [filteredCards, setFilteredCards] = useState<Card[]>([]);
+    const [isSeeding, setIsSeeding] = useState(false);
+    const [seedMessage, setSeedMessage] = useState('');
 
     // --- CARD CREATOR / EDITOR STATE ---
     const [editingCardId, setEditingCardId] = useState<string | null>(null);
@@ -170,7 +165,7 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
         catch (e) { console.error(e); }
     }
 
-    // --- User & Gift Management Logic ---
+    // --- User & Card Management Logic ---
     const fetchUser = async () => {
         if (!targetUserId.trim()) return;
         setIsLoadingUser(true); setUserMessage(''); setTargetUser(null);
@@ -189,38 +184,7 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
     };
 
     const handleBanUser = async () => { if (targetUser) { const newBanStatus = !targetUser.banned; await updateDoc(doc(db, 'users', targetUser.userId), { banned: newBanStatus }); setTargetUser(prev => prev ? ({ ...prev, banned: newBanStatus }) : null); } };
-    
-    const handleSendGift = async () => {
-        if (!targetUser) return;
-        if (!giftMessage.trim()) { alert("Please enter a message."); return; }
-        if ((giftType === 'pack' || giftType === 'pick' || giftType === 'card') && !giftId) { alert("Please select an item."); return; }
-
-        try {
-            const inboxRef = collection(db, 'users', targetUser.userId, 'inbox');
-            
-            const rewardsPayload: InboxMessage['rewards'] = {};
-            if (giftType === 'coins') rewardsPayload.coins = giftAmount;
-            if (giftType === 'bp') rewardsPayload.bp = giftAmount;
-            if (giftType === 'pack') rewardsPayload.packs = Array(Math.max(1, giftAmount)).fill(giftId); // Reusing Amount for Quantity
-            if (giftType === 'pick') rewardsPayload.picks = Array(Math.max(1, giftAmount)).fill(giftId);
-            if (giftType === 'card') rewardsPayload.cards = Array(Math.max(1, giftAmount)).fill(giftId);
-
-            const message: InboxMessage = {
-                id: '', // Firestore generates
-                type: 'admin_gift',
-                title: 'Admin Reward',
-                message: giftMessage,
-                rewards: rewardsPayload,
-                timestamp: Date.now()
-            };
-
-            await addDoc(inboxRef, message);
-            setUserMessage(`Successfully sent ${giftType} to ${targetUser.userProfile?.username || targetUser.userId}.`);
-        } catch (e: any) {
-            console.error(e);
-            setUserMessage(`Error sending gift: ${e.message}`);
-        }
-    };
+    const handleGiftCoins = async () => { if (targetUser) { await updateDoc(doc(db, 'users', targetUser.userId), { coins: increment(10000) }); setTargetUser(prev => prev ? ({ ...prev, coins: prev.coins + 10000 }) : null); } };
 
     const toggleCardStatus = async (cardId: string) => {
         const isDisabled = settings.disabledCardIds?.includes(cardId);
@@ -322,6 +286,7 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
 
         try {
             const packsRef = doc(db, 'settings', 'packs');
+            // Ensure active is set if missing
             const packDataToSave = { ...newPack, active: newPack.active !== false };
             await setDoc(packsRef, { [newPack.id]: packDataToSave }, { merge: true });
             setPackMessage(`Pack '${newPack.name}' saved!`);
@@ -349,6 +314,8 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
         const newStatus = !currentActive;
         try {
             const packsRef = doc(db, 'settings', 'packs');
+            // Merge the new active status. This works for both creating an override for a default pack
+            // and updating an existing custom pack.
             await setDoc(packsRef, { [packId]: { active: newStatus } }, { merge: true });
             setPackMessage(`Pack ${packId} is now ${newStatus ? 'ACTIVE' : 'INACTIVE'}.`);
         } catch(e: any) { setPackMessage(`Error: ${e.message}`); }
@@ -358,12 +325,14 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
     const handleCreatePick = async () => {
         if (!newPick.id || !newPick.name) { setPickMessage("Pick ID and Name required."); return; }
         
+        // Remove keys with undefined values to prevent Firestore errors
         const configToSave: any = {
             ...newPick,
             nameKey: newPick.nameKey || newPick.id,
             active: newPick.active !== false
         };
         
+        // Explicitly remove rarityGuarantee if it's undefined or empty string
         if (!configToSave.rarityGuarantee) delete configToSave.rarityGuarantee;
 
         try {
@@ -400,9 +369,6 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
         } catch (e: any) { setPickMessage(`Error: ${e.message}`); }
     };
 
-    // Helper for Card Search in Gift
-    const filteredGiftCards = allCards.filter(c => c.name.toLowerCase().includes(giftSearch.toLowerCase()));
-
     return (
         <div className="animate-fadeIn w-full max-w-6xl mx-auto pb-12">
             <div className="flex justify-between items-center mb-8 bg-gray-900 p-4 rounded-lg border border-red-900/50">
@@ -412,121 +378,41 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 
-                {/* User Management & Gifting */}
+                {/* Global Feature Switches */}
                 <div className="bg-black/40 p-6 rounded-xl border border-gray-700 h-fit">
-                    <h3 className="text-2xl font-header text-white mb-4 border-b border-gray-700 pb-2">User Management</h3>
-                    <div className="flex gap-2 mb-4">
-                        <input 
-                            type="text" 
-                            placeholder="Username or UID" 
-                            value={targetUserId} 
-                            onChange={e => setTargetUserId(e.target.value)} 
-                            className="bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white flex-grow"
-                        />
-                        <Button variant="default" onClick={fetchUser} disabled={isLoadingUser}>{isLoadingUser ? '...' : 'Find'}</Button>
-                    </div>
-                    {userMessage && <p className="text-sm text-yellow-400 mb-2">{userMessage}</p>}
-                    
-                    {targetUser && (
-                        <div className="bg-gray-800/50 p-4 rounded border border-gray-600 space-y-4">
-                            <div className="flex justify-between items-center">
-                                <div>
-                                    <p className="text-white font-bold">{targetUser.userProfile?.username || 'Unknown'}</p>
-                                    <p className="text-xs text-gray-400">{targetUser.userId}</p>
-                                    <p className="text-xs text-gold-light">{targetUser.coins.toLocaleString()} Coins | {targetUser.battlePoints || 0} BP</p>
-                                </div>
-                                <Button variant={targetUser.banned ? 'keep' : 'sell'} onClick={handleBanUser} className="text-xs py-1 px-3">
-                                    {targetUser.banned ? 'Unban' : 'Ban'}
-                                </Button>
-                            </div>
-
-                            {/* Enhanced Gifting Section */}
-                            <div className="border-t border-gray-700 pt-4 mt-2">
-                                <h4 className="text-gold-light font-bold mb-2">Send Reward / Gift</h4>
-                                
-                                <div className="space-y-3">
-                                    <div className="flex gap-2">
-                                        <select value={giftType} onChange={e => setGiftType(e.target.value as any)} className="bg-black border border-gray-600 rounded p-2 text-white text-sm">
-                                            <option value="coins">Coins</option>
-                                            <option value="bp">Battle Points</option>
-                                            <option value="pack">Pack</option>
-                                            <option value="pick">Player Pick</option>
-                                            <option value="card">Specific Card</option>
-                                        </select>
-                                        {(giftType === 'coins' || giftType === 'bp') ? (
-                                            <input type="number" placeholder="Amount" value={giftAmount} onChange={e => setGiftAmount(parseInt(e.target.value) || 0)} className="bg-black border border-gray-600 rounded p-2 text-white text-sm w-full" />
-                                        ) : (
-                                            <input type="number" placeholder="Quantity" value={giftAmount} onChange={e => setGiftAmount(parseInt(e.target.value) || 1)} className="bg-black border border-gray-600 rounded p-2 text-white text-sm w-20" />
-                                        )}
-                                    </div>
-
-                                    {/* Item Selectors */}
-                                    {giftType === 'pack' && (
-                                        <select value={giftId} onChange={e => setGiftId(e.target.value)} className="w-full bg-black border border-gray-600 rounded p-2 text-white text-sm">
-                                            <option value="">Select Pack...</option>
-                                            {Object.entries({...defaultPacks, ...customPacks}).map(([id, data]) => {
-                                                const p = data as PackData;
-                                                return (
-                                                    <option key={id} value={id}>{p.name || id}</option>
-                                                );
-                                            })}
-                                        </select>
-                                    )}
-                                    {giftType === 'pick' && (
-                                        <select value={giftId} onChange={e => setGiftId(e.target.value)} className="w-full bg-black border border-gray-600 rounded p-2 text-white text-sm">
-                                            <option value="">Select Pick...</option>
-                                            {Object.entries({...defaultPicks, ...customPicks}).map(([id, data]) => {
-                                                const p = data as PlayerPickConfig;
-                                                return (
-                                                    <option key={id} value={id}>{p.name || t(p.nameKey as TranslationKey) || id}</option>
-                                                );
-                                            })}
-                                        </select>
-                                    )}
-                                    {giftType === 'card' && (
-                                        <div className="relative">
-                                            <input type="text" placeholder="Search Card..." value={giftSearch} onChange={e => setGiftSearch(e.target.value)} className="w-full bg-black border border-gray-600 rounded p-2 text-white text-sm" />
-                                            {giftSearch && (
-                                                <div className="absolute z-10 w-full bg-gray-900 border border-gray-600 max-h-40 overflow-y-auto mt-1">
-                                                    {filteredGiftCards.slice(0, 10).map(c => (
-                                                        <div key={c.id} onClick={() => { setGiftId(c.id); setGiftSearch(c.name); }} className="p-2 hover:bg-gray-700 cursor-pointer text-xs text-white">
-                                                            {c.name} ({c.rarity})
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                            {giftId && <p className="text-xs text-green-400 mt-1">Selected ID: {giftId}</p>}
-                                        </div>
-                                    )}
-
-                                    <textarea 
-                                        placeholder="Message to user..." 
-                                        value={giftMessage} 
-                                        onChange={e => setGiftMessage(e.target.value)}
-                                        className="w-full bg-black border border-gray-600 rounded p-2 text-white text-sm h-16"
-                                    />
-
-                                    <Button variant="cta" onClick={handleSendGift} className="w-full py-2 text-sm">Send Gift</Button>
-                                </div>
-                            </div>
+                    <h3 className="text-2xl font-header text-gold-light mb-6 border-b border-gray-700 pb-2">Global Settings</h3>
+                    <div className="space-y-6">
+                        <div className="flex justify-between items-center">
+                            <div><p className="text-white font-bold text-lg">Maintenance Mode</p></div>
+                            <button onClick={() => toggleSetting('maintenanceMode')} className={`w-16 h-8 rounded-full transition-colors duration-300 relative ${settings.maintenanceMode ? 'bg-red-600' : 'bg-gray-600'}`}>
+                                <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-all duration-300 ${settings.maintenanceMode ? 'left-9' : 'left-1'}`}></div>
+                            </button>
                         </div>
-                    )}
+                        <div className="flex justify-between items-center">
+                            <div><p className="text-white font-bold text-lg">Market Enabled</p></div>
+                            <button onClick={() => toggleSetting('marketEnabled')} className={`w-16 h-8 rounded-full transition-colors duration-300 relative ${settings.marketEnabled ? 'bg-green-600' : 'bg-gray-600'}`}>
+                                <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-all duration-300 ${settings.marketEnabled ? 'left-9' : 'left-1'}`}></div>
+                            </button>
+                        </div>
+                        <div className="flex justify-between items-center">
+                            <div><p className="text-white font-bold text-lg">Battles Enabled</p></div>
+                            <button onClick={() => toggleSetting('battlesEnabled')} className={`w-16 h-8 rounded-full transition-colors duration-300 relative ${settings.battlesEnabled ? 'bg-green-600' : 'bg-gray-600'}`}>
+                                <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-all duration-300 ${settings.battlesEnabled ? 'left-9' : 'left-1'}`}></div>
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
-                {/* Promo Toggles (Dynamic) */}
+                {/* Promo Toggles */}
                 <div className="bg-black/40 p-6 rounded-xl border border-purple-500/30 h-fit">
                     <h3 className="text-2xl font-header text-purple-400 mb-6 border-b border-gray-700 pb-2">Live Content</h3>
-                    <div className="space-y-4 max-h-[300px] overflow-y-auto custom-scrollbar">
-                        {sortedRarities.map(rarity => {
-                            // Filter out basic base rarities if desired, or keep all. Let's keep all for control.
-                            const isActive = settings.activePromos?.includes(rarity.id);
+                    <div className="space-y-4">
+                        {PROMO_RARITIES.map(promo => {
+                            const isActive = settings.activePromos?.includes(promo);
                             return (
-                                <div key={rarity.id} className="flex justify-between items-center p-2 hover:bg-white/5 rounded">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: rarity.color }}></div>
-                                        <span className="text-white font-bold capitalize text-sm">{rarity.name}</span>
-                                    </div>
-                                    <button onClick={() => togglePromo(rarity.id)} className={`px-3 py-1 rounded font-bold text-xs transition-colors border ${isActive ? 'bg-green-600 border-green-400 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}>
+                                <div key={promo} className="flex justify-between items-center">
+                                    <span className="text-white font-bold capitalize text-lg">{promo} Cards</span>
+                                    <button onClick={() => togglePromo(promo)} className={`px-4 py-2 rounded font-bold text-sm transition-colors border ${isActive ? 'bg-green-600 border-green-400 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}>
                                         {isActive ? 'ACTIVE' : 'DISABLED'}
                                     </button>
                                 </div>
@@ -535,7 +421,6 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
                     </div>
                 </div>
 
-                {/* ... (Pick Factory, Card Creator, Rarity Forge, Pack Manager code preserved below) ... */}
                 {/* --- PICK FACTORY --- */}
                 <div className="bg-black/40 p-6 rounded-xl border border-indigo-500/30 md:col-span-2">
                     <h3 className="text-2xl font-header text-indigo-400 mb-6 border-b border-gray-700 pb-2">Player Pick Factory</h3>

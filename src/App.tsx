@@ -15,8 +15,7 @@ import {
     OnlineBattleState,
     BattleCard,
     BlitzRank,
-    GlobalSettings,
-    InboxMessage
+    GlobalSettings
 } from './types';
 import { initialState } from './data/initialState';
 import { packs as defaultPacks, allCards, objectivesData, evoData, fbcData, playerPickConfigs, rankSystem, blitzRankSystem, DEV_EMAILS, PROMO_RARITIES } from './data/gameData';
@@ -141,9 +140,6 @@ const App: React.FC = () => {
     const [duplicateCard, setDuplicateCard] = useState<GameCard | null>(null);
     const [rankUpModalData, setRankUpModalData] = useState<{ newRank: Rank, rewards: { coins: number, packs: PackType[], picks: string[] } } | null>(null);
     const [rewardModal, setRewardModal] = useState<{ isOpen: boolean, reward: RewardData | null, title?: string }>({ isOpen: false, reward: null });
-    
-    // New Reward/Inbox State
-    const [currentInboxItem, setCurrentInboxItem] = useState<InboxMessage | null>(null);
 
     const gameStateRef = useRef(gameState);
     useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
@@ -367,112 +363,6 @@ const App: React.FC = () => {
             unsubChats();
         };
     }, [firebaseUser, playSfx, friendRequestCount, unreadChatCount]);
-
-    // 2.5 INBOX LISTENER (Admin Gifts)
-    useEffect(() => {
-        if (!firebaseUser) return;
-        const q = query(collection(db, 'users', firebaseUser.uid, 'inbox'));
-        const unsub = onSnapshot(q, (snapshot) => {
-            snapshot.docChanges().forEach((change) => {
-                if (change.type === 'added') {
-                    const msg = { id: change.doc.id, ...change.doc.data() } as InboxMessage;
-                    if (msg.type === 'admin_gift' && !msg.claimed) {
-                        setCurrentInboxItem(msg);
-                        // Trigger modal via state
-                        setRewardModal({
-                            isOpen: true,
-                            title: msg.title || "Special Reward!",
-                            reward: {
-                                type: 'admin_gift_bundle', // Special type for RewardModal
-                                ...msg.rewards,
-                                message: msg.message
-                            } as any
-                        });
-                        playSfx('notification');
-                    }
-                }
-            });
-        });
-        return () => unsub();
-    }, [firebaseUser, playSfx]);
-
-    const handleClaimInboxItem = async () => {
-        if (!currentInboxItem || !firebaseUser) {
-            setRewardModal(prev => ({ ...prev, isOpen: false }));
-            return;
-        }
-
-        const { rewards } = currentInboxItem;
-        const updates: Partial<GameState> = {};
-        const batch = writeBatch(db);
-        const userRef = doc(db, 'users', firebaseUser.uid);
-
-        // Process Coins/BP
-        if (rewards.coins) updates.coins = (gameState.coins || 0) + rewards.coins;
-        if (rewards.bp) updates.battlePoints = (gameState.battlePoints || 0) + rewards.bp;
-
-        // Process Packs
-        if (rewards.packs && rewards.packs.length > 0) {
-            updates.ownedPacks = [...gameState.ownedPacks, ...rewards.packs];
-        }
-
-        // Process Picks
-        if (rewards.picks && rewards.picks.length > 0) {
-            const newPicks = rewards.picks.map(id => playerPickConfigs[id] || defaultPacks[id]).filter(Boolean); // Fallback logic if needed
-            // Actually picks config logic is separate, we need to map IDs to Configs
-            const validPicks: PlayerPickConfig[] = [];
-            // Merge custom picks from DB if needed, for now assume in memory or standard
-            // Note: In real app, `playerPickConfigs` should contain dynamic ones too or be fetched
-            // For now, mapping by ID from known `playerPickConfigs`
-            rewards.picks.forEach(pid => {
-                // If it's a dynamic pick not in hardcoded list, we might miss it here unless `playerPickConfigs` is updated.
-                // Assuming admin sends valid IDs.
-                // Simplest fix: Just use the ID and fetch config if needed, or assume basic config structure if stored?
-                // Better: Just store the ID in ownedPlayerPicks if they are just refs?
-                // The Type definition says `ownedPlayerPicks: PlayerPickConfig[]`.
-                // So we need to reconstruct the config object.
-                // Let's rely on standard or just basic dummy object if missing
-                const conf = playerPickConfigs[pid] || { id: pid, nameKey: pid, pickCount: 1, totalOptions: 3, minOvr: 75 }; 
-                validPicks.push(conf);
-            });
-            updates.ownedPlayerPicks = [...gameState.ownedPlayerPicks, ...validPicks];
-        }
-
-        // Process Cards
-        const newStorageCards: GameCard[] = [];
-        if (rewards.cards && rewards.cards.length > 0) {
-            rewards.cards.forEach(cid => {
-                const template = libraryCards.find(c => c.id === cid);
-                if (template) {
-                    newStorageCards.push({ ...template, id: `${template.id}-${Date.now()}-${Math.random()}` });
-                }
-            });
-            updates.storage = [...gameState.storage, ...newStorageCards];
-        }
-
-        // Apply Updates
-        updateGameState(updates); // Updates local state
-        
-        // Firestore Updates
-        const fsUpdates: any = {};
-        if (rewards.coins) fsUpdates.coins = increment(rewards.coins);
-        if (rewards.bp) fsUpdates.battlePoints = increment(rewards.bp);
-        if (rewards.packs) fsUpdates.ownedPacks = arrayUnion(...rewards.packs);
-        if (rewards.picks && updates.ownedPlayerPicks) fsUpdates.ownedPlayerPicks = updates.ownedPlayerPicks; // Overwrite or union complex objects is tricky, better read-modify-write usually, but for simple array replace locally is fine. 
-        // ArrayUnion for objects in Firestore only works if objects are identical.
-        // For simplicity in this robust implementation, we just save the whole new state for complex arrays via updateGameState's internal saveGameData or here.
-        // updateGameState handles saving `ownedPlayerPicks` and `storage`.
-        
-        // Delete message
-        const msgRef = doc(db, 'users', firebaseUser.uid, 'inbox', currentInboxItem.id);
-        batch.delete(msgRef);
-        
-        await batch.commit();
-        
-        setCurrentInboxItem(null);
-        setRewardModal(prev => ({ ...prev, isOpen: false }));
-        playSfx('rewardClaimed');
-    };
 
     // ... (Keep Accept/Reject Invite Logic - Unchanged)
     const handleAcceptInvite = async () => {
@@ -1264,11 +1154,10 @@ const App: React.FC = () => {
                 />
             )}
 
-            {/* Special handling for Admin Reward Modal Claim */}
             {rewardModal.isOpen && (
                 <RewardModal 
                     isOpen={rewardModal.isOpen} 
-                    onClose={rewardModal.reward?.type === 'admin_gift_bundle' as any ? handleClaimInboxItem : () => setRewardModal({ ...rewardModal, isOpen: false })} 
+                    onClose={() => setRewardModal({ ...rewardModal, isOpen: false })} 
                     reward={rewardModal.reward} 
                     title={rewardModal.title}
                     t={t}

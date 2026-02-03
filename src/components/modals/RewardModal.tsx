@@ -8,18 +8,11 @@ import { playerPickConfigs } from '../../data/gameData';
 import { TranslationKey } from '../../utils/translations';
 
 export interface RewardData {
-    type: 'coins' | 'pack' | 'card' | 'player_pick' | 'coins_and_pick' | 'admin_gift_bundle';
+    type: 'coins' | 'pack' | 'card' | 'player_pick' | 'coins_and_pick';
     amount?: number;
     packType?: PackType;
     cardId?: string;
     playerPickId?: string;
-    // For admin bundle
-    message?: string;
-    coins?: number;
-    bp?: number;
-    packs?: PackType[];
-    picks?: string[];
-    cards?: string[];
 }
 
 interface RewardModalProps {
@@ -116,53 +109,6 @@ const RewardModal: React.FC<RewardModalProps> = ({ isOpen, onClose, reward, titl
                                 </div>
                                 <span className="text-white font-header text-lg text-center max-w-[120px] leading-tight">{comboPickConfig ? (comboPickConfig.name || t(comboPickConfig.nameKey as TranslationKey)) : 'Pick'}</span>
                             </div>
-                        </div>
-                    </div>
-                );
-            case 'admin_gift_bundle':
-                return (
-                    <div className="flex flex-col items-center gap-4 animate-fadeIn w-full">
-                        {reward.message && (
-                            <p className="text-lg text-gold-light italic text-center bg-black/30 p-4 rounded-lg border border-gold-dark/30 mb-2 max-w-md">
-                                "{reward.message}"
-                            </p>
-                        )}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
-                            {reward.coins ? (
-                                <div className="bg-black/40 p-2 rounded flex flex-col items-center border border-gray-700">
-                                    <span className="text-2xl">💰</span>
-                                    <span className="text-gold-light font-bold">{reward.coins.toLocaleString()}</span>
-                                    <span className="text-xs text-gray-400">Coins</span>
-                                </div>
-                            ) : null}
-                            {reward.bp ? (
-                                <div className="bg-black/40 p-2 rounded flex flex-col items-center border border-gray-700">
-                                    <span className="text-2xl text-blue-400">BP</span>
-                                    <span className="text-blue-200 font-bold">{reward.bp.toLocaleString()}</span>
-                                    <span className="text-xs text-gray-400">Points</span>
-                                </div>
-                            ) : null}
-                            {(reward.packs || []).map((pid, i) => (
-                                <div key={`p-${i}`} className="bg-black/40 p-2 rounded flex flex-col items-center border border-gray-700">
-                                    <span className="text-2xl">📦</span>
-                                    <span className="text-white font-bold text-xs capitalize text-center">{pid} Pack</span>
-                                </div>
-                            ))}
-                            {(reward.picks || []).map((pid, i) => (
-                                <div key={`pp-${i}`} className="bg-black/40 p-2 rounded flex flex-col items-center border border-gray-700">
-                                    <span className="text-2xl">❓</span>
-                                    <span className="text-white font-bold text-xs text-center">{pid} Pick</span>
-                                </div>
-                            ))}
-                            {(reward.cards || []).map((cid, i) => {
-                                const cName = allCards.find(c => c.id === cid)?.name || cid;
-                                return (
-                                    <div key={`c-${i}`} className="bg-black/40 p-2 rounded flex flex-col items-center border border-gray-700">
-                                        <span className="text-2xl">🃏</span>
-                                        <span className="text-white font-bold text-xs text-center">{cName}</span>
-                                    </div>
-                                );
-                            })}
                         </div>
                     </div>
                 );

@@ -216,22 +216,6 @@ export interface ChatMessage {
     timestamp: number;
 }
 
-export interface InboxMessage {
-    id: string;
-    type: 'admin_gift';
-    title: string;
-    message: string;
-    rewards: {
-        coins?: number;
-        bp?: number;
-        packs?: PackType[];
-        picks?: string[]; // IDs
-        cards?: string[]; // IDs
-    };
-    timestamp: number;
-    claimed?: boolean;
-}
-
 export interface GameState {
   version: number;
   userId: string;
