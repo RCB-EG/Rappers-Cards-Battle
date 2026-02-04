@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { GameState, Objective, PackType, Card as CardType } from '../../types';
-import { objectivesData, playerPickConfigs } from '../../data/gameData';
+import { playerPickConfigs } from '../../data/gameData';
 import Button from '../Button';
 import Card from '../Card';
 import { TranslationKey } from '../../utils/translations';
@@ -11,6 +11,7 @@ interface ObjectivesProps {
     onClaimReward: (objectiveId: string) => void;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
     allCards: CardType[];
+    objectives: Objective[]; // Added prop
 }
 
 const packImages: Record<PackType, string> = {
@@ -35,7 +36,7 @@ const renderRewardText = (objective: Objective, t: ObjectivesProps['t'], allCard
         return `${reward.amount} ${t('coins')}`;
     }
     if (reward.type === 'pack' && reward.packType) {
-        return t(`pack_${reward.packType}` as TranslationKey);
+        return t(`pack_${reward.packType}` as TranslationKey) || reward.packType;
     }
     if (reward.type === 'card' && reward.cardId) {
         const card = allCards.find(c => c.id === reward.cardId);
@@ -54,16 +55,20 @@ const renderRewardText = (objective: Objective, t: ObjectivesProps['t'], allCard
 
 const ObjectiveGroup: React.FC<{
     titleKey: TranslationKey;
+    titleOverride?: string;
     objectives: Objective[];
     gameState: GameState;
     onClaimReward: (objectiveId: string) => void;
     t: ObjectivesProps['t'];
     timerMs?: number;
     allCards: CardType[];
-}> = ({ titleKey, objectives, gameState, onClaimReward, t, timerMs, allCards }) => (
+}> = ({ titleKey, titleOverride, objectives, gameState, onClaimReward, t, timerMs, allCards }) => {
+    if (objectives.length === 0) return null;
+    
+    return (
     <div className="mb-8">
         <div className="flex justify-between items-baseline mb-3">
-            <h3 className="font-header text-3xl text-gold-light">{t(titleKey)}</h3>
+            <h3 className="font-header text-3xl text-gold-light">{titleOverride || t(titleKey)}</h3>
             {timerMs !== undefined && (
                 <p className="text-gray-400">{t('resets_in', { time: formatTimeLeft(timerMs) })}</p>
             )}
@@ -79,14 +84,14 @@ const ObjectiveGroup: React.FC<{
 
                 return (
                     <div key={obj.id} className="bg-darker-gray/50 p-4 rounded-lg border border-gold-dark/20">
-                        <h4 className="font-header text-2xl text-white mb-2">{t(obj.titleKey as TranslationKey)}</h4>
+                        <h4 className="font-header text-2xl text-white mb-2">{t(obj.titleKey as TranslationKey) || obj.titleKey}</h4>
                         <div className="flex flex-col md:flex-row items-center gap-4">
                             <div className="flex-grow w-full">
                                 {obj.tasks.map(task => {
                                     const taskProgress = progress.tasks?.[task.id] || 0;
                                     return (
                                         <div key={task.id} className="mb-2">
-                                            <p className="text-lg text-gray-300">{t(task.descriptionKey as TranslationKey)}</p>
+                                            <p className="text-lg text-gray-300">{t(task.descriptionKey as TranslationKey) || task.descriptionKey}</p>
                                             <div className="w-full bg-black/30 rounded-full h-4 mt-1 border border-gray-600">
                                                 <div className="bg-gradient-to-r from-gold-dark to-gold-light h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (taskProgress / task.target) * 100)}%` }} />
                                             </div>
@@ -122,7 +127,7 @@ const ObjectiveGroup: React.FC<{
                                     </div>
                                 ) : isPackReward ? (
                                     <div className="flex flex-col items-center">
-                                        <img src={packImages[obj.reward.packType!]} alt={obj.reward.packType} className="w-24 h-auto object-contain drop-shadow-md mb-2 hover:scale-105 transition-transform" />
+                                        <img src={packImages[obj.reward.packType!] || 'https://i.imghippo.com/files/cGUh9927EWc.png'} alt={obj.reward.packType} className="w-24 h-auto object-contain drop-shadow-md mb-2 hover:scale-105 transition-transform" />
                                         <p className="text-gold-light font-bold text-lg">{renderRewardText(obj, t, allCards)}</p>
                                     </div>
                                 ) : (
@@ -138,10 +143,10 @@ const ObjectiveGroup: React.FC<{
             })}
         </div>
     </div>
-);
+)};
 
 
-const Objectives: React.FC<ObjectivesProps> = ({ gameState, onClaimReward, t, allCards }) => {
+const Objectives: React.FC<ObjectivesProps> = ({ gameState, onClaimReward, t, allCards, objectives }) => {
     const [now, setNow] = useState(Date.now());
 
     useEffect(() => {
@@ -149,9 +154,13 @@ const Objectives: React.FC<ObjectivesProps> = ({ gameState, onClaimReward, t, al
         return () => clearInterval(timer);
     }, []);
     
-    const dailyObjectives = objectivesData.filter(obj => obj.type === 'daily');
-    const weeklyObjectives = objectivesData.filter(obj => obj.type === 'weekly');
-    const milestoneObjectives = objectivesData.filter(obj => obj.type === 'milestone');
+    // Group by Type
+    const dailyObjectives = objectives.filter(obj => obj.type === 'daily');
+    const weeklyObjectives = objectives.filter(obj => obj.type === 'weekly');
+    const milestoneObjectives = objectives.filter(obj => obj.type === 'milestone');
+    
+    // Fallback if type is missing or custom
+    const otherObjectives = objectives.filter(obj => !['daily', 'weekly', 'milestone'].includes(obj.type));
     
     const nextDailyReset = (gameState.lastDailyReset || now) + 24 * 60 * 60 * 1000;
     const nextWeeklyReset = (gameState.lastWeeklyReset || now) + 7 * 24 * 60 * 60 * 1000;
@@ -163,6 +172,10 @@ const Objectives: React.FC<ObjectivesProps> = ({ gameState, onClaimReward, t, al
             <ObjectiveGroup titleKey="milestone_objectives" objectives={milestoneObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} allCards={allCards} />
             <ObjectiveGroup titleKey="daily_objectives" objectives={dailyObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} timerMs={nextDailyReset - now} allCards={allCards} />
             <ObjectiveGroup titleKey="weekly_objectives" objectives={weeklyObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} timerMs={nextWeeklyReset - now} allCards={allCards} />
+            
+            {otherObjectives.length > 0 && (
+                <ObjectiveGroup titleKey="milestone_objectives" titleOverride="Special Events" objectives={otherObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} allCards={allCards} />
+            )}
 
         </div>
     );

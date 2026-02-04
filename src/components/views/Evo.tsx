@@ -2,7 +2,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { TranslationKey } from '../../utils/translations';
 import { GameState, Card as CardType, Evolution } from '../../types';
-import { evoData } from '../../data/gameData';
 import Button from '../Button';
 import Card from '../Card';
 import { sfx } from '../../data/sounds';
@@ -14,6 +13,7 @@ interface EvoProps {
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
     playSfx: (soundKey: keyof typeof sfx) => void;
     allCards: CardType[];
+    evolutions: Evolution[]; // Added prop
 }
 
 const isCardEligible = (card: CardType, eligibility: Evolution['eligibility']) => {
@@ -23,23 +23,23 @@ const isCardEligible = (card: CardType, eligibility: Evolution['eligibility']) =
     return true;
 };
 
-const Evo: React.FC<EvoProps> = ({ gameState, onStartEvo, onClaimEvo, t, playSfx, allCards }) => {
+const Evo: React.FC<EvoProps> = ({ gameState, onStartEvo, onClaimEvo, t, playSfx, allCards, evolutions }) => {
     const [selectedEvo, setSelectedEvo] = useState<Evolution | null>(null);
     const { activeEvolution } = gameState;
 
     const allPlayerCards = useMemo(() => [...Object.values(gameState.formation).filter(Boolean) as CardType[], ...gameState.storage], [gameState.formation, gameState.storage]);
     
     const availableEvos = useMemo(() => {
-        return evoData.filter(evo => !(gameState.completedEvoIds || []).includes(evo.id));
-    }, [gameState.completedEvoIds]);
+        return evolutions.filter(evo => !(gameState.completedEvoIds || []).includes(evo.id));
+    }, [gameState.completedEvoIds, evolutions]);
 
     const completedEvos = useMemo(() => {
-        return evoData.filter(evo => (gameState.completedEvoIds || []).includes(evo.id));
-    }, [gameState.completedEvoIds]);
+        return evolutions.filter(evo => (gameState.completedEvoIds || []).includes(evo.id));
+    }, [gameState.completedEvoIds, evolutions]);
     
     const activeEvoDef = useMemo(() => {
-        return activeEvolution ? evoData.find(e => e.id === activeEvolution.evoId) : null;
-    }, [activeEvolution]);
+        return activeEvolution ? evolutions.find(e => e.id === activeEvolution.evoId) : null;
+    }, [activeEvolution, evolutions]);
     
     const allTasksComplete = useMemo(() => {
         if (!activeEvolution || !activeEvoDef) return false;

@@ -9,6 +9,7 @@ export interface RarityDefinition {
     color: string; // Hex code for glow/shadow
     baseImage: string; // URL for the card background
     animationTier: number; // 1: Basic, 2: Rare, 3: Epic, 4: Legendary, 5: Ultimate
+    active?: boolean; // New field for activation state
 }
 
 export type GameView = 'store' | 'collection' | 'market' | 'battle' | 'fbc' | 'evo' | 'objectives' | 'social' | 'admin';
@@ -67,6 +68,36 @@ export interface PackData {
   image?: string;
   description?: string;
   active?: boolean;
+  minOvr?: number; // Optional: Minimum rating to pack
+  maxOvr?: number; // Optional: Maximum rating to pack
+}
+
+// --- LOGIC BUILDER TYPES ---
+export type TaskActionType = 
+    | 'OPEN_PACK' 
+    | 'PLAY_BATTLE' 
+    | 'WIN_BATTLE' 
+    | 'LIST_MARKET' 
+    | 'QUICK_SELL' 
+    | 'COMPLETE_FBC' 
+    | 'COMPLETE_EVO'
+    | 'LOGIN';
+
+export interface TaskRequirements {
+    packType?: string;      // For OPEN_PACK
+    mode?: string;          // For PLAY_BATTLE (ranked, blitz, challenge)
+    rarity?: string;        // For QUICK_SELL or pack openings
+    cardName?: string;      // For specific card actions
+    minOvr?: number;        // Generic condition
+    inFormation?: boolean;  // Requires card to be in squad (Evo)
+}
+
+export interface ObjectiveTask {
+    id: string;
+    descriptionKey: string; // Or raw text
+    target: number;
+    actionType?: TaskActionType; // Dynamic Logic
+    requirements?: TaskRequirements; // Dynamic Logic
 }
 
 export interface FBCChallenge {
@@ -77,6 +108,7 @@ export interface FBCChallenge {
     groupId?: string;
     groupFinalRewardCardId?: string;
     repeatable?: 'daily';
+    active?: boolean;
     requirements: {
         cardCount: number;
         exactRarityCount?: { [key: string]: number };
@@ -97,6 +129,7 @@ export interface Evolution {
     id: string;
     title: string;
     description: string;
+    active?: boolean;
     eligibility: {
         cardName?: string;
         rarity?: Rarity;
@@ -106,20 +139,18 @@ export interface Evolution {
         id: string;
         description: string;
         target: number;
+        actionType?: TaskActionType;
+        requirements?: TaskRequirements;
     }[];
     resultCardId: string;
-}
-
-export interface ObjectiveTask {
-    id: string;
-    descriptionKey: string;
-    target: number;
 }
 
 export interface Objective {
   id: string;
   type: 'daily' | 'weekly' | 'milestone';
   titleKey: string;
+  description?: string;
+  active?: boolean;
   tasks: ObjectiveTask[];
   reward: {
     type: 'coins' | 'pack' | 'card' | 'player_pick' | 'coins_and_pick';
@@ -313,4 +344,17 @@ export interface OnlineBattleState {
     lastAction?: BattleAction | null; // Detailed action data for visuals
     logs: string[];
     status: 'waiting' | 'preparing' | 'active' | 'finished';
+}
+
+export interface InboxMessage {
+    id: string;
+    title: string; // The message text from admin
+    timestamp: number;
+    reward?: {
+        type: 'coins' | 'card' | 'pack' | 'pick';
+        amount?: number;
+        cardId?: string;
+        packType?: string;
+        pickId?: string;
+    }
 }

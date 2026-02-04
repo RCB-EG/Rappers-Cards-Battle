@@ -2,7 +2,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { TranslationKey } from '../../utils/translations';
 import { GameState, Card as CardType, FBCChallenge, Rarity, PackType } from '../../types';
-import { fbcData } from '../../data/gameData';
 import Button from '../Button';
 import Card from '../Card';
 import { sfx } from '../../data/sounds';
@@ -13,6 +12,7 @@ interface FBCProps {
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
     playSfx: (soundKey: keyof typeof sfx) => void;
     allCards: CardType[];
+    challenges: FBCChallenge[]; // Added prop
 }
 
 type FbcViewMode = 'list' | 'group' | 'submission';
@@ -58,19 +58,19 @@ const checkRequirements = (submission: CardType[], requirements: FBCChallenge['r
     return { checks, allMet: Object.values(checks).every(Boolean) };
 };
 
-const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards }) => {
+const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards, challenges }) => {
     const [viewMode, setViewMode] = useState<FbcViewMode>('list');
     const [selectedChallenge, setSelectedChallenge] = useState<FBCChallenge | null>(null);
     const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
     const [submission, setSubmission] = useState<CardType[]>([]);
 
     const availableChallenges = useMemo(() => {
-        return fbcData.filter(fbc => {
+        return challenges.filter(fbc => {
             if (gameState.completedFbcIds.includes(fbc.id)) return false;
             if (fbc.prerequisiteId && !gameState.completedFbcIds.includes(fbc.prerequisiteId)) return false;
             return true;
         });
-    }, [gameState.completedFbcIds]);
+    }, [gameState.completedFbcIds, challenges]);
 
     const fbcListItems = useMemo(() => {
         const groups: Record<string, FBCChallenge[]> = {};
@@ -156,7 +156,7 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards 
         const req = selectedChallenge.requirements;
         return (
             <div className="animate-fadeIn">
-                <h2 className="font-header text-3xl text-white text-center mb-4">{t(selectedChallenge.title as TranslationKey)}</h2>
+                <h2 className="font-header text-3xl text-white text-center mb-4">{t(selectedChallenge.title as TranslationKey) || selectedChallenge.title}</h2>
                 <div className="flex flex-col lg:flex-row gap-6">
                     <div className="flex-grow-[3]">
                          <h3 className="text-xl mb-2">{t('fbc_submit_cards')}</h3>
@@ -197,14 +197,14 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards 
     }
 
     if (viewMode === 'group' && selectedGroupId) {
-        const groupChallenges = fbcData.filter(c => c.groupId === selectedGroupId);
+        const groupChallenges = challenges.filter(c => c.groupId === selectedGroupId);
         const finalRewardCard = allCards.find(c => c.id === groupChallenges[0].groupFinalRewardCardId);
         
         return (
             <div className="animate-fadeIn">
                 <button className="text-gold-light mb-4" onClick={() => { setViewMode('list'); setSelectedGroupId(null); }}>← {t('fbc_back')}</button>
                 <div className="flex flex-col items-center gap-4 mb-6">
-                    <h2 className="font-header text-3xl text-white text-center">{t(groupChallenges[0].title as TranslationKey)}</h2>
+                    <h2 className="font-header text-3xl text-white text-center">{t(groupChallenges[0].title as TranslationKey) || groupChallenges[0].title}</h2>
                     {finalRewardCard && <Card card={finalRewardCard} className="!w-[180px] !h-[270px]" />}
                 </div>
                 <div className="space-y-4">
@@ -217,8 +217,8 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards 
                             <div key={challenge.id} onClick={() => !isLocked && !isCompleted && (setSelectedChallenge(challenge), setSubmission([]), setViewMode('submission'))} className={`bg-darker-gray/60 p-4 rounded-lg border transition-all duration-300 ${statusClasses}`}>
                                 <div className="flex justify-between items-center">
                                     <div>
-                                        <h4 className="font-header text-xl text-gold-light">Part {index + 1}: {t(challenge.title as TranslationKey)}</h4>
-                                        <p className="text-gray-400">{t(challenge.description as TranslationKey)}</p>
+                                        <h4 className="font-header text-xl text-gold-light">Part {index + 1}: {t(challenge.title as TranslationKey) || challenge.title}</h4>
+                                        <p className="text-gray-400">{t(challenge.description as TranslationKey) || challenge.description}</p>
                                     </div>
                                     <div className="text-center">
                                         <h5 className="text-sm uppercase text-gray-500">{t('fbc_reward')}</h5>
@@ -245,8 +245,8 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards 
                     return (
                         <div key={challenge.id} onClick={() => handleSelectChallenge(challenge)} className="bg-gradient-to-br from-light-gray to-darker-gray p-5 rounded-lg border border-gold-dark/30 cursor-pointer transition-all duration-300 hover:border-gold-light hover:-translate-y-1 flex flex-col md:flex-row items-center justify-between gap-6">
                             <div className="flex-grow text-center md:text-left">
-                                <h3 className="font-header text-2xl text-gold-light">{t(challenge.title as TranslationKey)}</h3>
-                                <p className="text-gray-400">{t(challenge.description as TranslationKey)}</p>
+                                <h3 className="font-header text-2xl text-gold-light">{t(challenge.title as TranslationKey) || challenge.title}</h3>
+                                <p className="text-gray-400">{t(challenge.description as TranslationKey) || challenge.description}</p>
                             </div>
                             {rewardCardTemplate && (
                                 <div className="flex-shrink-0 mt-4 md:mt-0">
@@ -270,9 +270,9 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards 
                     <div className="mt-8">
                         <h3 className="font-header text-2xl text-center mb-4">{t('fbc_completed')}</h3>
                         <div className="space-y-4">
-                        {fbcData.filter(f => gameState.completedFbcIds.includes(f.id)).map(challenge => (
+                        {challenges.filter(f => gameState.completedFbcIds.includes(f.id)).map(challenge => (
                             <div key={challenge.id} className="bg-darker-gray/50 p-5 rounded-lg border border-green-500/30 opacity-60">
-                                <h3 className="font-header text-2xl text-green-400 line-through">{t(challenge.title as TranslationKey)}</h3>
+                                <h3 className="font-header text-2xl text-green-400 line-through">{t(challenge.title as TranslationKey) || challenge.title}</h3>
                             </div>
                         ))}
                         </div>

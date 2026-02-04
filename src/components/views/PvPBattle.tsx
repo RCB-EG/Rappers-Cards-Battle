@@ -103,6 +103,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
     const animationFrameRef = useRef<number | null>(null);
     const lastProcessedMoveRef = useRef<number>(0);
     const timerIntervalRef = useRef<number | null>(null);
+    const prevTurnRef = useRef<string | null>(null); // Track previous turn owner to prevent infinite loops
     
     // Guard against unmounted state updates
     const isMountedRef = useRef(true);
@@ -141,6 +142,76 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
         animationFrameRef.current = window.requestAnimationFrame(loop);
         return () => { if (animationFrameRef.current) window.cancelAnimationFrame(animationFrameRef.current); };
     }, []);
+
+    // --- Start of Turn Management (Poison/Duration) ---
+    useEffect(() => {
+        if (!battleState || !currentUserUid || !battleId || status !== 'active') return;
+
+        // Condition: It is MY turn, and the previous check saw it was NOT my turn.
+        // This ensures we only run start-of-turn logic once per cycle.
+        if (battleState.turn === currentUserUid && prevTurnRef.current !== currentUserUid) {
+            
+            const isP1 = battleState.player1.uid === currentUserUid;
+            const myTeam = isP1 ? battleState.player1.team : battleState.player2.team;
+            const myTeamKey = isP1 ? 'player1.team' : 'player2.team';
+
+            let teamChanged = false;
+            const newTeam = myTeam.map(card => {
+                if (card.currentHp <= 0) return card; // Dead cards don't tick
+
+                let newCard = { ...card };
+                let hpChanged = false;
+                
+                const activeEffects = newCard.activeEffects || [];
+                const nextEffects: ActiveEffect[] = [];
+
+                activeEffects.forEach(effect => {
+                    // 1. Apply Passive Damage (Poison)
+                    if (effect.type === 'poison') {
+                        const dmg = effect.val || 50;
+                        newCard.currentHp = Math.max(0, newCard.currentHp - dmg);
+                        hpChanged = true;
+                        
+                        // Visual feedback if mounted
+                        const node = cardRefs.current[card.instanceId];
+                        if (node) {
+                            const rect = node.getBoundingClientRect();
+                            showFloatText(rect.left + rect.width / 2, rect.top, `-${dmg}`, '#00ff00');
+                        }
+                    }
+
+                    // 2. Decrement Duration
+                    const newDuration = effect.duration - 1;
+                    if (newDuration > 0) {
+                        nextEffects.push({ ...effect, duration: newDuration });
+                    }
+                });
+
+                // Check for modifications
+                if (activeEffects.length !== nextEffects.length || hpChanged) {
+                    newCard.activeEffects = nextEffects;
+                    teamChanged = true;
+                }
+                
+                // Reset actions if needed (though Flow Switcher handles it manually)
+                newCard.attacksRemaining = 1; 
+                
+                return newCard;
+            });
+
+            if (teamChanged) {
+                const battleRef = doc(db, 'battles', battleId);
+                updateDoc(battleRef, {
+                    [myTeamKey]: newTeam
+                }).catch(e => console.error("Error updating turn start effects:", e));
+            }
+        }
+
+        // Update ref to current turn owner
+        prevTurnRef.current = battleState.turn;
+
+    }, [battleState?.turn, currentUserUid, battleId, status]);
+
 
     // --- Helpers ---
     const spawnParticles = (x: number, y: number, color: string, amount: number) => {
@@ -575,7 +646,11 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
             // Optimistic Update UI
             const myAttackerId = selectedAttackerId;
             const chosenAction = actionOverride || selectedAction;
-            setSelectedAttackerId(null); 
+            
+            // Fix: Keep selection for Flow Switcher so user can act immediately
+            if (chosenAction !== 'Flow Switcher') {
+                setSelectedAttackerId(null); 
+            }
             setSelectedAction('standard');
 
             await runTransaction(db, async (transaction) => {
@@ -703,7 +778,9 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
 
                     // Status Effects
                     if (['Punchline Machine', 'Punchline'].includes(chosenAction)) {
-                        targetCard.activeEffects = [...targetCard.activeEffects, { type: 'stun', duration: 1 } as ActiveEffect];
+                        // FIX: Duration 2 because it decrements immediately at start of their turn.
+                        // 2 -> 1 (Active for turn) -> 0 (Expired next turn)
+                        targetCard.activeEffects = [...targetCard.activeEffects, { type: 'stun', duration: 2 } as ActiveEffect];
                         logMsg = `${attacker.name} stuns ${target.name}!`;
                     }
                     else if (['Rhymes Crafter', 'Rhyme Crafter'].includes(chosenAction)) {
@@ -862,6 +939,16 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
 
     if (status === 'finished' && battleState) {
         const isWin = battleState.winner === currentUserUid;
+        
+        // Fix: Ensure battle result is recorded in user history before exiting
+        const handleExitBattle = () => {
+            // Determine rewards based on result and mode
+            // Note: Exact amounts are illustrative here, actual amounts should align with game rules
+            const reward = isWin ? (blitzMode ? 200 : 100) : 0;
+            onBattleEnd(reward, isWin);
+            onExit();
+        };
+
         return (
             <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/90 animate-fadeIn text-center">
                 <h2 className={`font-header text-8xl mb-4 drop-shadow-[0_0_30px_rgba(255,255,255,0.5)] ${isWin ? 'text-green-400' : 'text-red-600'}`}>
@@ -878,7 +965,7 @@ const PvPBattle: React.FC<PvPBattleProps> = ({ gameState, preparedTeam, onBattle
                         </div>
                     )}
                 </div>
-                <Button variant="default" onClick={onExit} className="w-48 text-xl py-3 border-2 border-white/50 hover:border-white">
+                <Button variant="default" onClick={handleExitBattle} className="w-48 text-xl py-3 border-2 border-white/50 hover:border-white">
                     Exit Battle
                 </Button>
             </div>

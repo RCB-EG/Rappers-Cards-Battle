@@ -1,749 +1,902 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../firebaseConfig';
-import { doc, getDoc, updateDoc, setDoc, onSnapshot, increment, collection, query, where, getDocs, arrayUnion, arrayRemove, writeBatch, deleteField } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, collection, query, where, getDocs, updateDoc, addDoc } from 'firebase/firestore';
 import Button from '../Button';
-import { GlobalSettings, GameState, Card, Rarity, Stats, RarityDefinition, PackData, PlayerPickConfig } from '../../types';
+import Card from '../Card';
+import { GlobalSettings, Card as CardType, Rarity, Stats, RarityDefinition, PackData, Objective, FBCChallenge, Evolution, TaskActionType, GameState } from '../../types';
 import { TranslationKey } from '../../utils/translations';
-import { PROMO_RARITIES, SUPERPOWER_DESC, packs as defaultPacks, playerPickConfigs as defaultPicks } from '../../data/gameData';
-import CardComponent from '../Card';
+import { PROMO_RARITIES, SUPERPOWER_DESC, packs as defaultPacks, fbcData as defaultFBCs, evoData as defaultEvos, playerPickConfigs } from '../../data/gameData';
 import { useRarity } from '../../contexts/RarityContext';
 
 interface ControlRoomProps {
     globalSettings: GlobalSettings;
     onClose: () => void;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
-    allCards: Card[];
+    allCards: CardType[];
 }
-
-const DEFAULT_PACK_META: Record<string, { name: string, image: string }> = {
-    free: { name: 'Free Pack', image: 'https://i.postimg.cc/R0sYyFhL/Free.png' },
-    bronze: { name: 'Bronze Pack', image: 'https://i.imghippo.com/files/KCG5562T.png' },
-    builder: { name: 'Builder Pack', image: 'https://i.postimg.cc/1z5Tv6mz/Builder.png' },
-    special: { name: 'Special Pack', image: 'https://i.postimg.cc/sxS0M4cT/Special.png' },
-    legendary: { name: 'Legendary Pack', image: 'https://i.postimg.cc/63Fm6md7/Legendary.png' }
-};
 
 const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, allCards }) => {
     const [settings, setSettings] = useState<GlobalSettings>(globalSettings);
-    const { rarities, sortedRarities } = useRarity();
+    const { sortedRarities } = useRarity();
+    const [activeTab, setActiveTab] = useState<'main' | 'content' | 'database' | 'users'>('main');
+    const [dbTab, setDbTab] = useState<'cards' | 'packs' | 'rarities'>('cards');
     
-    // User & Announcement State
-    const [announcementMsg, setAnnouncementMsg] = useState(globalSettings.announcement?.message || '');
-    const [announcementType, setAnnouncementType] = useState<'info' | 'warning' | 'success'>(globalSettings.announcement?.type || 'info');
-    const [targetUserId, setTargetUserId] = useState('');
-    const [targetUser, setTargetUser] = useState<GameState | null>(null);
-    const [userMessage, setUserMessage] = useState('');
-    const [isLoadingUser, setIsLoadingUser] = useState(false);
+    // --- CONTENT MANAGER STATE ---
+    const [contentTab, setContentTab] = useState<'obj' | 'fbc' | 'evo'>('obj');
+    
+    // Objectives
+    const [dynamicObjectives, setDynamicObjectives] = useState<Objective[]>([]);
+    const defaultObj: Partial<Objective> = {
+        id: '', titleKey: 'New Objective', type: 'daily', active: true, description: '', 
+        tasks: [{id: 't1', descriptionKey: 'Task Desc', target: 1, actionType: 'PLAY_BATTLE'}], 
+        reward: { type: 'coins', amount: 1000 }
+    };
+    const [newObjective, setNewObjective] = useState<Partial<Objective>>(defaultObj);
 
-    // Card Management State
+    // FBCs
+    const [dbFBCs, setDbFBCs] = useState<FBCChallenge[]>([]);
+    const defaultFBC: Partial<FBCChallenge> = {
+        id: '', title: 'New Challenge', description: '', active: true,
+        requirements: { cardCount: 11 }, reward: { type: 'pack', details: 'gold' }
+    };
+    const [newFBC, setNewFBC] = useState<Partial<FBCChallenge>>(defaultFBC);
+    const [fbcRarityReq, setFbcRarityReq] = useState({ rarity: 'gold', count: 1 });
+
+    // Evos
+    const [dbEvos, setDbEvos] = useState<Evolution[]>([]);
+    const defaultEvo: Partial<Evolution> = {
+        id: '', title: 'New Evolution', description: '', active: true,
+        eligibility: { rarity: 'gold' }, tasks: [], resultCardId: ''
+    };
+    const [newEvo, setNewEvo] = useState<Partial<Evolution>>(defaultEvo);
+    const [newTask, setNewTask] = useState({ description: '', target: 1, actionType: 'PLAY_BATTLE' as TaskActionType });
+
+    // --- DATABASE MANAGER STATE ---
+    // Cards
+    const defaultCardState: Partial<CardType> = { name: '', rarity: 'gold', ovr: 80, image: '', value: 10000, superpowers: [], stats: { lyrc: 80, flow: 80, sing: 80, live: 80, diss: 80, char: 80 } };
+    const [newCard, setNewCard] = useState<Partial<CardType>>(defaultCardState);
     const [cardSearch, setCardSearch] = useState('');
-    const [filteredCards, setFilteredCards] = useState<Card[]>([]);
-    const [isSeeding, setIsSeeding] = useState(false);
-    const [seedMessage, setSeedMessage] = useState('');
+    const [filteredCards, setFilteredCards] = useState<CardType[]>([]);
+    const [selectedSuperpower, setSelectedSuperpower] = useState<string>('');
 
-    // --- CARD CREATOR / EDITOR STATE ---
-    const [editingCardId, setEditingCardId] = useState<string | null>(null);
-    const [newCard, setNewCard] = useState<{
-        name: string;
-        rarity: Rarity;
-        ovr: number;
-        image: string;
-        value: number;
-        superpowers: string[];
-        stats: Stats;
-    }>({
-        name: '',
-        rarity: 'gold',
-        ovr: 80,
-        image: '',
-        value: 10000,
-        superpowers: [],
-        stats: { lyrc: 80, flow: 80, sing: 80, live: 80, diss: 80, char: 80 }
-    });
-    const [createMessage, setCreateMessage] = useState('');
-    const cardFormRef = useRef<HTMLDivElement>(null);
+    // Packs
+    const [dbPacks, setDbPacks] = useState<Record<string, PackData>>({});
+    const defaultPackState: Partial<PackData> = { 
+        id: 'new_pack', name: 'New Pack', cost: 1000, bpCost: 0, rarityChances: { gold: 100 }, image: '', active: true, minOvr: 0, maxOvr: 99 
+    };
+    const [newPack, setNewPack] = useState<Partial<PackData>>(defaultPackState);
 
-    // --- RARITY EDITOR STATE ---
-    const [newRarity, setNewRarity] = useState<RarityDefinition>({
-        id: '',
-        name: '',
-        rank: 8,
-        color: '#ffffff',
-        baseImage: '',
-        animationTier: 3
-    });
-    const [rarityMessage, setRarityMessage] = useState('');
+    // Rarities
+    const [dbRarities, setDbRarities] = useState<RarityDefinition[]>([]);
+    const defaultRarityState: Partial<RarityDefinition> = { id: 'ruby', name: 'Ruby', color: '#ff0000', rank: 10, animationTier: 1, baseImage: '', active: true };
+    const [newRarity, setNewRarity] = useState<Partial<RarityDefinition>>(defaultRarityState);
 
-    // --- PACK MANAGER STATE ---
-    const [customPacks, setCustomPacks] = useState<Record<string, PackData>>({});
-    const [newPack, setNewPack] = useState<PackData & { id: string }>({
-        id: '',
-        name: '',
-        cost: 1000,
-        bpCost: 0,
-        rarityChances: {},
-        image: '',
-        active: true
-    });
-    const [packMessage, setPackMessage] = useState('');
-    const [editingPackId, setEditingPackId] = useState<string | null>(null);
+    // --- USER MANAGEMENT STATE ---
+    const [userSearchQuery, setUserSearchQuery] = useState('');
+    const [foundUsers, setFoundUsers] = useState<{uid: string, data: GameState}[]>([]);
+    const [selectedUser, setSelectedUser] = useState<{uid: string, data: GameState} | null>(null);
+    const [adminMsg, setAdminMsg] = useState('Here is a reward from the admins!');
+    const [rewardType, setRewardType] = useState<'coins' | 'card' | 'pack' | 'pick'>('coins');
+    const [rewardValue, setRewardValue] = useState<any>('');
 
-    // --- PICK CREATOR STATE ---
-    const [customPicks, setCustomPicks] = useState<Record<string, PlayerPickConfig>>({});
-    const [newPick, setNewPick] = useState<PlayerPickConfig>({
-        id: '',
-        nameKey: '', // Auto-set
-        name: '',
-        pickCount: 1,
-        totalOptions: 3,
-        minOvr: 75,
-        cost: 0,
-        rarityGuarantee: undefined,
-        active: true
-    });
-    const [pickMessage, setPickMessage] = useState('');
-    const [editingPickId, setEditingPickId] = useState<string | null>(null);
-
+    // Initial Fetch
     useEffect(() => {
-        setSettings(globalSettings);
-        if (globalSettings.announcement) {
-            setAnnouncementMsg(globalSettings.announcement.message);
-            setAnnouncementType(globalSettings.announcement.type);
-        }
-    }, [globalSettings]);
-
-    // Fetch packs
-    useEffect(() => {
-        const unsub = onSnapshot(doc(db, 'settings', 'packs'), (docSnap) => {
-            if (docSnap.exists()) {
-                setCustomPacks(docSnap.data() as Record<string, PackData>);
-            }
-        });
-        return () => unsub();
+        const unsubObj = onSnapshot(doc(db, 'settings', 'objectives'), (s) => s.exists() && setDynamicObjectives(s.data().list || []));
+        const unsubFbc = onSnapshot(doc(db, 'settings', 'fbc'), (s) => s.exists() && setDbFBCs(s.data().list || []));
+        const unsubEvo = onSnapshot(doc(db, 'settings', 'evolutions'), (s) => s.exists() && setDbEvos(s.data().list || []));
+        
+        const unsubPacks = onSnapshot(doc(db, 'settings', 'packs'), (s) => s.exists() && setDbPacks(s.data() as any));
+        const unsubRarities = onSnapshot(doc(db, 'settings', 'rarities'), (s) => s.exists() && setDbRarities(s.data().list || []));
+        
+        return () => { unsubObj(); unsubFbc(); unsubEvo(); unsubPacks(); unsubRarities(); };
     }, []);
 
-    // Fetch picks
-    useEffect(() => {
-        const unsub = onSnapshot(doc(db, 'settings', 'playerPicks'), (docSnap) => {
-            if (docSnap.exists()) {
-                setCustomPicks(docSnap.data() as Record<string, PlayerPickConfig>);
-            }
-        });
-        return () => unsub();
-    }, []);
+    // Merge Data
+    const displayPacks = useMemo(() => ({ ...defaultPacks, ...dbPacks }), [dbPacks]);
+    
+    const displayFBCs = useMemo(() => {
+        const map = new Map<string, FBCChallenge>();
+        defaultFBCs.forEach(f => map.set(f.id, f));
+        dbFBCs.forEach(f => map.set(f.id, f));
+        return Array.from(map.values());
+    }, [dbFBCs]);
 
-    // Filter cards based on search
+    const displayEvos = useMemo(() => {
+        const map = new Map<string, Evolution>();
+        defaultEvos.forEach(e => map.set(e.id, e));
+        dbEvos.forEach(e => map.set(e.id, e));
+        return Array.from(map.values());
+    }, [dbEvos]);
+
+    const uniqueCardNames = useMemo(() => {
+        return Array.from(new Set(allCards.map(c => c.name))).sort();
+    }, [allCards]);
+
+    // Filter cards
     useEffect(() => {
-        if (!cardSearch.trim()) {
-            setFilteredCards([]);
-            return;
-        }
+        if (!cardSearch.trim()) { setFilteredCards(allCards.slice(0, 10)); return; } 
         const lowerSearch = cardSearch.toLowerCase();
         setFilteredCards(allCards.filter(c => c.name.toLowerCase().includes(lowerSearch) || c.id.toLowerCase().includes(lowerSearch)));
     }, [cardSearch, allCards]);
 
-    // --- Settings Logic ---
-    const toggleSetting = async (key: keyof GlobalSettings) => {
-        const newValue = !settings[key];
-        setSettings(prev => ({ ...prev, [key]: newValue }));
-        try { await setDoc(doc(db, 'settings', 'global'), { [key]: newValue }, { merge: true }); }
-        catch (e) { setSettings(prev => ({ ...prev, [key]: !newValue })); }
-    };
-
-    const togglePromo = async (promo: Rarity) => {
-        const currentPromos = settings.activePromos || [];
-        const isActive = currentPromos.includes(promo);
-        let newPromos = isActive ? currentPromos.filter(p => p !== promo) : [...currentPromos, promo];
-        setSettings(prev => ({ ...prev, activePromos: newPromos }));
-        try { await setDoc(doc(db, 'settings', 'global'), { activePromos: newPromos }, { merge: true }); }
-        catch (e) { setSettings(prev => ({ ...prev, activePromos: currentPromos })); }
-    };
-
-    const updateAnnouncement = async (isActive: boolean) => {
-        try { await setDoc(doc(db, 'settings', 'global'), { announcement: { active: isActive, message: announcementMsg, type: announcementType } }, { merge: true }); }
-        catch (e) { console.error(e); }
-    }
-
-    // --- User & Card Management Logic ---
-    const fetchUser = async () => {
-        if (!targetUserId.trim()) return;
-        setIsLoadingUser(true); setUserMessage(''); setTargetUser(null);
+    // --- GENERIC SAVE HELPERS ---
+    const saveList = async (type: 'objectives' | 'fbc' | 'evolutions', list: any[]) => {
         try {
-            let docSnap = await getDoc(doc(db, 'users', targetUserId));
-            if (!docSnap.exists()) {
-                const q = query(collection(db, 'users'), where('userProfile.username', '==', targetUserId));
-                const querySnap = await getDocs(q);
-                if (!querySnap.empty) docSnap = querySnap.docs[0];
+            await setDoc(doc(db, 'settings', type), { list }, { merge: true });
+            alert(`${type.toUpperCase()} Saved!`);
+        } catch (e) { console.error(e); alert("Error saving"); }
+    };
+
+    // --- DISCARD HELPERS ---
+    const discardCard = () => setNewCard(defaultCardState);
+    const discardPack = () => setNewPack(defaultPackState);
+    const discardRarity = () => setNewRarity(defaultRarityState);
+    const discardObj = () => setNewObjective(defaultObj);
+    const discardFBC = () => setNewFBC(defaultFBC);
+    const discardEvo = () => setNewEvo(defaultEvo);
+
+    // --- OBJECTIVE LOGIC ---
+    const handleAddObjective = () => {
+        if (!newObjective.id) return alert("ID required");
+        const updatedList = [...dynamicObjectives.filter(o => o.id !== newObjective.id), newObjective as Objective];
+        saveList('objectives', updatedList);
+    };
+
+    // --- FBC LOGIC ---
+    const handleSaveFBC = () => {
+        if (!newFBC.id) return alert("ID required");
+        const existingIndex = dbFBCs.findIndex(f => f.id === newFBC.id);
+        const newList = [...dbFBCs];
+        if (existingIndex > -1) newList[existingIndex] = newFBC as FBCChallenge;
+        else newList.push(newFBC as FBCChallenge);
+        saveList('fbc', newList);
+    };
+
+    const addFbcRarityReq = () => {
+        const currentReqs = newFBC.requirements?.exactRarityCount || {};
+        setNewFBC({
+            ...newFBC,
+            requirements: {
+                ...newFBC.requirements!,
+                exactRarityCount: { ...currentReqs, [fbcRarityReq.rarity]: fbcRarityReq.count }
             }
-            if (docSnap.exists()) {
-                setTargetUser({ ...(docSnap.data() as GameState), userId: docSnap.id });
-                setUserMessage('User found.');
-            } else setUserMessage('User not found.');
-        } catch (e) { console.error(e); setUserMessage('Error fetching user.'); } finally { setIsLoadingUser(false); }
+        });
     };
 
-    const handleBanUser = async () => { if (targetUser) { const newBanStatus = !targetUser.banned; await updateDoc(doc(db, 'users', targetUser.userId), { banned: newBanStatus }); setTargetUser(prev => prev ? ({ ...prev, banned: newBanStatus }) : null); } };
-    const handleGiftCoins = async () => { if (targetUser) { await updateDoc(doc(db, 'users', targetUser.userId), { coins: increment(10000) }); setTargetUser(prev => prev ? ({ ...prev, coins: prev.coins + 10000 }) : null); } };
-
-    const toggleCardStatus = async (cardId: string) => {
-        const isDisabled = settings.disabledCardIds?.includes(cardId);
-        try {
-            const settingsRef = doc(db, 'settings', 'global');
-            await updateDoc(settingsRef, { disabledCardIds: isDisabled ? arrayRemove(cardId) : arrayUnion(cardId) });
-        } catch (e) { console.error("Failed to toggle card status:", e); }
+    // --- EVO LOGIC ---
+    const handleSaveEvo = () => {
+        if (!newEvo.id) return alert("ID required");
+        const existingIndex = dbEvos.findIndex(e => e.id === newEvo.id);
+        const newList = [...dbEvos];
+        if (existingIndex > -1) newList[existingIndex] = newEvo as Evolution;
+        else newList.push(newEvo as Evolution);
+        saveList('evolutions', newList);
     };
 
-    // --- Card Creator / Editor Logic ---
-    const handleStatChange = (stat: keyof Stats, val: string) => setNewCard(prev => ({ ...prev, stats: { ...prev.stats, [stat]: parseInt(val) || 0 } }));
-    const toggleNewSuperpower = (sp: string) => setNewCard(prev => { const exists = prev.superpowers.includes(sp); return { ...prev, superpowers: exists ? prev.superpowers.filter(s => s !== sp) : [...prev.superpowers, sp] }; });
-    const autoCalcValue = () => { const base = newCard.ovr * 100; const rarityMult = { bronze: 1, silver: 3, gold: 10, rotm: 20, icon: 30, legend: 50, event: 25 }[newCard.rarity] || 1; setNewCard(prev => ({ ...prev, value: base * rarityMult })); };
+    const addEvoTask = () => {
+        const tasks = newEvo.tasks || [];
+        const taskWithId = { ...newTask, id: `task_${Date.now()}` };
+        setNewEvo({ ...newEvo, tasks: [...tasks, taskWithId] });
+    };
 
-    const handleCreateCard = async () => {
-        if (!newCard.name || !newCard.image) { setCreateMessage("Name and Image URL required."); return; }
+    // --- PACK/CARD/RARITY LOGIC ---
+    const handleSaveCard = async () => {
+        if (!newCard.id || !newCard.name) return alert("ID and Name required");
+        try { await setDoc(doc(db, 'game_cards', newCard.id), newCard, { merge: true }); alert("Card Saved!"); } catch(e) { alert(e); }
+    };
+    
+    // Toggle Card "Enabled/Disabled" state via Global Settings
+    const isCardDisabled = (id: string) => (settings.disabledCardIds || []).includes(id);
+    
+    const toggleCardDisabled = async () => {
+        if (!newCard.id) return;
+        const currentDisabled = settings.disabledCardIds || [];
+        let newDisabled: string[];
         
-        // If editing, keep ID. If creating, generate ID.
-        let id = editingCardId;
-        if (!id) {
-            id = `${newCard.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${newCard.rarity}_${newCard.ovr}`;
+        if (currentDisabled.includes(newCard.id)) {
+            newDisabled = currentDisabled.filter(id => id !== newCard.id);
+        } else {
+            newDisabled = [...currentDisabled, newCard.id];
+        }
+        
+        setSettings(prev => ({ ...prev, disabledCardIds: newDisabled }));
+        try {
+            await setDoc(doc(db, 'settings', 'global'), { disabledCardIds: newDisabled }, { merge: true });
+        } catch(e) { console.error("Error saving disabled state", e); }
+    };
+
+    const handleAddSuperpower = () => { if (!selectedSuperpower) return; const current = newCard.superpowers || []; if (!current.includes(selectedSuperpower)) setNewCard({ ...newCard, superpowers: [...current, selectedSuperpower] }); };
+    const handleRemoveSuperpower = (sp: string) => setNewCard({ ...newCard, superpowers: (newCard.superpowers || []).filter(s => s !== sp) });
+    
+    const handleSavePack = async () => { 
+        if (!newPack.id) return alert("ID required"); 
+        try { 
+            await setDoc(doc(db, 'settings', 'packs'), { [newPack.id]: { 
+                ...newPack, 
+                cost: Number(newPack.cost), 
+                bpCost: Number(newPack.bpCost),
+                minOvr: Number(newPack.minOvr || 0),
+                maxOvr: Number(newPack.maxOvr || 99)
+            } }, { merge: true }); 
+            alert("Pack Saved!"); 
+        } catch(e) { alert("Error"); } 
+    };
+    
+    const handleChanceChange = (rid: string, val: string) => { const n = parseFloat(val); const c = { ...(newPack.rarityChances || {}) }; if (isNaN(n) || n <= 0) delete c[rid]; else c[rid] = n; setNewPack({ ...newPack, rarityChances: c }); };
+    
+    const handleSaveRarity = async () => { if (!newRarity.id) return alert("ID required"); const idx = dbRarities.findIndex(r => r.id === newRarity.id); let list = [...dbRarities]; const safe = { ...newRarity, rank: Number(newRarity.rank), animationTier: Number(newRarity.animationTier), active: newRarity.active !== false } as RarityDefinition; if (idx > -1) list[idx] = safe; else list.push(safe); try { await setDoc(doc(db, 'settings', 'rarities'), { list }, { merge: true }); alert("Rarity Saved!"); } catch(e) { alert("Error"); } };
+    
+    const toggleSetting = async (key: keyof GlobalSettings) => { const nv = !settings[key]; setSettings(p => ({ ...p, [key]: nv })); try { await setDoc(doc(db, 'settings', 'global'), { [key]: nv }, { merge: true }); } catch (e) {} };
+
+    // --- USER MANAGEMENT LOGIC ---
+    const handleSearchUsers = async () => {
+        if (!userSearchQuery) return;
+        
+        try {
+            const qUsername = query(collection(db, 'users'), where('userProfile.username', '==', userSearchQuery));
+            const snapUsername = await getDocs(qUsername);
+            
+            const results: {uid: string, data: GameState}[] = [];
+            
+            snapUsername.forEach(doc => {
+                results.push({ uid: doc.id, data: doc.data() as GameState });
+            });
+            
+            // Basic email search support via userProfile structure
+            const qEmail = query(collection(db, 'users'), where('userProfile.email', '==', userSearchQuery));
+            const snapEmail = await getDocs(qEmail);
+            
+            snapEmail.forEach(doc => {
+                if (!results.find(r => r.uid === doc.id)) {
+                    results.push({ uid: doc.id, data: doc.data() as GameState });
+                }
+            });
+
+            setFoundUsers(results);
+            if (results.length === 0) alert("No users found.");
+        } catch (e) {
+            console.error(e);
+            alert("Error searching users.");
+        }
+    };
+
+    const handleBanUser = async (uid: string, currentStatus: boolean) => {
+        try {
+            await updateDoc(doc(db, 'users', uid), { banned: !currentStatus });
+            setFoundUsers(prev => prev.map(u => u.uid === uid ? { ...u, data: { ...u.data, banned: !currentStatus } } : u));
+            if (selectedUser?.uid === uid) {
+                setSelectedUser(prev => prev ? { ...prev, data: { ...prev.data, banned: !currentStatus } } : null);
+            }
+            alert(`User ${!currentStatus ? 'Banned' : 'Unbanned'}`);
+        } catch(e) {
+            console.error(e);
+            alert("Action failed.");
+        }
+    };
+
+    const handleSendReward = async () => {
+        if (!selectedUser) return;
+        
+        const payload: any = {
+            title: adminMsg,
+            timestamp: Date.now(),
+            reward: { type: rewardType }
+        };
+
+        if (rewardType === 'coins') {
+            payload.reward.amount = parseInt(rewardValue);
+        } else if (rewardType === 'card') {
+            payload.reward.cardId = rewardValue;
+        } else if (rewardType === 'pack') {
+            payload.reward.packType = rewardValue;
+        } else if (rewardType === 'pick') {
+            payload.reward.pickId = rewardValue;
         }
 
-        const cardData: Card = { id, ...newCard };
         try {
-            await setDoc(doc(db, 'game_cards', id), cardData);
-            setCreateMessage(`Card '${newCard.name}' ${editingCardId ? 'updated' : 'created'} successfully! ID: ${id}`);
-            // Reset logic
-            setNewCard(prev => ({ ...prev, name: '', image: '', superpowers: [] }));
-            setEditingCardId(null);
-        } catch (e: any) { setCreateMessage(`Error: ${e.message}`); }
-    };
-
-    const loadCardForEdit = (card: Card) => {
-        setNewCard({
-            name: card.name,
-            rarity: card.rarity,
-            ovr: card.ovr,
-            image: card.image,
-            value: card.value,
-            superpowers: card.superpowers || [],
-            stats: card.stats || { lyrc: 80, flow: 80, sing: 80, live: 80, diss: 80, char: 80 }
-        });
-        setEditingCardId(card.id);
-        cardFormRef.current?.scrollIntoView({ behavior: 'smooth' });
-        setCreateMessage(`Editing mode: ${card.name}`);
-    };
-
-    const cancelCardEdit = () => {
-        setNewCard({ name: '', rarity: 'gold', ovr: 80, image: '', value: 10000, superpowers: [], stats: { lyrc: 80, flow: 80, sing: 80, live: 80, diss: 80, char: 80 } });
-        setEditingCardId(null);
-        setCreateMessage('');
-    }
-
-    // --- Rarity Manager Logic ---
-    const handleCreateRarity = async () => {
-        if (!newRarity.name || !newRarity.baseImage || !newRarity.id) { setRarityMessage("ID, Name, and Base Image required."); return; }
-        try {
-            const raritiesRef = doc(db, 'settings', 'rarities');
-            const docSnap = await getDoc(raritiesRef);
-            let list: RarityDefinition[] = [];
-            if(docSnap.exists()) list = docSnap.data().list || [];
-            list = list.filter(r => r.id !== newRarity.id);
-            list.push(newRarity);
-            await setDoc(raritiesRef, { list });
-            setRarityMessage(`Rarity '${newRarity.name}' saved!`);
-            setNewRarity({ id: '', name: '', rank: 8, color: '#ffffff', baseImage: '', animationTier: 3 });
-        } catch (e: any) { setRarityMessage(`Error: ${e.message}`); }
-    };
-
-    const handleEditRarity = (rarity: RarityDefinition) => {
-        setNewRarity(rarity);
-        setRarityMessage(`Editing rarity: ${rarity.name}`);
-    };
-
-    const handleDeleteRarity = async (rarityId: string) => {
-        if (!window.confirm(`Delete rarity ${rarityId}?`)) return;
-        try {
-            const raritiesRef = doc(db, 'settings', 'rarities');
-            const docSnap = await getDoc(raritiesRef);
-            let list: RarityDefinition[] = [];
-            if(docSnap.exists()) list = docSnap.data().list || [];
-            list = list.filter(r => r.id !== rarityId);
-            await setDoc(raritiesRef, { list });
-            setRarityMessage(`Rarity ${rarityId} deleted.`);
-        } catch(e: any) { setRarityMessage(`Error: ${e.message}`); }
-    }
-
-    // --- Pack Manager Logic ---
-    const handlePackRarityChange = (rarity: string, val: string) => {
-        const chance = parseFloat(val) || 0;
-        setNewPack(prev => ({ ...prev, rarityChances: { ...prev.rarityChances, [rarity]: chance } }));
-    };
-
-    const handleCreatePack = async () => {
-        if (!newPack.id || !newPack.name) { setPackMessage("Pack ID and Name required."); return; }
-        const totalChance = (Object.values(newPack.rarityChances) as number[]).reduce((sum, c) => sum + c, 0);
-        if (Math.abs(totalChance - 100) > 0.1) { setPackMessage(`Error: Chances sum to ${totalChance}%, must be 100%.`); return; }
-
-        try {
-            const packsRef = doc(db, 'settings', 'packs');
-            // Ensure active is set if missing
-            const packDataToSave = { ...newPack, active: newPack.active !== false };
-            await setDoc(packsRef, { [newPack.id]: packDataToSave }, { merge: true });
-            setPackMessage(`Pack '${newPack.name}' saved!`);
-            setNewPack({ id: '', name: '', cost: 1000, bpCost: 0, rarityChances: {}, image: '', active: true });
-            setEditingPackId(null);
-        } catch (e: any) { setPackMessage(`Error: ${e.message}`); }
-    };
-
-    const handleEditPack = (packId: string, data: PackData) => {
-        const defaults = DEFAULT_PACK_META[packId] || { name: '', image: '' };
-        setNewPack({
-            id: packId,
-            name: data.name || defaults.name || packId,
-            cost: data.cost,
-            bpCost: data.bpCost || 0,
-            rarityChances: data.rarityChances || {},
-            image: data.image || defaults.image || '',
-            active: data.active !== false
-        });
-        setEditingPackId(packId);
-        setPackMessage(`Editing pack: ${data.name || defaults.name || packId}`);
-    };
-
-    const handleTogglePackStatus = async (packId: string, currentActive: boolean) => {
-        const newStatus = !currentActive;
-        try {
-            const packsRef = doc(db, 'settings', 'packs');
-            // Merge the new active status. This works for both creating an override for a default pack
-            // and updating an existing custom pack.
-            await setDoc(packsRef, { [packId]: { active: newStatus } }, { merge: true });
-            setPackMessage(`Pack ${packId} is now ${newStatus ? 'ACTIVE' : 'INACTIVE'}.`);
-        } catch(e: any) { setPackMessage(`Error: ${e.message}`); }
-    };
-
-    // --- PICK CREATOR LOGIC ---
-    const handleCreatePick = async () => {
-        if (!newPick.id || !newPick.name) { setPickMessage("Pick ID and Name required."); return; }
-        
-        // Remove keys with undefined values to prevent Firestore errors
-        const configToSave: any = {
-            ...newPick,
-            nameKey: newPick.nameKey || newPick.id,
-            active: newPick.active !== false
-        };
-        
-        // Explicitly remove rarityGuarantee if it's undefined or empty string
-        if (!configToSave.rarityGuarantee) delete configToSave.rarityGuarantee;
-
-        try {
-            const picksRef = doc(db, 'settings', 'playerPicks');
-            await setDoc(picksRef, { [newPick.id]: configToSave }, { merge: true });
-            setPickMessage(`Pick '${newPick.name}' saved!`);
-            setNewPick({ id: '', nameKey: '', name: '', pickCount: 1, totalOptions: 3, minOvr: 75, cost: 0, rarityGuarantee: undefined, active: true });
-            setEditingPickId(null);
-        } catch (e: any) { setPickMessage(`Error: ${e.message}`); }
-    };
-
-    const handleEditPick = (pickId: string, config: PlayerPickConfig) => {
-        setNewPick({
-            id: pickId,
-            nameKey: config.nameKey || pickId,
-            name: config.name || t(config.nameKey as TranslationKey) || pickId,
-            pickCount: config.pickCount,
-            totalOptions: config.totalOptions,
-            minOvr: config.minOvr,
-            cost: config.cost || 0,
-            rarityGuarantee: config.rarityGuarantee,
-            active: config.active !== false
-        });
-        setEditingPickId(pickId);
-        setPickMessage(`Editing Pick: ${pickId}`);
-    };
-
-    const handleTogglePickStatus = async (pickId: string, currentActive: boolean) => {
-        const newStatus = !currentActive;
-        try {
-            const picksRef = doc(db, 'settings', 'playerPicks');
-            await setDoc(picksRef, { [pickId]: { active: newStatus } }, { merge: true });
-            setPickMessage(`Pick ${pickId} is now ${newStatus ? 'ACTIVE' : 'INACTIVE'}.`);
-        } catch (e: any) { setPickMessage(`Error: ${e.message}`); }
+            await addDoc(collection(db, 'users', selectedUser.uid, 'inbox'), payload);
+            alert("Reward Sent!");
+        } catch (e) {
+            console.error(e);
+            alert("Failed to send reward.");
+        }
     };
 
     return (
         <div className="animate-fadeIn w-full max-w-6xl mx-auto pb-12">
             <div className="flex justify-between items-center mb-8 bg-gray-900 p-4 rounded-lg border border-red-900/50">
                 <h2 className="font-header text-4xl text-red-500">CONTROL ROOM</h2>
-                <Button variant="default" onClick={onClose} className="px-4 py-2 text-sm">{t('close')}</Button>
+                <div className="flex gap-2">
+                    <Button variant={activeTab === 'main' ? 'cta' : 'default'} onClick={() => setActiveTab('main')} className="px-4 py-2 text-xs">Settings</Button>
+                    <Button variant={activeTab === 'users' ? 'cta' : 'default'} onClick={() => setActiveTab('users')} className="px-4 py-2 text-xs">Users</Button>
+                    <Button variant={activeTab === 'database' ? 'cta' : 'default'} onClick={() => setActiveTab('database')} className="px-4 py-2 text-xs">Database</Button>
+                    <Button variant={activeTab === 'content' ? 'cta' : 'default'} onClick={() => setActiveTab('content')} className="px-4 py-2 text-xs">Content</Button>
+                    <Button variant="default" onClick={onClose} className="px-4 py-2 text-xs">{t('close')}</Button>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                
-                {/* Global Feature Switches */}
-                <div className="bg-black/40 p-6 rounded-xl border border-gray-700 h-fit">
-                    <h3 className="text-2xl font-header text-gold-light mb-6 border-b border-gray-700 pb-2">Global Settings</h3>
-                    <div className="space-y-6">
-                        <div className="flex justify-between items-center">
-                            <div><p className="text-white font-bold text-lg">Maintenance Mode</p></div>
-                            <button onClick={() => toggleSetting('maintenanceMode')} className={`w-16 h-8 rounded-full transition-colors duration-300 relative ${settings.maintenanceMode ? 'bg-red-600' : 'bg-gray-600'}`}>
-                                <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-all duration-300 ${settings.maintenanceMode ? 'left-9' : 'left-1'}`}></div>
-                            </button>
-                        </div>
-                        <div className="flex justify-between items-center">
-                            <div><p className="text-white font-bold text-lg">Market Enabled</p></div>
-                            <button onClick={() => toggleSetting('marketEnabled')} className={`w-16 h-8 rounded-full transition-colors duration-300 relative ${settings.marketEnabled ? 'bg-green-600' : 'bg-gray-600'}`}>
-                                <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-all duration-300 ${settings.marketEnabled ? 'left-9' : 'left-1'}`}></div>
-                            </button>
-                        </div>
-                        <div className="flex justify-between items-center">
-                            <div><p className="text-white font-bold text-lg">Battles Enabled</p></div>
-                            <button onClick={() => toggleSetting('battlesEnabled')} className={`w-16 h-8 rounded-full transition-colors duration-300 relative ${settings.battlesEnabled ? 'bg-green-600' : 'bg-gray-600'}`}>
-                                <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-all duration-300 ${settings.battlesEnabled ? 'left-9' : 'left-1'}`}></div>
-                            </button>
+            {/* --- MAIN SETTINGS --- */}
+            {activeTab === 'main' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div className="bg-black/40 p-6 rounded-xl border border-gray-700 h-fit">
+                        <h3 className="text-2xl font-header text-gold-light mb-6 border-b border-gray-700 pb-2">Switches</h3>
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <span className="text-white font-bold">Maintenance Mode</span>
+                                <button onClick={() => toggleSetting('maintenanceMode')} className={`w-12 h-6 rounded-full relative ${settings.maintenanceMode ? 'bg-red-600' : 'bg-gray-600'}`}>
+                                    <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${settings.maintenanceMode ? 'left-7' : 'left-1'}`}></div>
+                                </button>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <span className="text-white font-bold">Market Enabled</span>
+                                <button onClick={() => toggleSetting('marketEnabled')} className={`w-12 h-6 rounded-full relative ${settings.marketEnabled ? 'bg-green-600' : 'bg-gray-600'}`}>
+                                    <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-all ${settings.marketEnabled ? 'left-7' : 'left-1'}`}></div>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
+            )}
 
-                {/* Promo Toggles */}
-                <div className="bg-black/40 p-6 rounded-xl border border-purple-500/30 h-fit">
-                    <h3 className="text-2xl font-header text-purple-400 mb-6 border-b border-gray-700 pb-2">Live Content</h3>
-                    <div className="space-y-4">
-                        {PROMO_RARITIES.map(promo => {
-                            const isActive = settings.activePromos?.includes(promo);
-                            return (
-                                <div key={promo} className="flex justify-between items-center">
-                                    <span className="text-white font-bold capitalize text-lg">{promo} Cards</span>
-                                    <button onClick={() => togglePromo(promo)} className={`px-4 py-2 rounded font-bold text-sm transition-colors border ${isActive ? 'bg-green-600 border-green-400 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}>
-                                        {isActive ? 'ACTIVE' : 'DISABLED'}
-                                    </button>
+            {/* --- USER MANAGEMENT --- */}
+            {activeTab === 'users' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    {/* Search Column */}
+                    <div className="bg-black/40 p-6 rounded-xl border border-gray-700 col-span-1">
+                        <h3 className="text-xl font-header text-white mb-4">Find User</h3>
+                        <div className="flex gap-2 mb-4">
+                            <input 
+                                type="text" 
+                                placeholder="Username or Email" 
+                                className="w-full bg-black border border-gray-600 rounded p-2 text-white text-sm"
+                                value={userSearchQuery}
+                                onChange={(e) => setUserSearchQuery(e.target.value)}
+                            />
+                            <Button variant="keep" onClick={handleSearchUsers} className="!py-2 !px-3 text-sm">Search</Button>
+                        </div>
+                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                            {foundUsers.map(user => (
+                                <div 
+                                    key={user.uid} 
+                                    onClick={() => setSelectedUser(user)}
+                                    className={`p-3 rounded cursor-pointer border ${selectedUser?.uid === user.uid ? 'bg-blue-900/50 border-blue-400' : 'bg-gray-800 border-gray-700 hover:bg-gray-700'}`}
+                                >
+                                    <p className="text-white font-bold text-sm">{user.data.userProfile?.username || 'Unknown'}</p>
+                                    <p className="text-gray-400 text-xs truncate">{user.uid}</p>
+                                    {user.data.banned && <span className="text-red-500 font-bold text-xs">BANNED</span>}
                                 </div>
-                            );
-                        })}
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Action Column */}
+                    <div className="bg-black/40 p-6 rounded-xl border border-blue-500/30 col-span-2">
+                        {selectedUser ? (
+                            <div className="space-y-6">
+                                <div className="flex justify-between items-start border-b border-gray-700 pb-4">
+                                    <div>
+                                        <h3 className="text-2xl font-header text-gold-light">{selectedUser.data.userProfile?.username}</h3>
+                                        <p className="text-gray-400 text-sm">ID: {selectedUser.uid}</p>
+                                        <p className="text-gray-400 text-sm">Coins: {selectedUser.data.coins}</p>
+                                    </div>
+                                    <Button 
+                                        variant={selectedUser.data.banned ? 'keep' : 'sell'} 
+                                        onClick={() => handleBanUser(selectedUser.uid, !!selectedUser.data.banned)}
+                                        className="!py-2 !px-4 text-sm"
+                                    >
+                                        {selectedUser.data.banned ? 'UNBAN USER' : 'BAN USER'}
+                                    </Button>
+                                </div>
+
+                                <div>
+                                    <h4 className="text-white font-bold mb-3">Send Rewards</h4>
+                                    <div className="space-y-3 bg-gray-900/50 p-4 rounded-lg">
+                                        <input 
+                                            type="text" 
+                                            placeholder="Message to User (e.g. 'Sorry for the bug!')"
+                                            className="w-full bg-black border border-gray-600 rounded p-2 text-white text-sm"
+                                            value={adminMsg}
+                                            onChange={(e) => setAdminMsg(e.target.value)}
+                                        />
+                                        
+                                        <div className="flex gap-2">
+                                            <select 
+                                                className="bg-black border border-gray-600 rounded p-2 text-white text-sm"
+                                                value={rewardType}
+                                                onChange={(e) => { setRewardType(e.target.value as any); setRewardValue(''); }}
+                                            >
+                                                <option value="coins">Coins</option>
+                                                <option value="card">Card</option>
+                                                <option value="pack">Pack</option>
+                                                <option value="pick">Pick</option>
+                                            </select>
+                                            
+                                            {rewardType === 'coins' && (
+                                                <input type="number" placeholder="Amount" className="flex-grow bg-black border border-gray-600 rounded p-2 text-white text-sm" value={rewardValue} onChange={(e) => setRewardValue(e.target.value)} />
+                                            )}
+                                            {rewardType === 'card' && (
+                                                <select className="flex-grow bg-black border border-gray-600 rounded p-2 text-white text-sm" value={rewardValue} onChange={(e) => setRewardValue(e.target.value)}>
+                                                    <option value="">Select Card...</option>
+                                                    {allCards.sort((a,b) => a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.id}>{c.name} ({c.rarity})</option>)}
+                                                </select>
+                                            )}
+                                            {rewardType === 'pack' && (
+                                                <select className="flex-grow bg-black border border-gray-600 rounded p-2 text-white text-sm" value={rewardValue} onChange={(e) => setRewardValue(e.target.value)}>
+                                                    <option value="">Select Pack...</option>
+                                                    {Object.keys(displayPacks).map(p => <option key={p} value={p}>{displayPacks[p].name || p}</option>)}
+                                                </select>
+                                            )}
+                                            {rewardType === 'pick' && (
+                                                <select className="flex-grow bg-black border border-gray-600 rounded p-2 text-white text-sm" value={rewardValue} onChange={(e) => setRewardValue(e.target.value)}>
+                                                    <option value="">Select Pick...</option>
+                                                    {Object.entries(playerPickConfigs).map(([id, config]) => <option key={id} value={id}>{config.name || id}</option>)}
+                                                </select>
+                                            )}
+                                        </div>
+                                        
+                                        <Button variant="cta" onClick={handleSendReward} className="w-full !py-2">Send Reward</Button>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="h-full flex items-center justify-center text-gray-500">
+                                Select a user to view details
+                            </div>
+                        )}
                     </div>
                 </div>
+            )}
 
-                {/* --- PICK FACTORY --- */}
-                <div className="bg-black/40 p-6 rounded-xl border border-indigo-500/30 md:col-span-2">
-                    <h3 className="text-2xl font-header text-indigo-400 mb-6 border-b border-gray-700 pb-2">Player Pick Factory</h3>
-                    <div className="flex flex-col md:flex-row gap-8">
-                        <div className={`flex-1 space-y-4 ${editingPickId ? 'p-2 border border-indigo-500/50 rounded bg-indigo-900/10' : ''}`}>
-                            {editingPickId && <p className="text-indigo-400 text-sm font-bold uppercase tracking-wider mb-2">EDITING PICK: {editingPickId}</p>}
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">ID</label>
-                                    <input type="text" value={newPick.id} onChange={e => setNewPick({...newPick, id: e.target.value.replace(/[^a-z0-9_-]/g, '').toLowerCase()})} disabled={!!editingPickId} className="bg-gray-900 border border-gray-600 rounded p-2 text-white disabled:opacity-50" placeholder="super_pick" />
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">Display Name</label>
-                                    <input type="text" value={newPick.name} onChange={e => setNewPick({...newPick, name: e.target.value})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder="Super Pick" />
-                                </div>
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">Total Cards Shown</label>
-                                    <input type="number" value={newPick.totalOptions} onChange={e => setNewPick({...newPick, totalOptions: parseInt(e.target.value) || 2})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" min="1" max="10" />
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">Picks Allowed</label>
-                                    <input type="number" value={newPick.pickCount} onChange={e => setNewPick({...newPick, pickCount: parseInt(e.target.value) || 1})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" min="1" />
-                                </div>
-                            </div>
+            {/* --- DATABASE MANAGER --- */}
+            {activeTab === 'database' && (
+                <div className="bg-black/40 p-6 rounded-xl border border-blue-500/30">
+                    <div className="flex gap-4 border-b border-gray-700 pb-4 mb-4">
+                        <button onClick={() => setDbTab('cards')} className={`text-xl font-header ${dbTab === 'cards' ? 'text-blue-400 underline' : 'text-gray-500'}`}>Cards</button>
+                        <button onClick={() => setDbTab('packs')} className={`text-xl font-header ${dbTab === 'packs' ? 'text-blue-400 underline' : 'text-gray-500'}`}>Packs</button>
+                        <button onClick={() => setDbTab('rarities')} className={`text-xl font-header ${dbTab === 'rarities' ? 'text-blue-400 underline' : 'text-gray-500'}`}>Rarities</button>
+                    </div>
 
-                            <div className="grid grid-cols-3 gap-4">
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">Min OVR</label>
-                                    <input type="number" value={newPick.minOvr} onChange={e => setNewPick({...newPick, minOvr: parseInt(e.target.value) || 75})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" />
+                    {dbTab === 'cards' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="space-y-3 bg-gray-900/50 p-4 rounded-lg h-fit">
+                                <div className="flex justify-between items-center">
+                                    <h4 className="text-white font-bold">Add/Edit Card</h4>
+                                    <Button variant="default" onClick={discardCard} className="!py-1 !px-2 text-xs bg-red-900 border-red-700">Discard Changes</Button>
                                 </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">Value (Coins)</label>
-                                    <input type="number" value={newPick.cost} onChange={e => setNewPick({...newPick, cost: parseInt(e.target.value) || 0})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" />
+                                <div className="flex justify-center my-4">
+                                    {/* LIVE PREVIEW */}
+                                    <div className="transform scale-75 md:scale-100">
+                                        <Card card={newCard as CardType} />
+                                    </div>
                                 </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">Guarantee</label>
-                                    <select value={newPick.rarityGuarantee || ''} onChange={e => setNewPick({...newPick, rarityGuarantee: e.target.value ? e.target.value : undefined})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white capitalize">
-                                        <option value="">None</option>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <input type="text" placeholder="ID" className="bg-black border border-gray-600 rounded p-2 text-white text-xs" value={newCard.id || ''} onChange={e => setNewCard({...newCard, id: e.target.value})} />
+                                    <input type="text" placeholder="Name" className="bg-black border border-gray-600 rounded p-2 text-white text-xs" value={newCard.name || ''} onChange={e => setNewCard({...newCard, name: e.target.value})} />
+                                    <input type="number" placeholder="OVR" className="bg-black border border-gray-600 rounded p-2 text-white text-xs" value={newCard.ovr || ''} onChange={e => setNewCard({...newCard, ovr: parseInt(e.target.value)})} />
+                                    <select className="bg-black border border-gray-600 rounded p-2 text-white text-xs capitalize" value={newCard.rarity} onChange={e => setNewCard({...newCard, rarity: e.target.value})}>
                                         {sortedRarities.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                                     </select>
                                 </div>
+                                <input type="text" placeholder="Image URL" className="w-full bg-black border border-gray-600 rounded p-2 text-white text-xs" value={newCard.image || ''} onChange={e => setNewCard({...newCard, image: e.target.value})} />
+                                
+                                {newCard.id && (
+                                    <div className="flex items-center gap-2 bg-black/50 p-2 rounded border border-gray-600">
+                                        <label className="text-white text-xs font-bold">Packable (Active)</label>
+                                        <button onClick={toggleCardDisabled} className={`w-10 h-5 rounded-full relative transition-colors ${!isCardDisabled(newCard.id) ? 'bg-green-600' : 'bg-red-600'}`}>
+                                            <div className={`w-3 h-3 bg-white rounded-full absolute top-1 transition-all ${!isCardDisabled(newCard.id) ? 'left-6' : 'left-1'}`}></div>
+                                        </button>
+                                        <span className="text-gray-400 text-xs ml-2">{isCardDisabled(newCard.id) ? "Excluded from packs" : "Included in packs"}</span>
+                                    </div>
+                                )}
+
+                                <div className="bg-black/30 p-2 rounded border border-gray-700">
+                                    <p className="text-xs text-gray-400 mb-1">Superpowers</p>
+                                    <div className="flex gap-2 mb-2">
+                                        <select className="bg-black border border-gray-600 rounded p-1 text-xs text-white flex-grow" value={selectedSuperpower} onChange={e => setSelectedSuperpower(e.target.value)}>
+                                            <option value="">Select...</option>
+                                            {Object.keys(SUPERPOWER_DESC).map(sp => <option key={sp} value={sp}>{sp}</option>)}
+                                        </select>
+                                        <Button variant="keep" onClick={handleAddSuperpower} className="!py-1 !px-3 text-xs">Add</Button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {newCard.superpowers?.map(sp => (
+                                            <span key={sp} className="bg-blue-900/50 border border-blue-500 text-blue-200 text-xs px-2 py-1 rounded flex items-center gap-1">
+                                                {sp} <button onClick={() => handleRemoveSuperpower(sp)} className="text-red-400 ml-1">×</button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-2">
+                                    {['lyrc', 'flow', 'sing', 'live', 'diss', 'char'].map(stat => (
+                                        <input key={stat} type="number" placeholder={stat.toUpperCase()} className="bg-black border border-gray-600 rounded p-1 text-white text-xs text-center" 
+                                            value={newCard.stats?.[stat as keyof Stats] || ''} 
+                                            onChange={e => setNewCard({...newCard, stats: {...newCard.stats!, [stat]: parseInt(e.target.value)}})} 
+                                        />
+                                    ))}
+                                </div>
+                                <Button variant="cta" onClick={handleSaveCard} className="w-full">Save Card</Button>
                             </div>
-
-                            <Button variant={editingPickId ? 'ok' : 'cta'} onClick={handleCreatePick} className="w-full mt-2">{editingPickId ? 'Update Pick' : 'Create Pick'}</Button>
-                            {pickMessage && <p className={`text-sm mt-2 ${pickMessage.includes('Error') ? 'text-red-400' : 'text-green-400'}`}>{pickMessage}</p>}
+                            
+                            <div>
+                                <input type="text" value={cardSearch} onChange={e => setCardSearch(e.target.value)} placeholder="Search..." className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white mb-2" />
+                                <div className="max-h-[500px] overflow-y-auto space-y-1">
+                                    {filteredCards.map(c => (
+                                        <div key={c.id} onClick={() => setNewCard(c)} className="flex items-center gap-2 bg-gray-800 p-2 rounded cursor-pointer hover:bg-gray-700">
+                                            <img src={c.image} className="w-8 h-8 rounded object-cover" />
+                                            <span className={`text-xs ${isCardDisabled(c.id) ? 'text-red-400 line-through' : 'text-white'}`}>{c.name} ({c.ovr})</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
+                    )}
 
-                        {/* Pick List */}
-                        <div className="w-full md:w-64 bg-gray-800/50 p-4 rounded-lg border border-gray-700 flex flex-col h-full max-h-[350px]">
-                            <h4 className="text-white font-bold text-sm mb-2">Manage Picks</h4>
-                            <div className="overflow-y-auto custom-scrollbar flex-1 space-y-2">
-                                {Object.entries({ ...defaultPicks, ...customPicks } as Record<string, PlayerPickConfig>).map(([id, config]) => {
-                                    const isActive = config.active !== false;
+                    {dbTab === 'packs' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="space-y-3 bg-gray-900/50 p-4 rounded-lg h-fit">
+                                <div className="flex justify-between items-center">
+                                    <h4 className="text-white font-bold">Edit Pack</h4>
+                                    <Button variant="default" onClick={discardPack} className="!py-1 !px-2 text-xs bg-red-900 border-red-700">Discard</Button>
+                                </div>
+                                
+                                {/* PACK PREVIEW */}
+                                <div className="flex justify-center mb-4">
+                                    <div className="flex flex-col items-center">
+                                        <div className="w-[120px] h-auto transition-transform hover:scale-105">
+                                            <img 
+                                                src={newPack.image || 'https://i.imghippo.com/files/cGUh9927EWc.png'} 
+                                                alt="Pack Preview" 
+                                                className="w-full rounded-md shadow-lg drop-shadow-[0_0_10px_#FFD700]"
+                                            />
+                                        </div>
+                                        <span className="text-lg text-gold-light mt-2">{newPack.name || 'Pack Name'}</span>
+                                        <span className="text-sm text-gray-400">{newPack.cost} Coins</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <input type="text" placeholder="ID" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newPack.id || ''} onChange={e => setNewPack({...newPack, id: e.target.value})} />
+                                    <div className="flex items-center bg-black px-2 rounded border border-gray-600">
+                                        <label className="text-xs text-gray-400 mr-2">Active</label>
+                                        <input type="checkbox" checked={newPack.active !== false} onChange={e => setNewPack({...newPack, active: e.target.checked})} />
+                                    </div>
+                                </div>
+                                <input type="text" placeholder="Name" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newPack.name || ''} onChange={e => setNewPack({...newPack, name: e.target.value})} />
+                                <input type="text" placeholder="Image URL" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newPack.image || ''} onChange={e => setNewPack({...newPack, image: e.target.value})} />
+                                
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div className="flex flex-col">
+                                        <label className="text-[10px] text-gray-400">Coins Cost</label>
+                                        <input type="number" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newPack.cost} onChange={e => setNewPack({...newPack, cost: parseInt(e.target.value)})} />
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <label className="text-[10px] text-gray-400">BP Cost</label>
+                                        <input type="number" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newPack.bpCost} onChange={e => setNewPack({...newPack, bpCost: parseInt(e.target.value)})} />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2 bg-black/20 p-2 rounded">
+                                    <div className="flex flex-col">
+                                        <label className="text-[10px] text-gray-400">Min OVR</label>
+                                        <input type="number" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newPack.minOvr} onChange={e => setNewPack({...newPack, minOvr: parseInt(e.target.value)})} placeholder="0" />
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <label className="text-[10px] text-gray-400">Max OVR</label>
+                                        <input type="number" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newPack.maxOvr} onChange={e => setNewPack({...newPack, maxOvr: parseInt(e.target.value)})} placeholder="99" />
+                                    </div>
+                                </div>
+
+                                <div className="bg-black/30 p-2 rounded border border-gray-700">
+                                    <p className="text-xs text-gray-400 mb-2">Rarity Chances (%)</p>
+                                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                                        {sortedRarities.map(r => (
+                                            <div key={r.id} className="flex items-center gap-2 bg-black/50 p-1 rounded">
+                                                <span className="text-xs text-white capitalize w-16">{r.name}</span>
+                                                <input type="number" placeholder="%" className="w-full bg-gray-900 border border-gray-600 rounded p-1 text-white text-xs text-right" value={newPack.rarityChances?.[r.id] || ''} onChange={(e) => handleChanceChange(r.id, e.target.value)} />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <Button variant="cta" onClick={handleSavePack} className="w-full">Save Pack</Button>
+                            </div>
+                            <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                                {Object.entries(displayPacks).map(([id, rawP]) => {
+                                    const p = rawP as PackData;
                                     return (
-                                        <div key={id} className={`bg-black/40 p-2 rounded flex justify-between items-center text-xs ${!isActive ? 'opacity-60 border border-red-900' : ''}`}>
-                                            <div className="flex flex-col">
-                                                <span className="text-gray-200 font-bold">{config.name || t(config.nameKey as TranslationKey) || id}</span>
-                                                <span className="text-gray-500 text-[10px]">{config.pickCount} of {config.totalOptions} | {config.minOvr}+</span>
-                                            </div>
-                                            <div className="flex gap-1">
-                                                <button onClick={() => handleEditPick(id, config)} className="px-2 py-1 bg-blue-900 text-blue-200 rounded border border-blue-500">Edit</button>
-                                                <button onClick={() => handleTogglePickStatus(id, isActive)} className={`px-2 py-1 rounded border ${isActive ? 'bg-green-900 text-green-200 border-green-500' : 'bg-red-900 text-red-200 border-red-500'}`}>
-                                                    {isActive ? 'ON' : 'OFF'}
-                                                </button>
-                                            </div>
+                                        <div key={id} onClick={() => setNewPack({ ...p, id })} className={`p-2 rounded cursor-pointer border flex justify-between items-center ${newPack.id === id ? 'bg-gray-700 border-white' : 'bg-gray-800 border-gray-700'}`}>
+                                            <div className="text-white text-sm font-bold">{p.name || id}</div>
+                                            <div className={`w-2 h-2 rounded-full ${p.active !== false ? 'bg-green-500' : 'bg-red-500'}`}></div>
                                         </div>
                                     );
                                 })}
                             </div>
                         </div>
-                    </div>
-                </div>
+                    )}
 
-                {/* --- CARD CREATOR / EDITOR --- */}
-                <div className="bg-black/40 p-6 rounded-xl border border-green-500/30 md:col-span-2" ref={cardFormRef}>
-                    <div className="flex justify-between items-center border-b border-gray-700 pb-2 mb-6">
-                        <h3 className="text-2xl font-header text-green-400">Card Manager</h3>
-                        {editingCardId && (
-                            <Button variant="sell" onClick={cancelCardEdit} className="px-3 py-1 text-xs">Cancel Edit</Button>
-                        )}
-                    </div>
-                    
-                    <div className="flex flex-col md:flex-row gap-8">
-                        {/* Form Side */}
-                        <div className={`flex-1 space-y-4 ${editingCardId ? 'p-2 border border-yellow-500/50 rounded bg-yellow-900/10' : ''}`}>
-                            {editingCardId && <p className="text-yellow-400 text-sm font-bold uppercase tracking-wider mb-2">EDITING CARD: {editingCardId}</p>}
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">Name</label>
-                                    <input type="text" value={newCard.name} onChange={e => setNewCard({...newCard, name: e.target.value})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder="Rapper Name" />
+                    {dbTab === 'rarities' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="space-y-3 bg-gray-900/50 p-4 rounded-lg h-fit">
+                                <div className="flex justify-between items-center">
+                                    <h4 className="text-white font-bold">Edit Rarity</h4>
+                                    <Button variant="default" onClick={discardRarity} className="!py-1 !px-2 text-xs bg-red-900 border-red-700">Discard</Button>
                                 </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">Rarity</label>
-                                    <select value={newCard.rarity} onChange={e => setNewCard({...newCard, rarity: e.target.value as Rarity})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white capitalize">
-                                        {sortedRarities.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                                    </select>
-                                </div>
-                            </div>
-                            {/* ... Stats & Inputs ... */}
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">OVR</label>
-                                    <input type="number" value={newCard.ovr} onChange={e => setNewCard({...newCard, ovr: parseInt(e.target.value) || 50})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" />
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">Value</label>
-                                    <input type="number" value={newCard.value} onChange={e => setNewCard({...newCard, value: parseInt(e.target.value) || 0})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" />
-                                </div>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs text-gray-400">Image URL</label>
-                                <input type="text" value={newCard.image} onChange={e => setNewCard({...newCard, image: e.target.value})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white text-sm" placeholder="https://..." />
-                            </div>
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Stats</label>
-                                <div className="grid grid-cols-6 gap-2">
-                                    {Object.keys(newCard.stats).map((key) => (
-                                        <div key={key} className="flex flex-col text-center">
-                                            <span className="text-[10px] text-gray-500 uppercase">{key.substring(0,3)}</span>
-                                            <input type="number" value={newCard.stats[key as keyof Stats]} onChange={e => handleStatChange(key as keyof Stats, e.target.value)} className="bg-gray-900 border border-gray-600 rounded p-1 text-white text-center text-xs" />
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="flex gap-2 pt-2">
-                                <Button variant="default" onClick={autoCalcValue} className="flex-1 py-2 text-xs">Auto Calc Value</Button>
-                                <Button variant={editingCardId ? 'ok' : 'keep'} onClick={handleCreateCard} className="flex-1 py-2 text-sm shadow-gold-glow">
-                                    {editingCardId ? 'Update Card' : 'Create Card'}
-                                </Button>
-                            </div>
-                            {createMessage && <p className={`text-sm mt-2 ${createMessage.includes('Error') ? 'text-red-400' : 'text-green-400'}`}>{createMessage}</p>}
-                        </div>
-                        {/* Preview */}
-                        <div className="flex flex-col items-center justify-center p-4 bg-gray-900/50 rounded-lg border border-gray-700 flex-shrink-0 w-full md:w-64">
-                            <p className="text-gray-400 text-xs mb-4 uppercase tracking-widest">Preview</p>
-                            <div className="transform scale-110">
-                                <CardComponent key={newCard.name + newCard.rarity} card={{...newCard, id: 'preview'}} />
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Card List with Edit/Disable */}
-                    <div className="mt-8 border-t border-gray-700 pt-6">
-                        <div className="mb-4 flex justify-between items-center">
-                            <h4 className="text-xl text-white font-header">Existing Cards</h4>
-                            <input type="text" value={cardSearch} onChange={e => setCardSearch(e.target.value)} placeholder="Search..." className="bg-black border border-gray-600 rounded px-3 py-1 text-white text-sm" />
-                        </div>
-                        <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                            {filteredCards.map(card => {
-                                const isDisabled = settings.disabledCardIds?.includes(card.id);
-                                return (
-                                    <div key={card.id} className="flex items-center gap-4 bg-gray-900/50 p-2 rounded-lg border border-gray-700 hover:border-green-500/50 transition-colors">
-                                        <div className="scale-75 origin-left"><CardComponent card={card} className="!w-[60px] !h-[90px]" /></div>
-                                        <div className="flex-grow">
-                                            <p className="text-white font-bold">{card.name}</p>
-                                            <p className="text-xs text-gray-400 capitalize">{card.rarity} | OVR {card.ovr}</p>
-                                        </div>
-                                        <div className="flex flex-col gap-2">
-                                            <button onClick={() => loadCardForEdit(card)} className="px-3 py-1 rounded text-xs font-bold border bg-blue-900/50 border-blue-500 text-blue-200 hover:bg-blue-800">EDIT</button>
-                                            <button onClick={() => toggleCardStatus(card.id)} className={`px-3 py-1 rounded text-xs font-bold border ${isDisabled ? 'bg-red-900/50 border-red-500 text-red-200' : 'bg-green-900/50 border-green-500 text-green-200'}`}>{isDisabled ? 'DISABLED' : 'ENABLED'}</button>
-                                        </div>
+                                
+                                {/* RARITY PREVIEW */}
+                                <div className="flex justify-center mb-4">
+                                    <div 
+                                        className="w-[120px] h-[180px] bg-cover bg-center rounded-lg shadow-lg relative flex items-center justify-center"
+                                        style={{ 
+                                            backgroundImage: `url('${newRarity.baseImage || 'https://i.imghippo.com/files/cGUh9927EWc.png'}')`,
+                                            boxShadow: `0 0 15px ${newRarity.color || '#fff'}`
+                                        }}
+                                    >
+                                        <span className="bg-black/50 px-2 py-1 rounded text-white font-bold text-sm backdrop-blur-sm">
+                                            {newRarity.name || 'Preview'}
+                                        </span>
                                     </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </div>
-
-                {/* --- RARITY FORGE --- */}
-                <div className="bg-black/40 p-6 rounded-xl border border-blue-500/30 md:col-span-2">
-                    <h3 className="text-2xl font-header text-blue-400 mb-6 border-b border-gray-700 pb-2">Rarity Forge</h3>
-                    
-                    <div className="flex flex-col gap-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs text-gray-400">ID</label>
-                                <input type="text" value={newRarity.id} onChange={e => setNewRarity({...newRarity, id: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '')})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder="platinum" />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs text-gray-400">Name</label>
-                                <input type="text" value={newRarity.name} onChange={e => setNewRarity({...newRarity, name: e.target.value})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder="Platinum" />
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-3 gap-4">
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs text-gray-400">Rank</label>
-                                <input type="number" value={newRarity.rank} onChange={e => setNewRarity({...newRarity, rank: parseInt(e.target.value) || 1})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs text-gray-400">Color</label>
-                                <div className="flex gap-2">
-                                    <input type="color" value={newRarity.color} onChange={e => setNewRarity({...newRarity, color: e.target.value})} className="h-10 w-10 p-0 border-0 rounded cursor-pointer" />
                                 </div>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs text-gray-400">Anim Tier</label>
-                                <select value={newRarity.animationTier} onChange={e => setNewRarity({...newRarity, animationTier: parseInt(e.target.value)})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white">
-                                    <option value={1}>1 - Basic</option><option value={2}>2 - Rare</option><option value={3}>3 - Epic</option><option value={4}>4 - Legendary</option><option value={5}>5 - ULTIMATE</option>
+
+                                <div className="flex gap-2">
+                                    <input type="text" placeholder="ID" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newRarity.id || ''} onChange={e => setNewRarity({...newRarity, id: e.target.value})} />
+                                    <div className="flex items-center bg-black px-2 rounded border border-gray-600"><label className="text-xs text-gray-400 mr-2">Active</label><input type="checkbox" checked={newRarity.active !== false} onChange={e => setNewRarity({...newRarity, active: e.target.checked})} /></div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <input type="text" placeholder="Name" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newRarity.name || ''} onChange={e => setNewRarity({...newRarity, name: e.target.value})} />
+                                    <input type="number" placeholder="Rank" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newRarity.rank || ''} onChange={e => setNewRarity({...newRarity, rank: parseInt(e.target.value)})} />
+                                </div>
+                                <div className="flex gap-2 items-center bg-black/30 p-2 rounded">
+                                    <label className="text-gray-400 text-xs">Color:</label>
+                                    <input type="color" className="h-8 w-8 bg-transparent border-none cursor-pointer" value={newRarity.color || '#ffffff'} onChange={e => setNewRarity({...newRarity, color: e.target.value})} />
+                                </div>
+                                <select className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newRarity.animationTier || 1} onChange={e => setNewRarity({...newRarity, animationTier: parseInt(e.target.value)})}>
+                                    {[1,2,3,4,5].map(t => <option key={t} value={t}>Tier {t}</option>)}
                                 </select>
+                                <input type="text" placeholder="Base Image URL" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newRarity.baseImage || ''} onChange={e => setNewRarity({...newRarity, baseImage: e.target.value})} />
+                                <Button variant="cta" onClick={handleSaveRarity} className="w-full">Save Rarity</Button>
                             </div>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <label className="text-xs text-gray-400">Base Image URL</label>
-                            <input type="text" value={newRarity.baseImage} onChange={e => setNewRarity({...newRarity, baseImage: e.target.value})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white text-sm" placeholder="https://..." />
-                        </div>
-                        
-                        <Button variant="cta" onClick={handleCreateRarity} className="mt-2">Save / Update Rarity</Button>
-                        {rarityMessage && <p className={`text-sm mt-2 ${rarityMessage.includes('Error') ? 'text-red-400' : 'text-green-400'}`}>{rarityMessage}</p>}
-                    
-                        {/* Rarity List */}
-                        <div className="mt-6 border-t border-gray-700 pt-4">
-                            <h4 className="text-lg text-white font-header mb-2">Manage Existing Rarities</h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                            <div className="space-y-2 max-h-[500px] overflow-y-auto">
                                 {sortedRarities.map(r => (
-                                    <div key={r.id} className="flex items-center justify-between bg-gray-900/50 p-2 rounded border border-gray-700">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-4 h-4 rounded-full" style={{backgroundColor: r.color}}></div>
-                                            <div>
-                                                <span className="text-white text-sm font-bold">{r.name}</span>
-                                                <span className="text-gray-500 text-xs block">Rank: {r.rank} | Tier: {r.animationTier}</span>
-                                            </div>
-                                        </div>
-                                        <div className="flex gap-1">
-                                            <button onClick={() => handleEditRarity(r)} className="px-2 py-1 bg-blue-900/50 text-blue-200 text-xs rounded border border-blue-500">Edit</button>
-                                            <button onClick={() => handleDeleteRarity(r.id)} className="px-2 py-1 bg-red-900/50 text-red-200 text-xs rounded border border-red-500">Del</button>
-                                        </div>
+                                    <div key={r.id} onClick={() => setNewRarity(r)} className={`p-2 rounded cursor-pointer border flex justify-between items-center ${newRarity.id === r.id ? 'bg-gray-700 border-white' : 'bg-gray-800 border-gray-700'}`}>
+                                        <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full" style={{ backgroundColor: r.color }}></div><span className="text-white text-sm">{r.name}</span></div>
                                     </div>
                                 ))}
                             </div>
                         </div>
-                    </div>
+                    )}
                 </div>
+            )}
 
-                {/* --- PACK MANAGER --- */}
-                <div className="bg-black/40 p-6 rounded-xl border border-yellow-500/30 md:col-span-2">
-                    <h3 className="text-2xl font-header text-yellow-400 mb-6 border-b border-gray-700 pb-2">Pack Manager</h3>
-                    
-                    <div className="flex flex-col md:flex-row gap-8">
-                        <div className={`flex-1 space-y-4 ${editingPackId ? 'p-2 border border-yellow-500/50 rounded bg-yellow-900/10' : ''}`}>
-                            {editingPackId && <p className="text-yellow-400 text-sm font-bold uppercase tracking-wider mb-2">EDITING PACK: {editingPackId}</p>}
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">ID</label>
-                                    <input type="text" value={newPack.id} onChange={e => setNewPack({...newPack, id: e.target.value.replace(/[^a-z0-9_-]/g, '').toLowerCase()})} disabled={!!editingPackId} className="bg-gray-900 border border-gray-600 rounded p-2 text-white disabled:opacity-50" placeholder="ultra_pack" />
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">Name</label>
-                                    <input type="text" value={newPack.name} onChange={e => setNewPack({...newPack, name: e.target.value})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" placeholder="Ultra Pack" />
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">Cost (Coins)</label>
-                                    <input type="number" value={newPack.cost} onChange={e => setNewPack({...newPack, cost: parseInt(e.target.value) || 0})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" />
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <label className="text-xs text-gray-400">Cost (BP)</label>
-                                    <input type="number" value={newPack.bpCost} onChange={e => setNewPack({...newPack, bpCost: parseInt(e.target.value) || 0})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white" />
-                                </div>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <label className="text-xs text-gray-400">Image URL</label>
-                                <input type="text" value={newPack.image} onChange={e => setNewPack({...newPack, image: e.target.value})} className="bg-gray-900 border border-gray-600 rounded p-2 text-white text-sm" placeholder="https://..." />
-                            </div>
-                            
-                            <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
-                                <label className="text-xs text-gray-400 mb-2 block">Probabilities (%)</label>
-                                <div className="grid grid-cols-2 gap-x-4 gap-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
-                                    {sortedRarities.map(r => (
-                                        <div key={r.id} className="flex items-center justify-between">
-                                            <span className="text-xs text-gray-300 capitalize">{r.name}</span>
-                                            <input type="number" step="0.1" value={newPack.rarityChances[r.id] || ''} onChange={e => handlePackRarityChange(r.id, e.target.value)} className="w-16 bg-black border border-gray-600 rounded p-1 text-white text-right text-xs" placeholder="0" />
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="mt-2 text-right">
-                                    <span className={`text-sm font-bold ${Math.abs((Object.values(newPack.rarityChances) as number[]).reduce((a, b) => a + b, 0) - 100) < 0.1 ? 'text-green-400' : 'text-red-400'}`}>Total: {(Object.values(newPack.rarityChances) as number[]).reduce((a, b) => a + b, 0).toFixed(1)}%</span>
-                                </div>
-                            </div>
-                            <Button variant={editingPackId ? 'ok' : 'cta'} onClick={handleCreatePack} className="w-full">{editingPackId ? 'Update Pack' : 'Save Pack'}</Button>
-                            {packMessage && <p className={`text-sm mt-2 ${packMessage.includes('Error') ? 'text-red-400' : 'text-green-400'}`}>{packMessage}</p>}
-                        </div>
+            {/* --- CONTENT MANAGER --- */}
+            {activeTab === 'content' && (
+                <div className="bg-black/40 p-6 rounded-xl border border-purple-500/30">
+                    <div className="flex gap-4 border-b border-gray-700 pb-4 mb-4">
+                        <button onClick={() => setContentTab('obj')} className={`text-xl font-header ${contentTab === 'obj' ? 'text-purple-400 underline' : 'text-gray-500'}`}>Objectives</button>
+                        <button onClick={() => setContentTab('fbc')} className={`text-xl font-header ${contentTab === 'fbc' ? 'text-purple-400 underline' : 'text-gray-500'}`}>FBCs</button>
+                        <button onClick={() => setContentTab('evo')} className={`text-xl font-header ${contentTab === 'evo' ? 'text-purple-400 underline' : 'text-gray-500'}`}>Evolutions</button>
+                    </div>
 
-                        {/* Pack List */}
-                        <div className="w-full md:w-64 flex flex-col gap-4">
-                            <div className="flex flex-col items-center justify-center p-6 bg-gray-900/50 rounded-lg border border-gray-700">
-                                <p className="text-gray-400 text-xs mb-4 uppercase tracking-widest">Preview</p>
-                                <div className="flex flex-col items-center">
-                                    <div className="w-32 h-40 bg-gray-800 rounded-lg mb-2 overflow-hidden flex items-center justify-center border border-gray-600">
-                                        {newPack.image ? <img src={newPack.image} className="w-full h-full object-cover" /> : <span className="text-gray-500 text-xs">No Image</span>}
+                    {contentTab === 'obj' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="space-y-4 bg-gray-900/50 p-4 rounded-lg">
+                                <div className="flex justify-between items-center">
+                                    <h4 className="text-white font-bold">Add Objective</h4>
+                                    <Button variant="default" onClick={discardObj} className="!py-1 !px-2 text-xs bg-red-900 border-red-700">Discard</Button>
+                                </div>
+                                <div className="flex gap-2">
+                                    <input type="text" placeholder="ID" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newObjective.id} onChange={e => setNewObjective({...newObjective, id: e.target.value})} />
+                                    <div className="flex items-center bg-black px-2 rounded border border-gray-600">
+                                        <label className="text-xs text-gray-400 mr-2">Active</label>
+                                        <input type="checkbox" checked={newObjective.active !== false} onChange={e => setNewObjective({...newObjective, active: e.target.checked})} />
                                     </div>
-                                    <span className="text-gold-light font-header text-xl">{newPack.name || 'Pack Name'}</span>
-                                    <span className="text-white text-sm">{newPack.cost} Coins</span>
                                 </div>
+                                <input type="text" placeholder="Title" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newObjective.titleKey} onChange={e => setNewObjective({...newObjective, titleKey: e.target.value})} />
+                                <textarea placeholder="Description" className="w-full bg-black border border-gray-600 rounded p-2 text-white h-20" value={newObjective.description || ''} onChange={e => setNewObjective({...newObjective, description: e.target.value})} />
+                                <select className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newObjective.type} onChange={e => setNewObjective({...newObjective, type: e.target.value as any})}>
+                                    <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="milestone">Milestone</option>
+                                </select>
+                                <div className="border-t border-gray-700 pt-2">
+                                    <p className="text-purple-400 text-xs font-bold mb-1">Task Logic</p>
+                                    <select className="w-full bg-black border border-purple-900 rounded p-2 text-white mb-2" value={newObjective.tasks?.[0].actionType} onChange={e => setNewObjective({...newObjective, tasks: [{...newObjective.tasks![0], actionType: e.target.value as TaskActionType}]})}>
+                                        <option value="PLAY_BATTLE">Play Battle</option><option value="WIN_BATTLE">Win Battle</option><option value="OPEN_PACK">Open Pack</option><option value="LIST_MARKET">List Market</option><option value="LOGIN">Login</option>
+                                    </select>
+                                    <input type="number" placeholder="Target" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newObjective.tasks?.[0].target} onChange={e => setNewObjective({...newObjective, tasks: [{...newObjective.tasks![0], target: parseInt(e.target.value)}]})} />
+                                </div>
+                                {/* Simplified Reward Selection */}
+                                <div className="border-t border-gray-700 pt-2">
+                                    <p className="text-gray-400 text-xs mb-1">Reward</p>
+                                    <div className="flex gap-2 mb-2">
+                                        <select className="bg-black border border-gray-600 rounded p-1 text-white text-xs w-1/3" value={newObjective.reward?.type} onChange={e => setNewObjective({...newObjective, reward: {...newObjective.reward!, type: e.target.value as any}})}>
+                                            <option value="coins">Coins</option>
+                                            <option value="pack">Pack</option>
+                                            <option value="card">Card</option>
+                                        </select>
+                                        
+                                        {newObjective.reward?.type === 'coins' && (
+                                            <input type="number" placeholder="Amount" className="bg-black border border-gray-600 rounded p-1 text-white text-xs flex-grow" 
+                                                value={newObjective.reward.amount || ''}
+                                                onChange={e => setNewObjective({...newObjective, reward: {...newObjective.reward!, amount: parseInt(e.target.value)}})} 
+                                            />
+                                        )}
+                                        {newObjective.reward?.type === 'pack' && (
+                                            <select className="bg-black border border-gray-600 rounded p-1 text-white text-xs flex-grow" 
+                                                value={newObjective.reward.packType || ''}
+                                                onChange={e => setNewObjective({...newObjective, reward: {...newObjective.reward!, packType: e.target.value}})}
+                                            >
+                                                <option value="">Select Pack...</option>
+                                                {Object.keys(displayPacks).map(p => <option key={p} value={p}>{displayPacks[p].name || p}</option>)}
+                                            </select>
+                                        )}
+                                        {newObjective.reward?.type === 'card' && (
+                                            <select className="bg-black border border-gray-600 rounded p-1 text-white text-xs flex-grow" 
+                                                value={newObjective.reward.cardId || ''}
+                                                onChange={e => setNewObjective({...newObjective, reward: {...newObjective.reward!, cardId: e.target.value}})}
+                                            >
+                                                <option value="">Select Card...</option>
+                                                {allCards.sort((a,b) => a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.id}>{c.name} ({c.rarity})</option>)}
+                                            </select>
+                                        )}
+                                    </div>
+                                </div>
+                                <Button variant="cta" onClick={handleAddObjective} className="w-full">Save Objective</Button>
                             </div>
-                            
-                            <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700 flex-1 overflow-hidden flex flex-col">
-                                <h4 className="text-white font-bold text-sm mb-2">Manage Existing Packs</h4>
-                                <div className="overflow-y-auto custom-scrollbar flex-1 space-y-2">
-                                    {Object.entries({ ...defaultPacks, ...customPacks }).map(([pid, pdata]) => {
-                                        const pack = pdata as PackData;
-                                        const isActive = pack.active !== false;
-                                        return (
-                                        <div key={pid} className={`bg-black/40 p-2 rounded flex justify-between items-center text-xs ${!isActive ? 'opacity-60 border border-red-900' : ''}`}>
-                                            <span className="text-gray-300 truncate max-w-[80px]" title={pack.name}>{pack.name || pid}</span>
-                                            <div className="flex gap-1">
-                                                <button onClick={() => handleEditPack(pid, pack)} className="px-2 py-1 bg-blue-900 text-blue-200 rounded border border-blue-500">Edit</button>
-                                                <button onClick={() => handleTogglePackStatus(pid, isActive)} className={`px-2 py-1 rounded border ${isActive ? 'bg-green-900 text-green-200 border-green-500' : 'bg-red-900 text-red-200 border-red-500'}`}>
-                                                    {isActive ? 'ON' : 'OFF'}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )})}
-                                </div>
+                            <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                                {dynamicObjectives.map(o => (
+                                    <div key={o.id} onClick={() => setNewObjective(o)} className={`flex justify-between items-center p-2 rounded border cursor-pointer hover:border-gold-light ${o.active !== false ? 'bg-gray-800 border-gray-600' : 'bg-red-900/30 border-red-800'}`}>
+                                        <div><p className="text-white font-bold text-sm">{o.titleKey}</p><p className="text-xs text-purple-400">{o.type}</p></div>
+                                        {o.active === false && <span className="text-xs text-red-500 font-bold">INACTIVE</span>}
+                                    </div>
+                                ))}
                             </div>
                         </div>
-                    </div>
-                </div>
+                    )}
 
-            </div>
+                    {contentTab === 'fbc' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="space-y-3 bg-gray-900/50 p-4 rounded-lg">
+                                <div className="flex justify-between items-center">
+                                    <h4 className="text-white font-bold">FBC Editor</h4>
+                                    <Button variant="default" onClick={discardFBC} className="!py-1 !px-2 text-xs bg-red-900 border-red-700">Discard</Button>
+                                </div>
+                                <input type="text" placeholder="ID" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newFBC.id} onChange={e => setNewFBC({...newFBC, id: e.target.value})} />
+                                <input type="text" placeholder="Title" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newFBC.title} onChange={e => setNewFBC({...newFBC, title: e.target.value})} />
+                                <input type="text" placeholder="Description" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newFBC.description} onChange={e => setNewFBC({...newFBC, description: e.target.value})} />
+                                
+                                <div className="bg-black/30 p-2 rounded">
+                                    <p className="text-xs text-gold-light mb-1">Requirements</p>
+                                    <div className="grid grid-cols-3 gap-2 mb-2">
+                                        <input type="number" placeholder="Count" className="bg-black border border-gray-600 rounded p-1 text-white text-xs" value={newFBC.requirements?.cardCount} onChange={e => setNewFBC({...newFBC, requirements: {...newFBC.requirements!, cardCount: parseInt(e.target.value)}})} />
+                                        <input type="number" placeholder="Min OVR" className="bg-black border border-gray-600 rounded p-1 text-white text-xs" value={newFBC.requirements?.minAvgOvr || ''} onChange={e => setNewFBC({...newFBC, requirements: {...newFBC.requirements!, minAvgOvr: parseInt(e.target.value)}})} />
+                                    </div>
+                                    
+                                    <div className="flex gap-2 mb-2">
+                                        <select className="bg-black border border-gray-600 rounded p-1 text-xs text-white capitalize" value={fbcRarityReq.rarity} onChange={e => setFbcRarityReq({...fbcRarityReq, rarity: e.target.value})}>
+                                            {sortedRarities.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                                        </select>
+                                        <input type="number" className="w-12 bg-black border border-gray-600 rounded p-1 text-xs text-white" value={fbcRarityReq.count} onChange={e => setFbcRarityReq({...fbcRarityReq, count: parseInt(e.target.value)})} />
+                                        <Button variant="keep" onClick={addFbcRarityReq} className="!py-1 !px-2 text-xs">+</Button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                        {Object.entries(newFBC.requirements?.exactRarityCount || {}).map(([r, c]) => (
+                                            <span key={r} className="text-xs bg-gray-700 px-2 rounded text-white">{c}x {r}</span>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="bg-black/30 p-2 rounded">
+                                    <p className="text-xs text-green-400 mb-1">Reward</p>
+                                    <div className="flex gap-2">
+                                        <select className="bg-black border border-gray-600 rounded p-1 text-xs text-white w-1/3" value={newFBC.reward?.type} onChange={e => setNewFBC({...newFBC, reward: {...newFBC.reward!, type: e.target.value as any}})}>
+                                            <option value="pack">Pack</option><option value="card">Card</option><option value="coins">Coins</option>
+                                        </select>
+                                        
+                                        {newFBC.reward?.type === 'coins' && (
+                                            <input type="number" placeholder="Amount" className="bg-black border border-gray-600 rounded p-1 text-xs text-white flex-grow" 
+                                                value={newFBC.reward.amount || ''}
+                                                onChange={e => setNewFBC({...newFBC, reward: {...newFBC.reward!, amount: parseInt(e.target.value)}})} 
+                                            />
+                                        )}
+                                        {newFBC.reward?.type === 'pack' && (
+                                            <select className="bg-black border border-gray-600 rounded p-1 text-xs text-white flex-grow" 
+                                                value={newFBC.reward.details || ''}
+                                                onChange={e => setNewFBC({...newFBC, reward: {...newFBC.reward!, details: e.target.value}})}
+                                            >
+                                                <option value="">Select Pack...</option>
+                                                {Object.keys(displayPacks).map(p => <option key={p} value={p}>{displayPacks[p].name || p}</option>)}
+                                            </select>
+                                        )}
+                                        {newFBC.reward?.type === 'card' && (
+                                            <select className="bg-black border border-gray-600 rounded p-1 text-xs text-white flex-grow" 
+                                                value={newFBC.reward.cardId || ''}
+                                                onChange={e => setNewFBC({...newFBC, reward: {...newFBC.reward!, cardId: e.target.value}})}
+                                            >
+                                                <option value="">Select Card...</option>
+                                                {allCards.sort((a,b) => a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.id}>{c.name} ({c.rarity})</option>)}
+                                            </select>
+                                        )}
+                                    </div>
+                                </div>
+                                <Button variant="cta" onClick={handleSaveFBC} className="w-full">Save Challenge</Button>
+                            </div>
+                            <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                                {displayFBCs.map(f => (
+                                    <div key={f.id} onClick={() => setNewFBC(f)} className={`flex justify-between items-center p-2 rounded border cursor-pointer hover:border-white ${f.active !== false ? 'bg-gray-800 border-gray-600' : 'bg-red-900/30 border-red-800'}`}>
+                                        <p className="text-white text-sm font-bold">{f.title}</p>
+                                        {f.active === false && <span className="text-xs text-red-500 font-bold">INACTIVE</span>}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {contentTab === 'evo' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="space-y-3 bg-gray-900/50 p-4 rounded-lg">
+                                <div className="flex justify-between items-center">
+                                    <h4 className="text-white font-bold">Evo Editor</h4>
+                                    <Button variant="default" onClick={discardEvo} className="!py-1 !px-2 text-xs bg-red-900 border-red-700">Discard</Button>
+                                </div>
+                                <div className="flex gap-2">
+                                    <input type="text" placeholder="ID" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newEvo.id} onChange={e => setNewEvo({...newEvo, id: e.target.value})} />
+                                    <div className="flex items-center bg-black px-2 rounded border border-gray-600">
+                                        <label className="text-xs text-gray-400 mr-2">Active</label>
+                                        <input type="checkbox" checked={newEvo.active !== false} onChange={e => setNewEvo({...newEvo, active: e.target.checked})} />
+                                    </div>
+                                </div>
+                                <input type="text" placeholder="Title" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newEvo.title} onChange={e => setNewEvo({...newEvo, title: e.target.value})} />
+                                
+                                <div className="bg-black/30 p-2 rounded">
+                                    <p className="text-xs text-blue-300 mb-1">Result Card</p>
+                                    <select className="w-full bg-black border border-gray-600 rounded p-1 text-xs text-white" value={newEvo.resultCardId} onChange={e => setNewEvo({...newEvo, resultCardId: e.target.value})}>
+                                        <option value="">Select Result Card...</option>
+                                        {allCards.sort((a,b) => a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.id}>{c.name} ({c.rarity}) - {c.ovr}</option>)}
+                                    </select>
+                                </div>
+                                
+                                <div className="bg-black/30 p-2 rounded">
+                                    <p className="text-xs text-blue-300 mb-1">Eligibility</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <select className="bg-black border border-gray-600 rounded p-1 text-white text-xs" value={newEvo.eligibility?.cardName || ''} onChange={e => setNewEvo({...newEvo, eligibility: {...newEvo.eligibility!, cardName: e.target.value}})}>
+                                            <option value="">Select Name...</option>
+                                            {uniqueCardNames.map(name => <option key={name} value={name}>{name}</option>)}
+                                        </select>
+                                        <select className="bg-black border border-gray-600 rounded p-1 text-xs text-white capitalize" value={newEvo.eligibility?.rarity} onChange={e => setNewEvo({...newEvo, eligibility: {...newEvo.eligibility!, rarity: e.target.value}})}>
+                                            {sortedRarities.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="bg-black/30 p-2 rounded">
+                                    <p className="text-xs text-purple-300 mb-1">Add Task</p>
+                                    <select className="w-full bg-black border border-gray-600 rounded p-1 text-white text-xs mb-1" value={newTask.actionType} onChange={e => setNewTask({...newTask, actionType: e.target.value as TaskActionType})}>
+                                        <option value="PLAY_BATTLE">Play Battle</option><option value="WIN_BATTLE">Win Battle</option><option value="OPEN_PACK">Open Pack</option><option value="LIST_MARKET">List Market</option>
+                                    </select>
+                                    <input type="text" placeholder="Desc" className="w-full bg-black border border-gray-600 rounded p-1 text-white text-xs mb-1" value={newTask.description} onChange={e => setNewTask({...newTask, description: e.target.value})} />
+                                    <div className="flex gap-2">
+                                        <input type="number" placeholder="Target" className="w-20 bg-black border border-gray-600 rounded p-1 text-white text-xs" value={newTask.target} onChange={e => setNewTask({...newTask, target: parseInt(e.target.value)})} />
+                                        <Button variant="keep" onClick={addEvoTask} className="!py-1 !px-2 text-xs">Add Task</Button>
+                                    </div>
+                                    <ul className="mt-2 space-y-1">
+                                        {newEvo.tasks?.map((t, i) => (
+                                            <li key={i} className="text-xs text-gray-400">{t.description} ({t.target})</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                                <Button variant="cta" onClick={handleSaveEvo} className="w-full">Save Evo</Button>
+                            </div>
+                            <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                                {displayEvos.map(e => (
+                                    <div key={e.id} onClick={() => setNewEvo(e)} className={`flex justify-between items-center p-2 rounded border cursor-pointer hover:border-white ${e.active !== false ? 'bg-gray-800 border-gray-600' : 'bg-red-900/30 border-red-800'}`}>
+                                        <p className="text-white text-sm font-bold">{e.title}</p>
+                                        {e.active === false && <span className="text-xs text-red-500 font-bold">INACTIVE</span>}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 };
