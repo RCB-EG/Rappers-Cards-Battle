@@ -108,7 +108,6 @@ export interface FBCChallenge {
     groupId?: string;
     groupFinalRewardCardId?: string;
     repeatable?: 'daily';
-    active?: boolean;
     requirements: {
         cardCount: number;
         exactRarityCount?: { [key: string]: number };
@@ -129,7 +128,6 @@ export interface Evolution {
     id: string;
     title: string;
     description: string;
-    active?: boolean;
     eligibility: {
         cardName?: string;
         rarity?: Rarity;
@@ -149,8 +147,6 @@ export interface Objective {
   id: string;
   type: 'daily' | 'weekly' | 'milestone';
   titleKey: string;
-  description?: string;
-  active?: boolean;
   tasks: ObjectiveTask[];
   reward: {
     type: 'coins' | 'pack' | 'card' | 'player_pick' | 'coins_and_pick';
@@ -344,17 +340,4 @@ export interface OnlineBattleState {
     lastAction?: BattleAction | null; // Detailed action data for visuals
     logs: string[];
     status: 'waiting' | 'preparing' | 'active' | 'finished';
-}
-
-export interface InboxMessage {
-    id: string;
-    title: string; // The message text from admin
-    timestamp: number;
-    reward?: {
-        type: 'coins' | 'card' | 'pack' | 'pick';
-        amount?: number;
-        cardId?: string;
-        packType?: string;
-        pickId?: string;
-    }
 }

@@ -1,25 +1,24 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../firebaseConfig';
-import { doc, setDoc, onSnapshot, collection, query, where, getDocs, updateDoc, addDoc } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import Button from '../Button';
-import Card from '../Card';
-import { GlobalSettings, Card as CardType, Rarity, Stats, RarityDefinition, PackData, Objective, FBCChallenge, Evolution, TaskActionType, GameState } from '../../types';
+import { GlobalSettings, Card, Rarity, Stats, RarityDefinition, PackData, Objective, FBCChallenge, Evolution, TaskActionType } from '../../types';
 import { TranslationKey } from '../../utils/translations';
-import { PROMO_RARITIES, SUPERPOWER_DESC, packs as defaultPacks, fbcData as defaultFBCs, evoData as defaultEvos, playerPickConfigs } from '../../data/gameData';
+import { PROMO_RARITIES, SUPERPOWER_DESC, packs as defaultPacks, fbcData as defaultFBCs, evoData as defaultEvos } from '../../data/gameData';
 import { useRarity } from '../../contexts/RarityContext';
 
 interface ControlRoomProps {
     globalSettings: GlobalSettings;
     onClose: () => void;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
-    allCards: CardType[];
+    allCards: Card[];
 }
 
 const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, allCards }) => {
     const [settings, setSettings] = useState<GlobalSettings>(globalSettings);
     const { sortedRarities } = useRarity();
-    const [activeTab, setActiveTab] = useState<'main' | 'content' | 'database' | 'users'>('main');
+    const [activeTab, setActiveTab] = useState<'main' | 'content' | 'database'>('main');
     const [dbTab, setDbTab] = useState<'cards' | 'packs' | 'rarities'>('cards');
     
     // --- CONTENT MANAGER STATE ---
@@ -28,17 +27,14 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
     // Objectives
     const [dynamicObjectives, setDynamicObjectives] = useState<Objective[]>([]);
     const defaultObj: Partial<Objective> = {
-        id: '', titleKey: 'New Objective', type: 'daily', active: true, description: '', 
-        tasks: [{id: 't1', descriptionKey: 'Task Desc', target: 1, actionType: 'PLAY_BATTLE'}], 
-        reward: { type: 'coins', amount: 1000 }
+        id: '', titleKey: 'New Objective', type: 'daily', tasks: [{id: 't1', descriptionKey: 'Task Desc', target: 1, actionType: 'PLAY_BATTLE'}], reward: { type: 'coins', amount: 1000 }
     };
     const [newObjective, setNewObjective] = useState<Partial<Objective>>(defaultObj);
 
     // FBCs
     const [dbFBCs, setDbFBCs] = useState<FBCChallenge[]>([]);
     const defaultFBC: Partial<FBCChallenge> = {
-        id: '', title: 'New Challenge', description: '', active: true,
-        requirements: { cardCount: 11 }, reward: { type: 'pack', details: 'gold' }
+        id: '', title: 'New Challenge', description: '', requirements: { cardCount: 11 }, reward: { type: 'pack', details: 'gold' }
     };
     const [newFBC, setNewFBC] = useState<Partial<FBCChallenge>>(defaultFBC);
     const [fbcRarityReq, setFbcRarityReq] = useState({ rarity: 'gold', count: 1 });
@@ -46,18 +42,17 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
     // Evos
     const [dbEvos, setDbEvos] = useState<Evolution[]>([]);
     const defaultEvo: Partial<Evolution> = {
-        id: '', title: 'New Evolution', description: '', active: true,
-        eligibility: { rarity: 'gold' }, tasks: [], resultCardId: ''
+        id: '', title: 'New Evolution', description: '', eligibility: { rarity: 'gold' }, tasks: [], resultCardId: ''
     };
     const [newEvo, setNewEvo] = useState<Partial<Evolution>>(defaultEvo);
     const [newTask, setNewTask] = useState({ description: '', target: 1, actionType: 'PLAY_BATTLE' as TaskActionType });
 
     // --- DATABASE MANAGER STATE ---
     // Cards
-    const defaultCardState: Partial<CardType> = { name: '', rarity: 'gold', ovr: 80, image: '', value: 10000, superpowers: [], stats: { lyrc: 80, flow: 80, sing: 80, live: 80, diss: 80, char: 80 } };
-    const [newCard, setNewCard] = useState<Partial<CardType>>(defaultCardState);
+    const defaultCardState: Partial<Card> = { name: '', rarity: 'gold', ovr: 80, image: '', value: 10000, superpowers: [], stats: { lyrc: 80, flow: 80, sing: 80, live: 80, diss: 80, char: 80 } };
+    const [newCard, setNewCard] = useState<Partial<Card>>(defaultCardState);
     const [cardSearch, setCardSearch] = useState('');
-    const [filteredCards, setFilteredCards] = useState<CardType[]>([]);
+    const [filteredCards, setFilteredCards] = useState<Card[]>([]);
     const [selectedSuperpower, setSelectedSuperpower] = useState<string>('');
 
     // Packs
@@ -71,14 +66,6 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
     const [dbRarities, setDbRarities] = useState<RarityDefinition[]>([]);
     const defaultRarityState: Partial<RarityDefinition> = { id: 'ruby', name: 'Ruby', color: '#ff0000', rank: 10, animationTier: 1, baseImage: '', active: true };
     const [newRarity, setNewRarity] = useState<Partial<RarityDefinition>>(defaultRarityState);
-
-    // --- USER MANAGEMENT STATE ---
-    const [userSearchQuery, setUserSearchQuery] = useState('');
-    const [foundUsers, setFoundUsers] = useState<{uid: string, data: GameState}[]>([]);
-    const [selectedUser, setSelectedUser] = useState<{uid: string, data: GameState} | null>(null);
-    const [adminMsg, setAdminMsg] = useState('Here is a reward from the admins!');
-    const [rewardType, setRewardType] = useState<'coins' | 'card' | 'pack' | 'pick'>('coins');
-    const [rewardValue, setRewardValue] = useState<any>('');
 
     // Initial Fetch
     useEffect(() => {
@@ -229,87 +216,12 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
     
     const toggleSetting = async (key: keyof GlobalSettings) => { const nv = !settings[key]; setSettings(p => ({ ...p, [key]: nv })); try { await setDoc(doc(db, 'settings', 'global'), { [key]: nv }, { merge: true }); } catch (e) {} };
 
-    // --- USER MANAGEMENT LOGIC ---
-    const handleSearchUsers = async () => {
-        if (!userSearchQuery) return;
-        
-        try {
-            const qUsername = query(collection(db, 'users'), where('userProfile.username', '==', userSearchQuery));
-            const snapUsername = await getDocs(qUsername);
-            
-            const results: {uid: string, data: GameState}[] = [];
-            
-            snapUsername.forEach(doc => {
-                results.push({ uid: doc.id, data: doc.data() as GameState });
-            });
-            
-            // Basic email search support via userProfile structure
-            const qEmail = query(collection(db, 'users'), where('userProfile.email', '==', userSearchQuery));
-            const snapEmail = await getDocs(qEmail);
-            
-            snapEmail.forEach(doc => {
-                if (!results.find(r => r.uid === doc.id)) {
-                    results.push({ uid: doc.id, data: doc.data() as GameState });
-                }
-            });
-
-            setFoundUsers(results);
-            if (results.length === 0) alert("No users found.");
-        } catch (e) {
-            console.error(e);
-            alert("Error searching users.");
-        }
-    };
-
-    const handleBanUser = async (uid: string, currentStatus: boolean) => {
-        try {
-            await updateDoc(doc(db, 'users', uid), { banned: !currentStatus });
-            setFoundUsers(prev => prev.map(u => u.uid === uid ? { ...u, data: { ...u.data, banned: !currentStatus } } : u));
-            if (selectedUser?.uid === uid) {
-                setSelectedUser(prev => prev ? { ...prev, data: { ...prev.data, banned: !currentStatus } } : null);
-            }
-            alert(`User ${!currentStatus ? 'Banned' : 'Unbanned'}`);
-        } catch(e) {
-            console.error(e);
-            alert("Action failed.");
-        }
-    };
-
-    const handleSendReward = async () => {
-        if (!selectedUser) return;
-        
-        const payload: any = {
-            title: adminMsg,
-            timestamp: Date.now(),
-            reward: { type: rewardType }
-        };
-
-        if (rewardType === 'coins') {
-            payload.reward.amount = parseInt(rewardValue);
-        } else if (rewardType === 'card') {
-            payload.reward.cardId = rewardValue;
-        } else if (rewardType === 'pack') {
-            payload.reward.packType = rewardValue;
-        } else if (rewardType === 'pick') {
-            payload.reward.pickId = rewardValue;
-        }
-
-        try {
-            await addDoc(collection(db, 'users', selectedUser.uid, 'inbox'), payload);
-            alert("Reward Sent!");
-        } catch (e) {
-            console.error(e);
-            alert("Failed to send reward.");
-        }
-    };
-
     return (
         <div className="animate-fadeIn w-full max-w-6xl mx-auto pb-12">
             <div className="flex justify-between items-center mb-8 bg-gray-900 p-4 rounded-lg border border-red-900/50">
                 <h2 className="font-header text-4xl text-red-500">CONTROL ROOM</h2>
                 <div className="flex gap-2">
                     <Button variant={activeTab === 'main' ? 'cta' : 'default'} onClick={() => setActiveTab('main')} className="px-4 py-2 text-xs">Settings</Button>
-                    <Button variant={activeTab === 'users' ? 'cta' : 'default'} onClick={() => setActiveTab('users')} className="px-4 py-2 text-xs">Users</Button>
                     <Button variant={activeTab === 'database' ? 'cta' : 'default'} onClick={() => setActiveTab('database')} className="px-4 py-2 text-xs">Database</Button>
                     <Button variant={activeTab === 'content' ? 'cta' : 'default'} onClick={() => setActiveTab('content')} className="px-4 py-2 text-xs">Content</Button>
                     <Button variant="default" onClick={onClose} className="px-4 py-2 text-xs">{t('close')}</Button>
@@ -339,115 +251,6 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
                 </div>
             )}
 
-            {/* --- USER MANAGEMENT --- */}
-            {activeTab === 'users' && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                    {/* Search Column */}
-                    <div className="bg-black/40 p-6 rounded-xl border border-gray-700 col-span-1">
-                        <h3 className="text-xl font-header text-white mb-4">Find User</h3>
-                        <div className="flex gap-2 mb-4">
-                            <input 
-                                type="text" 
-                                placeholder="Username or Email" 
-                                className="w-full bg-black border border-gray-600 rounded p-2 text-white text-sm"
-                                value={userSearchQuery}
-                                onChange={(e) => setUserSearchQuery(e.target.value)}
-                            />
-                            <Button variant="keep" onClick={handleSearchUsers} className="!py-2 !px-3 text-sm">Search</Button>
-                        </div>
-                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                            {foundUsers.map(user => (
-                                <div 
-                                    key={user.uid} 
-                                    onClick={() => setSelectedUser(user)}
-                                    className={`p-3 rounded cursor-pointer border ${selectedUser?.uid === user.uid ? 'bg-blue-900/50 border-blue-400' : 'bg-gray-800 border-gray-700 hover:bg-gray-700'}`}
-                                >
-                                    <p className="text-white font-bold text-sm">{user.data.userProfile?.username || 'Unknown'}</p>
-                                    <p className="text-gray-400 text-xs truncate">{user.uid}</p>
-                                    {user.data.banned && <span className="text-red-500 font-bold text-xs">BANNED</span>}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Action Column */}
-                    <div className="bg-black/40 p-6 rounded-xl border border-blue-500/30 col-span-2">
-                        {selectedUser ? (
-                            <div className="space-y-6">
-                                <div className="flex justify-between items-start border-b border-gray-700 pb-4">
-                                    <div>
-                                        <h3 className="text-2xl font-header text-gold-light">{selectedUser.data.userProfile?.username}</h3>
-                                        <p className="text-gray-400 text-sm">ID: {selectedUser.uid}</p>
-                                        <p className="text-gray-400 text-sm">Coins: {selectedUser.data.coins}</p>
-                                    </div>
-                                    <Button 
-                                        variant={selectedUser.data.banned ? 'keep' : 'sell'} 
-                                        onClick={() => handleBanUser(selectedUser.uid, !!selectedUser.data.banned)}
-                                        className="!py-2 !px-4 text-sm"
-                                    >
-                                        {selectedUser.data.banned ? 'UNBAN USER' : 'BAN USER'}
-                                    </Button>
-                                </div>
-
-                                <div>
-                                    <h4 className="text-white font-bold mb-3">Send Rewards</h4>
-                                    <div className="space-y-3 bg-gray-900/50 p-4 rounded-lg">
-                                        <input 
-                                            type="text" 
-                                            placeholder="Message to User (e.g. 'Sorry for the bug!')"
-                                            className="w-full bg-black border border-gray-600 rounded p-2 text-white text-sm"
-                                            value={adminMsg}
-                                            onChange={(e) => setAdminMsg(e.target.value)}
-                                        />
-                                        
-                                        <div className="flex gap-2">
-                                            <select 
-                                                className="bg-black border border-gray-600 rounded p-2 text-white text-sm"
-                                                value={rewardType}
-                                                onChange={(e) => { setRewardType(e.target.value as any); setRewardValue(''); }}
-                                            >
-                                                <option value="coins">Coins</option>
-                                                <option value="card">Card</option>
-                                                <option value="pack">Pack</option>
-                                                <option value="pick">Pick</option>
-                                            </select>
-                                            
-                                            {rewardType === 'coins' && (
-                                                <input type="number" placeholder="Amount" className="flex-grow bg-black border border-gray-600 rounded p-2 text-white text-sm" value={rewardValue} onChange={(e) => setRewardValue(e.target.value)} />
-                                            )}
-                                            {rewardType === 'card' && (
-                                                <select className="flex-grow bg-black border border-gray-600 rounded p-2 text-white text-sm" value={rewardValue} onChange={(e) => setRewardValue(e.target.value)}>
-                                                    <option value="">Select Card...</option>
-                                                    {allCards.sort((a,b) => a.name.localeCompare(b.name)).map(c => <option key={c.id} value={c.id}>{c.name} ({c.rarity})</option>)}
-                                                </select>
-                                            )}
-                                            {rewardType === 'pack' && (
-                                                <select className="flex-grow bg-black border border-gray-600 rounded p-2 text-white text-sm" value={rewardValue} onChange={(e) => setRewardValue(e.target.value)}>
-                                                    <option value="">Select Pack...</option>
-                                                    {Object.keys(displayPacks).map(p => <option key={p} value={p}>{displayPacks[p].name || p}</option>)}
-                                                </select>
-                                            )}
-                                            {rewardType === 'pick' && (
-                                                <select className="flex-grow bg-black border border-gray-600 rounded p-2 text-white text-sm" value={rewardValue} onChange={(e) => setRewardValue(e.target.value)}>
-                                                    <option value="">Select Pick...</option>
-                                                    {Object.entries(playerPickConfigs).map(([id, config]) => <option key={id} value={id}>{config.name || id}</option>)}
-                                                </select>
-                                            )}
-                                        </div>
-                                        
-                                        <Button variant="cta" onClick={handleSendReward} className="w-full !py-2">Send Reward</Button>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="h-full flex items-center justify-center text-gray-500">
-                                Select a user to view details
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
             {/* --- DATABASE MANAGER --- */}
             {activeTab === 'database' && (
                 <div className="bg-black/40 p-6 rounded-xl border border-blue-500/30">
@@ -463,12 +266,6 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
                                 <div className="flex justify-between items-center">
                                     <h4 className="text-white font-bold">Add/Edit Card</h4>
                                     <Button variant="default" onClick={discardCard} className="!py-1 !px-2 text-xs bg-red-900 border-red-700">Discard Changes</Button>
-                                </div>
-                                <div className="flex justify-center my-4">
-                                    {/* LIVE PREVIEW */}
-                                    <div className="transform scale-75 md:scale-100">
-                                        <Card card={newCard as CardType} />
-                                    </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
                                     <input type="text" placeholder="ID" className="bg-black border border-gray-600 rounded p-2 text-white text-xs" value={newCard.id || ''} onChange={e => setNewCard({...newCard, id: e.target.value})} />
@@ -540,22 +337,6 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
                                     <h4 className="text-white font-bold">Edit Pack</h4>
                                     <Button variant="default" onClick={discardPack} className="!py-1 !px-2 text-xs bg-red-900 border-red-700">Discard</Button>
                                 </div>
-                                
-                                {/* PACK PREVIEW */}
-                                <div className="flex justify-center mb-4">
-                                    <div className="flex flex-col items-center">
-                                        <div className="w-[120px] h-auto transition-transform hover:scale-105">
-                                            <img 
-                                                src={newPack.image || 'https://i.imghippo.com/files/cGUh9927EWc.png'} 
-                                                alt="Pack Preview" 
-                                                className="w-full rounded-md shadow-lg drop-shadow-[0_0_10px_#FFD700]"
-                                            />
-                                        </div>
-                                        <span className="text-lg text-gold-light mt-2">{newPack.name || 'Pack Name'}</span>
-                                        <span className="text-sm text-gray-400">{newPack.cost} Coins</span>
-                                    </div>
-                                </div>
-
                                 <div className="flex gap-2">
                                     <input type="text" placeholder="ID" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newPack.id || ''} onChange={e => setNewPack({...newPack, id: e.target.value})} />
                                     <div className="flex items-center bg-black px-2 rounded border border-gray-600">
@@ -622,22 +403,6 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
                                     <h4 className="text-white font-bold">Edit Rarity</h4>
                                     <Button variant="default" onClick={discardRarity} className="!py-1 !px-2 text-xs bg-red-900 border-red-700">Discard</Button>
                                 </div>
-                                
-                                {/* RARITY PREVIEW */}
-                                <div className="flex justify-center mb-4">
-                                    <div 
-                                        className="w-[120px] h-[180px] bg-cover bg-center rounded-lg shadow-lg relative flex items-center justify-center"
-                                        style={{ 
-                                            backgroundImage: `url('${newRarity.baseImage || 'https://i.imghippo.com/files/cGUh9927EWc.png'}')`,
-                                            boxShadow: `0 0 15px ${newRarity.color || '#fff'}`
-                                        }}
-                                    >
-                                        <span className="bg-black/50 px-2 py-1 rounded text-white font-bold text-sm backdrop-blur-sm">
-                                            {newRarity.name || 'Preview'}
-                                        </span>
-                                    </div>
-                                </div>
-
                                 <div className="flex gap-2">
                                     <input type="text" placeholder="ID" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newRarity.id || ''} onChange={e => setNewRarity({...newRarity, id: e.target.value})} />
                                     <div className="flex items-center bg-black px-2 rounded border border-gray-600"><label className="text-xs text-gray-400 mr-2">Active</label><input type="checkbox" checked={newRarity.active !== false} onChange={e => setNewRarity({...newRarity, active: e.target.checked})} /></div>
@@ -684,20 +449,12 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
                                     <h4 className="text-white font-bold">Add Objective</h4>
                                     <Button variant="default" onClick={discardObj} className="!py-1 !px-2 text-xs bg-red-900 border-red-700">Discard</Button>
                                 </div>
-                                <div className="flex gap-2">
-                                    <input type="text" placeholder="ID" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newObjective.id} onChange={e => setNewObjective({...newObjective, id: e.target.value})} />
-                                    <div className="flex items-center bg-black px-2 rounded border border-gray-600">
-                                        <label className="text-xs text-gray-400 mr-2">Active</label>
-                                        <input type="checkbox" checked={newObjective.active !== false} onChange={e => setNewObjective({...newObjective, active: e.target.checked})} />
-                                    </div>
-                                </div>
+                                <input type="text" placeholder="ID" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newObjective.id} onChange={e => setNewObjective({...newObjective, id: e.target.value})} />
                                 <input type="text" placeholder="Title" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newObjective.titleKey} onChange={e => setNewObjective({...newObjective, titleKey: e.target.value})} />
-                                <textarea placeholder="Description" className="w-full bg-black border border-gray-600 rounded p-2 text-white h-20" value={newObjective.description || ''} onChange={e => setNewObjective({...newObjective, description: e.target.value})} />
                                 <select className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newObjective.type} onChange={e => setNewObjective({...newObjective, type: e.target.value as any})}>
                                     <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="milestone">Milestone</option>
                                 </select>
                                 <div className="border-t border-gray-700 pt-2">
-                                    <p className="text-purple-400 text-xs font-bold mb-1">Task Logic</p>
                                     <select className="w-full bg-black border border-purple-900 rounded p-2 text-white mb-2" value={newObjective.tasks?.[0].actionType} onChange={e => setNewObjective({...newObjective, tasks: [{...newObjective.tasks![0], actionType: e.target.value as TaskActionType}]})}>
                                         <option value="PLAY_BATTLE">Play Battle</option><option value="WIN_BATTLE">Win Battle</option><option value="OPEN_PACK">Open Pack</option><option value="LIST_MARKET">List Market</option><option value="LOGIN">Login</option>
                                     </select>
@@ -743,9 +500,8 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
                             </div>
                             <div className="space-y-2 max-h-[500px] overflow-y-auto">
                                 {dynamicObjectives.map(o => (
-                                    <div key={o.id} onClick={() => setNewObjective(o)} className={`flex justify-between items-center p-2 rounded border cursor-pointer hover:border-gold-light ${o.active !== false ? 'bg-gray-800 border-gray-600' : 'bg-red-900/30 border-red-800'}`}>
+                                    <div key={o.id} onClick={() => setNewObjective(o)} className="flex justify-between items-center bg-gray-800 p-2 rounded border border-gray-600 cursor-pointer hover:border-gold-light">
                                         <div><p className="text-white font-bold text-sm">{o.titleKey}</p><p className="text-xs text-purple-400">{o.type}</p></div>
-                                        {o.active === false && <span className="text-xs text-red-500 font-bold">INACTIVE</span>}
                                     </div>
                                 ))}
                             </div>
@@ -821,9 +577,8 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
                             </div>
                             <div className="space-y-2 max-h-[500px] overflow-y-auto">
                                 {displayFBCs.map(f => (
-                                    <div key={f.id} onClick={() => setNewFBC(f)} className={`flex justify-between items-center p-2 rounded border cursor-pointer hover:border-white ${f.active !== false ? 'bg-gray-800 border-gray-600' : 'bg-red-900/30 border-red-800'}`}>
+                                    <div key={f.id} onClick={() => setNewFBC(f)} className="p-2 bg-gray-800 rounded border border-gray-600 cursor-pointer hover:border-white">
                                         <p className="text-white text-sm font-bold">{f.title}</p>
-                                        {f.active === false && <span className="text-xs text-red-500 font-bold">INACTIVE</span>}
                                     </div>
                                 ))}
                             </div>
@@ -837,13 +592,7 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
                                     <h4 className="text-white font-bold">Evo Editor</h4>
                                     <Button variant="default" onClick={discardEvo} className="!py-1 !px-2 text-xs bg-red-900 border-red-700">Discard</Button>
                                 </div>
-                                <div className="flex gap-2">
-                                    <input type="text" placeholder="ID" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newEvo.id} onChange={e => setNewEvo({...newEvo, id: e.target.value})} />
-                                    <div className="flex items-center bg-black px-2 rounded border border-gray-600">
-                                        <label className="text-xs text-gray-400 mr-2">Active</label>
-                                        <input type="checkbox" checked={newEvo.active !== false} onChange={e => setNewEvo({...newEvo, active: e.target.checked})} />
-                                    </div>
-                                </div>
+                                <input type="text" placeholder="ID" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newEvo.id} onChange={e => setNewEvo({...newEvo, id: e.target.value})} />
                                 <input type="text" placeholder="Title" className="w-full bg-black border border-gray-600 rounded p-2 text-white" value={newEvo.title} onChange={e => setNewEvo({...newEvo, title: e.target.value})} />
                                 
                                 <div className="bg-black/30 p-2 rounded">
@@ -887,9 +636,8 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
                             </div>
                             <div className="space-y-2 max-h-[500px] overflow-y-auto">
                                 {displayEvos.map(e => (
-                                    <div key={e.id} onClick={() => setNewEvo(e)} className={`flex justify-between items-center p-2 rounded border cursor-pointer hover:border-white ${e.active !== false ? 'bg-gray-800 border-gray-600' : 'bg-red-900/30 border-red-800'}`}>
+                                    <div key={e.id} onClick={() => setNewEvo(e)} className="p-2 bg-gray-800 rounded border border-gray-600 cursor-pointer hover:border-white">
                                         <p className="text-white text-sm font-bold">{e.title}</p>
-                                        {e.active === false && <span className="text-xs text-red-500 font-bold">INACTIVE</span>}
                                     </div>
                                 ))}
                             </div>
