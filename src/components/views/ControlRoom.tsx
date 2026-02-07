@@ -276,6 +276,7 @@ const ControlRoom: React.FC<ControlRoomProps> = ({ globalSettings, onClose, t, a
                                     </select>
                                 </div>
                                 <input type="text" placeholder="Image URL" className="w-full bg-black border border-gray-600 rounded p-2 text-white text-xs" value={newCard.image || ''} onChange={e => setNewCard({...newCard, image: e.target.value})} />
+                                <input type="number" placeholder="Value (Coins)" className="w-full bg-black border border-gray-600 rounded p-2 text-white text-xs" value={newCard.value || ''} onChange={e => setNewCard({...newCard, value: parseInt(e.target.value)})} />
                                 
                                 {newCard.id && (
                                     <div className="flex items-center gap-2 bg-black/50 p-2 rounded border border-gray-600">
