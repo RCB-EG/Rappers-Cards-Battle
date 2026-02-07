@@ -218,7 +218,8 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
     }, [subMode, gameState.rank]);
 
     const calculateStats = (card: CardType, mode: BattleMode, owner: 'player' | 'cpu', index: number): BattleCard => {
-        const hpBase = HP_MULTIPLIERS[card.rarity] || 10;
+        // Fallback for custom rarities: use OVR / 2 to estimate power
+        const hpBase = HP_MULTIPLIERS[card.rarity] || (card.ovr / 2);
         const hpTotal = Math.floor(card.ovr * (hpBase / 10) * (mode === 'defense' ? 2 : 1));
         const atkTotal = mode === 'defense' ? 0 : Math.floor(card.ovr * (1 + (card.superpowers?.length || 0) * 0.1));
         const slots = card.value > 100000 ? 3 : card.value > 10000 ? 2 : 1;
@@ -239,7 +240,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
 
     const resetPlayerTeam = (team: BattleCard[]) => {
         return team.map(c => {
-            const hpBase = HP_MULTIPLIERS[c.rarity] || 10;
+            const hpBase = HP_MULTIPLIERS[c.rarity] || (c.ovr / 2);
             const hpTotal = Math.floor(c.ovr * (hpBase / 10) * (c.mode === 'defense' ? 2 : 1));
             return {
                 ...c,
@@ -634,7 +635,7 @@ const Battle: React.FC<BattleProps> = ({ gameState, onBattleWin, t, playSfx, mus
         setPlayerTeam(prev => prev.map(c => {
             if (c.instanceId !== instanceId) return c;
             const newMode = c.mode === 'attack' ? 'defense' : 'attack';
-            const hpBase = HP_MULTIPLIERS[c.rarity] || 10;
+            const hpBase = HP_MULTIPLIERS[c.rarity] || (c.ovr / 2);
             const newMaxHp = Math.floor(c.ovr * (hpBase / 10) * (newMode === 'defense' ? 2 : 1));
             const newAtk = newMode === 'defense' ? 0 : Math.floor(c.ovr * (1 + (c.superpowers?.length || 0) * 0.1));
             return { ...c, mode: newMode, maxHp: newMaxHp, currentHp: newMaxHp, atk: newAtk };
