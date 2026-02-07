@@ -5,13 +5,16 @@ import { playerPickConfigs } from '../../data/gameData';
 import Button from '../Button';
 import Card from '../Card';
 import { TranslationKey } from '../../utils/translations';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../../firebaseConfig';
 
 interface ObjectivesProps {
     gameState: GameState;
     onClaimReward: (objectiveId: string) => void;
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
     allCards: CardType[];
-    objectives: Objective[]; // Added prop
+    objectives: Objective[]; 
+    isAdmin?: boolean;
 }
 
 const packImages: Record<PackType, string> = {
@@ -62,8 +65,13 @@ const ObjectiveGroup: React.FC<{
     t: ObjectivesProps['t'];
     timerMs?: number;
     allCards: CardType[];
-}> = ({ titleKey, titleOverride, objectives, gameState, onClaimReward, t, timerMs, allCards }) => {
-    if (objectives.length === 0) return null;
+    isAdmin?: boolean;
+    onToggle: (id: string, active: boolean) => void;
+}> = ({ titleKey, titleOverride, objectives, gameState, onClaimReward, t, timerMs, allCards, isAdmin, onToggle }) => {
+    // If not admin, only show active. If admin, show all.
+    const visibleObjectives = isAdmin ? objectives : objectives.filter(o => o.active !== false);
+    
+    if (visibleObjectives.length === 0) return null;
     
     return (
     <div className="mb-8">
@@ -74,7 +82,8 @@ const ObjectiveGroup: React.FC<{
             )}
         </div>
         <div className="space-y-4">
-            {objectives.map(obj => {
+            {visibleObjectives.map(obj => {
+                const isActive = obj.active !== false;
                 const progress = gameState.objectiveProgress[obj.id] || { tasks: {}, claimed: false };
                 const allTasksComplete = obj.tasks.every(task => (progress.tasks?.[task.id] || 0) >= task.target);
                 const rewardCard = obj.reward.type === 'card' ? allCards.find(c => c.id === obj.reward.cardId) : null;
@@ -83,7 +92,17 @@ const ObjectiveGroup: React.FC<{
                 const isPackReward = obj.reward.type === 'pack' && obj.reward.packType;
 
                 return (
-                    <div key={obj.id} className="bg-darker-gray/50 p-4 rounded-lg border border-gold-dark/20">
+                    <div key={obj.id} className={`relative bg-darker-gray/50 p-4 rounded-lg border border-gold-dark/20 ${!isActive ? 'opacity-60 border-red-900 bg-red-900/10' : ''}`}>
+                        
+                        {isAdmin && (
+                            <button 
+                                onClick={() => onToggle(obj.id, isActive)} 
+                                className={`absolute top-2 right-2 px-2 py-1 rounded text-xs font-bold z-10 ${isActive ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}
+                            >
+                                {isActive ? 'Active' : 'Inactive'}
+                            </button>
+                        )}
+
                         <h4 className="font-header text-2xl text-white mb-2">{t(obj.titleKey as TranslationKey) || obj.titleKey}</h4>
                         <div className="flex flex-col md:flex-row items-center gap-4">
                             <div className="flex-grow w-full">
@@ -146,7 +165,7 @@ const ObjectiveGroup: React.FC<{
 )};
 
 
-const Objectives: React.FC<ObjectivesProps> = ({ gameState, onClaimReward, t, allCards, objectives }) => {
+const Objectives: React.FC<ObjectivesProps> = ({ gameState, onClaimReward, t, allCards, objectives, isAdmin }) => {
     const [now, setNow] = useState(Date.now());
 
     useEffect(() => {
@@ -165,16 +184,23 @@ const Objectives: React.FC<ObjectivesProps> = ({ gameState, onClaimReward, t, al
     const nextDailyReset = (gameState.lastDailyReset || now) + 24 * 60 * 60 * 1000;
     const nextWeeklyReset = (gameState.lastWeeklyReset || now) + 7 * 24 * 60 * 60 * 1000;
 
+    const handleToggle = async (objId: string, currentActive: boolean) => {
+        try {
+            const newList = objectives.map(o => o.id === objId ? { ...o, active: !currentActive } : o);
+            await setDoc(doc(db, 'settings', 'objectives'), { list: newList }, { merge: true });
+        } catch(e) { console.error(e); }
+    };
+
     return (
         <div className="animate-fadeIn">
             <h2 className="font-header text-4xl text-white text-center mb-6 [text-shadow:0_0_5px_#00c7e2,0_0_10px_#00c7e2]">{t('header_objectives')}</h2>
             
-            <ObjectiveGroup titleKey="milestone_objectives" objectives={milestoneObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} allCards={allCards} />
-            <ObjectiveGroup titleKey="daily_objectives" objectives={dailyObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} timerMs={nextDailyReset - now} allCards={allCards} />
-            <ObjectiveGroup titleKey="weekly_objectives" objectives={weeklyObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} timerMs={nextWeeklyReset - now} allCards={allCards} />
+            <ObjectiveGroup titleKey="milestone_objectives" objectives={milestoneObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} allCards={allCards} isAdmin={isAdmin} onToggle={handleToggle} />
+            <ObjectiveGroup titleKey="daily_objectives" objectives={dailyObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} timerMs={nextDailyReset - now} allCards={allCards} isAdmin={isAdmin} onToggle={handleToggle} />
+            <ObjectiveGroup titleKey="weekly_objectives" objectives={weeklyObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} timerMs={nextWeeklyReset - now} allCards={allCards} isAdmin={isAdmin} onToggle={handleToggle} />
             
             {otherObjectives.length > 0 && (
-                <ObjectiveGroup titleKey="milestone_objectives" titleOverride="Special Events" objectives={otherObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} allCards={allCards} />
+                <ObjectiveGroup titleKey="milestone_objectives" titleOverride="Special Events" objectives={otherObjectives} gameState={gameState} onClaimReward={onClaimReward} t={t} allCards={allCards} isAdmin={isAdmin} onToggle={handleToggle} />
             )}
 
         </div>

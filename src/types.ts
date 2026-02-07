@@ -12,7 +12,7 @@ export interface RarityDefinition {
     active?: boolean; // New field for activation state
 }
 
-export type GameView = 'store' | 'collection' | 'market' | 'battle' | 'fbc' | 'evo' | 'objectives' | 'social' | 'admin';
+export type GameView = 'store' | 'collection' | 'market' | 'battle' | 'fbc' | 'evo' | 'objectives' | 'social' | 'admin' | 'data_control';
 
 export type PackType = string;
 
@@ -107,7 +107,8 @@ export interface FBCChallenge {
     prerequisiteId?: string;
     groupId?: string;
     groupFinalRewardCardId?: string;
-    repeatable?: 'daily';
+    repeatable?: 'daily' | 'weekly' | 'none'; // Updated
+    active?: boolean; // New
     requirements: {
         cardCount: number;
         exactRarityCount?: { [key: string]: number };
@@ -128,6 +129,7 @@ export interface Evolution {
     id: string;
     title: string;
     description: string;
+    active?: boolean; // New
     eligibility: {
         cardName?: string;
         rarity?: Rarity;
@@ -146,6 +148,7 @@ export interface Evolution {
 export interface Objective {
   id: string;
   type: 'daily' | 'weekly' | 'milestone';
+  active?: boolean; // New
   titleKey: string;
   tasks: ObjectiveTask[];
   reward: {

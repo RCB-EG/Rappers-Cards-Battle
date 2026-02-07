@@ -70,7 +70,8 @@ import FBC from './components/views/FBC';
 import Evo from './components/views/Evo';
 import Objectives from './components/views/Objectives';
 import Social from './components/views/Social';
-import ControlRoom from './components/views/ControlRoom'; // Import Control Room
+import ControlRoom from './components/views/ControlRoom'; 
+import DataControl from './components/views/DataControl'; 
 import LoginModal from './components/modals/LoginModal';
 import SignUpModal from './components/modals/SignUpModal';
 import SettingsModal from './components/modals/SettingsModal';
@@ -85,6 +86,7 @@ import PlayerPickModal from './components/modals/PlayerPickModal';
 import RankUpModal from './components/modals/RankUpModal';
 import RewardModal, { RewardData } from './components/modals/RewardModal';
 import BattleInviteModal from './components/modals/BattleInviteModal';
+import AdminMessageModal from './components/modals/AdminMessageModal'; // New Import
 import PvPBattle from './components/views/PvPBattle';
 import { calculateQuickSellValue } from './utils/cardUtils';
 
@@ -129,6 +131,9 @@ const App: React.FC = () => {
     const [unreadChatCount, setUnreadChatCount] = useState(0);
     const [unreadFromFriends, setUnreadFromFriends] = useState<Set<string>>(new Set());
     
+    // Admin Message State
+    const [adminMsg, setAdminMsg] = useState<{text: string, id: string} | null>(null);
+
     // Special Battle States
     const [directBattleId, setDirectBattleId] = useState<string | null>(null);
     const [setupInvite, setSetupInvite] = useState<BattleInvite | null>(null); 
@@ -226,10 +231,18 @@ const App: React.FC = () => {
         return () => { unsubObj(); unsubFbc(); unsubEvo(); };
     }, []);
 
-    // Merge static and dynamic lists
-    const activeObjectives = [...objectivesData, ...dynamicObjectives];
-    const activeFBCs = [...fbcData, ...dynamicFBCs];
-    const activeEvos = [...evoData, ...dynamicEvos];
+    // Helper to merge lists where dynamic items override static ones by ID
+    const mergeContent = <T extends { id: string }>(staticList: T[], dynamicList: T[]): T[] => {
+        const map = new Map<string, T>();
+        staticList.forEach(item => map.set(item.id, item));
+        dynamicList.forEach(item => map.set(item.id, item));
+        return Array.from(map.values());
+    };
+
+    // Merge static and dynamic lists with Override Logic
+    const activeObjectives = mergeContent(objectivesData, dynamicObjectives);
+    const activeFBCs = mergeContent(fbcData, dynamicFBCs);
+    const activeEvos = mergeContent(evoData, dynamicEvos);
 
     // --- Translation Helper ---
     const t = useCallback((key: TranslationKey, replacements?: Record<string, string | number>) => {
@@ -401,6 +414,38 @@ const App: React.FC = () => {
             unsubChats();
         };
     }, [firebaseUser, playSfx, friendRequestCount, unreadChatCount]);
+
+    // Admin Message Listener
+    useEffect(() => {
+        if (!firebaseUser) return;
+        const chatId = `ADMIN_MSG_${firebaseUser.uid}`;
+        const unsub = onSnapshot(doc(db, 'chats', chatId), (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                const lastMsgTime = data.lastMessageTime || 0;
+                // If user's read status is missing (because admin reset it), treat as 0
+                const myReadTime = data.readStatus?.[firebaseUser.uid] || 0;
+                const lastSender = data.lastSenderId;
+
+                // If message exists, user hasn't read it (timestamp check), and sender isn't self
+                if (lastSender && lastSender !== firebaseUser.uid && lastMsgTime > myReadTime) {
+                    setAdminMsg({ text: data.lastMessage, id: chatId });
+                    playSfx('notification');
+                }
+            }
+        });
+        return () => unsub();
+    }, [firebaseUser, playSfx]);
+
+    const handleDismissAdminMsg = async () => {
+        if (!adminMsg || !firebaseUser) return;
+        const chatRef = doc(db, 'chats', adminMsg.id);
+        // Mark as read for current user
+        await updateDoc(chatRef, {
+            [`readStatus.${firebaseUser.uid}`]: Date.now()
+        });
+        setAdminMsg(null);
+    }
 
     // ... (Keep Accept/Reject Invite Logic - Unchanged)
     const handleAcceptInvite = async () => {
@@ -576,6 +621,8 @@ const App: React.FC = () => {
         
         // 1. Check Objectives
         activeObjectives.forEach(obj => {
+            if (obj.active === false) return; // Skip inactive objectives
+
             obj.tasks.forEach(task => {
                 // Match by ID (Legacy) or ActionType (Dynamic)
                 const isLegacyMatch = task.id === context.legacyId;
@@ -598,7 +645,7 @@ const App: React.FC = () => {
         const activeEvo = gameStateRef.current.activeEvolution;
         if (activeEvo) {
             const evoDef = activeEvos.find(e => e.id === activeEvo.evoId);
-            if (evoDef) {
+            if (evoDef && evoDef.active !== false) { // Check active status
                 let evoChanged = false;
                 const newTasks = { ...activeEvo.tasks };
                 
@@ -1062,7 +1109,7 @@ const App: React.FC = () => {
     const notificationCounts = {
         objectives: activeObjectives.filter(o => {
             const prog = gameState.objectiveProgress[o.id];
-            return prog && !prog.claimed && o.tasks.every(t => (prog.tasks[t.id] || 0) >= t.target);
+            return o.active !== false && prog && !prog.claimed && o.tasks.every(t => (prog.tasks[t.id] || 0) >= t.target);
         }).length,
         evo: gameState.activeEvolution && activeEvos.find(e => e.id === gameState.activeEvolution?.evoId)?.tasks.every(t => (gameState.activeEvolution?.tasks[t.id] || 0) >= t.target) ? 1 : 0,
         fbc: 0,
@@ -1160,9 +1207,9 @@ const App: React.FC = () => {
                                     />
                                 )
                             )}
-                            {view === 'fbc' && <FBC gameState={gameState} onFbcSubmit={handleFbcSubmit} t={t} playSfx={playSfx} allCards={libraryCards} challenges={activeFBCs} />}
-                            {view === 'evo' && <Evo gameState={gameState} onStartEvo={handleStartEvo} onClaimEvo={handleClaimEvo} t={t} playSfx={playSfx} allCards={libraryCards} evolutions={activeEvos} />}
-                            {view === 'objectives' && <Objectives gameState={gameState} onClaimReward={handleClaimObjective} t={t} allCards={libraryCards} objectives={activeObjectives} />}
+                            {view === 'fbc' && <FBC gameState={gameState} onFbcSubmit={handleFbcSubmit} t={t} playSfx={playSfx} allCards={libraryCards} challenges={activeFBCs} isAdmin={isAdmin} />}
+                            {view === 'evo' && <Evo gameState={gameState} onStartEvo={handleStartEvo} onClaimEvo={handleClaimEvo} t={t} playSfx={playSfx} allCards={libraryCards} evolutions={activeEvos} isAdmin={isAdmin} />}
+                            {view === 'objectives' && <Objectives gameState={gameState} onClaimReward={handleClaimObjective} t={t} allCards={libraryCards} objectives={activeObjectives} isAdmin={isAdmin} />}
                             {view === 'social' && (
                                 <Social 
                                     gameState={gameState} 
@@ -1172,12 +1219,18 @@ const App: React.FC = () => {
                                     hasPendingRequests={friendRequestCount > 0}
                                 />
                             )}
-                            {/* ADMIN VIEW */}
+                            {/* ADMIN VIEWS */}
                             {view === 'admin' && isAdmin && (
                                 <ControlRoom 
                                     globalSettings={globalSettings} 
                                     onClose={() => setView('store')}
                                     t={t}
+                                    allCards={libraryCards}
+                                />
+                            )}
+                            {view === 'data_control' && isAdmin && (
+                                <DataControl 
+                                    onClose={() => setView('store')}
                                     allCards={libraryCards}
                                 />
                             )}
@@ -1302,6 +1355,13 @@ const App: React.FC = () => {
                 invite={incomingInvite}
                 onAccept={handleAcceptInvite}
                 onReject={handleRejectInvite}
+            />
+
+            {/* Admin Message Modal */}
+            <AdminMessageModal 
+                isOpen={!!adminMsg} 
+                onClose={handleDismissAdminMsg} 
+                message={adminMsg?.text || ''} 
             />
         </div>
     );

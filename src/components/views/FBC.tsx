@@ -5,6 +5,8 @@ import { GameState, Card as CardType, FBCChallenge, Rarity, PackType } from '../
 import Button from '../Button';
 import Card from '../Card';
 import { sfx } from '../../data/sounds';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../../firebaseConfig';
 
 interface FBCProps {
     gameState: GameState;
@@ -12,7 +14,8 @@ interface FBCProps {
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
     playSfx: (soundKey: keyof typeof sfx) => void;
     allCards: CardType[];
-    challenges: FBCChallenge[]; // Added prop
+    challenges: FBCChallenge[]; 
+    isAdmin?: boolean;
 }
 
 type FbcViewMode = 'list' | 'group' | 'submission';
@@ -58,7 +61,7 @@ const checkRequirements = (submission: CardType[], requirements: FBCChallenge['r
     return { checks, allMet: Object.values(checks).every(Boolean) };
 };
 
-const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards, challenges }) => {
+const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards, challenges, isAdmin }) => {
     const [viewMode, setViewMode] = useState<FbcViewMode>('list');
     const [selectedChallenge, setSelectedChallenge] = useState<FBCChallenge | null>(null);
     const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -66,11 +69,21 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards,
 
     const availableChallenges = useMemo(() => {
         return challenges.filter(fbc => {
-            if (gameState.completedFbcIds.includes(fbc.id)) return false;
+            // Admin sees all to allow editing
+            if (isAdmin) return true;
+
+            // players see only active
+            if (fbc.active === false) return false;
+            
+            // Completed check (skip if repeatable)
+            if (gameState.completedFbcIds.includes(fbc.id) && !fbc.repeatable) return false;
+            
+            // Prereq check
             if (fbc.prerequisiteId && !gameState.completedFbcIds.includes(fbc.prerequisiteId)) return false;
+            
             return true;
         });
-    }, [gameState.completedFbcIds, challenges]);
+    }, [gameState.completedFbcIds, challenges, isAdmin]);
 
     const fbcListItems = useMemo(() => {
         const groups: Record<string, FBCChallenge[]> = {};
@@ -136,6 +149,15 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards,
         }
     };
 
+    const handleAdminUpdate = async (e: React.MouseEvent, challengeId: string, updates: Partial<FBCChallenge>) => {
+        e.stopPropagation();
+        try {
+            // Note: Saving full list overrides static data which is intended behavior for 'hiding' default challenges
+            const newList = challenges.map(c => c.id === challengeId ? { ...c, ...updates } : c);
+            await setDoc(doc(db, 'settings', 'fbc'), { list: newList }, { merge: true });
+        } catch(e) { console.error("Update failed", e); }
+    };
+
     const renderReward = (challenge: FBCChallenge) => {
         const { reward } = challenge;
         if (reward.type === 'pack' && reward.details) {
@@ -198,6 +220,8 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards,
 
     if (viewMode === 'group' && selectedGroupId) {
         const groupChallenges = challenges.filter(c => c.groupId === selectedGroupId);
+        // Only show relevant ones based on admin/active status
+        const visibleGroupChallenges = groupChallenges.filter(c => isAdmin || c.active !== false);
         const finalRewardCard = allCards.find(c => c.id === groupChallenges[0].groupFinalRewardCardId);
         
         return (
@@ -208,13 +232,35 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards,
                     {finalRewardCard && <Card card={finalRewardCard} className="!w-[180px] !h-[270px]" />}
                 </div>
                 <div className="space-y-4">
-                    {groupChallenges.map((challenge, index) => {
+                    {visibleGroupChallenges.map((challenge, index) => {
                         const isCompleted = gameState.completedFbcIds.includes(challenge.id);
                         const isLocked = challenge.prerequisiteId && !gameState.completedFbcIds.includes(challenge.prerequisiteId);
                         const statusClasses = isCompleted ? 'border-green-500/50 opacity-60' : isLocked ? 'border-red-500/50 opacity-50' : 'border-gold-dark/30 hover:border-gold-light cursor-pointer';
-                        
+                        const isActive = challenge.active !== false;
+
                         return (
-                            <div key={challenge.id} onClick={() => !isLocked && !isCompleted && (setSelectedChallenge(challenge), setSubmission([]), setViewMode('submission'))} className={`bg-darker-gray/60 p-4 rounded-lg border transition-all duration-300 ${statusClasses}`}>
+                            <div key={challenge.id} onClick={() => !isLocked && !isCompleted && isActive && (setSelectedChallenge(challenge), setSubmission([]), setViewMode('submission'))} className={`relative bg-darker-gray/60 p-4 rounded-lg border transition-all duration-300 ${statusClasses} ${!isActive ? 'opacity-50 grayscale' : ''}`}>
+                                
+                                {isAdmin && (
+                                    <div className="absolute top-2 right-2 flex gap-2 z-20" onClick={e => e.stopPropagation()}>
+                                        <button 
+                                            onClick={(e) => handleAdminUpdate(e, challenge.id, { active: !isActive })} 
+                                            className={`px-2 py-1 rounded text-xs font-bold ${isActive ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}
+                                        >
+                                            {isActive ? 'Active' : 'Inactive'}
+                                        </button>
+                                        <select 
+                                            value={challenge.repeatable || 'none'} 
+                                            onChange={(e) => handleAdminUpdate(e, challenge.id, { repeatable: e.target.value as any })}
+                                            className="bg-black text-white text-xs p-1 rounded border border-gray-600"
+                                        >
+                                            <option value="none">One-time</option>
+                                            <option value="daily">Daily</option>
+                                            <option value="weekly">Weekly</option>
+                                        </select>
+                                    </div>
+                                )}
+
                                 <div className="flex justify-between items-center">
                                     <div>
                                         <h4 className="font-header text-xl text-gold-light">Part {index + 1}: {t(challenge.title as TranslationKey) || challenge.title}</h4>
@@ -241,13 +287,37 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards,
                     const rewardCardId = challenge.groupFinalRewardCardId || (challenge.reward.type === 'card' ? challenge.reward.cardId : null);
                     const rewardCardTemplate = rewardCardId ? allCards.find(c => c.id === rewardCardId) : null;
                     const isPackReward = challenge.reward.type === 'pack';
+                    const isActive = challenge.active !== false;
+                    const isCompleted = gameState.completedFbcIds.includes(challenge.id);
 
                     return (
-                        <div key={challenge.id} onClick={() => handleSelectChallenge(challenge)} className="bg-gradient-to-br from-light-gray to-darker-gray p-5 rounded-lg border border-gold-dark/30 cursor-pointer transition-all duration-300 hover:border-gold-light hover:-translate-y-1 flex flex-col md:flex-row items-center justify-between gap-6">
+                        <div key={challenge.id} onClick={() => isActive && handleSelectChallenge(challenge)} className={`relative bg-gradient-to-br from-light-gray to-darker-gray p-5 rounded-lg border transition-all duration-300 hover:border-gold-light hover:-translate-y-1 flex flex-col md:flex-row items-center justify-between gap-6 ${!isActive ? 'opacity-60 grayscale' : ''} ${isCompleted && !challenge.repeatable ? 'border-green-500/50 bg-green-900/10' : 'border-gold-dark/30'}`}>
                             <div className="flex-grow text-center md:text-left">
-                                <h3 className="font-header text-2xl text-gold-light">{t(challenge.title as TranslationKey) || challenge.title}</h3>
+                                <h3 className="font-header text-2xl text-gold-light">{t(challenge.title as TranslationKey) || challenge.title} {challenge.repeatable && <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded ml-2 uppercase">{challenge.repeatable}</span>} {isCompleted && <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded ml-2 uppercase">Completed</span>}</h3>
                                 <p className="text-gray-400">{t(challenge.description as TranslationKey) || challenge.description}</p>
                             </div>
+                            
+                            {/* Admin Controls */}
+                            {isAdmin && (
+                                <div className="absolute top-2 right-2 flex gap-2 z-20" onClick={e => e.stopPropagation()}>
+                                    <button 
+                                        onClick={(e) => handleAdminUpdate(e, challenge.id, { active: !isActive })} 
+                                        className={`px-2 py-1 rounded text-xs font-bold ${isActive ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}
+                                    >
+                                        {isActive ? 'Active' : 'Inactive'}
+                                    </button>
+                                    <select 
+                                        value={challenge.repeatable || 'none'} 
+                                        onChange={(e) => handleAdminUpdate(e, challenge.id, { repeatable: e.target.value as any })}
+                                        className="bg-black text-white text-xs p-1 rounded border border-gray-600"
+                                    >
+                                        <option value="none">One-time</option>
+                                        <option value="daily">Daily</option>
+                                        <option value="weekly">Weekly</option>
+                                    </select>
+                                </div>
+                            )}
+
                             {rewardCardTemplate && (
                                 <div className="flex-shrink-0 mt-4 md:mt-0">
                                     <h4 className="font-main text-lg text-center mb-2">{t('fbc_reward_card')}</h4>
@@ -266,7 +336,7 @@ const FBC: React.FC<FBCProps> = ({ gameState, onFbcSubmit, t, playSfx, allCards,
                         </div>
                     );
                 }) : <p className="text-center text-gray-400 text-xl py-10">No new challenges available.</p>}
-                 {gameState.completedFbcIds.length > 0 && (
+                 {gameState.completedFbcIds.length > 0 && !isAdmin && (
                     <div className="mt-8">
                         <h3 className="font-header text-2xl text-center mb-4">{t('fbc_completed')}</h3>
                         <div className="space-y-4">

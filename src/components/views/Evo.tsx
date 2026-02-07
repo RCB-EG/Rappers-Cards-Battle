@@ -5,6 +5,8 @@ import { GameState, Card as CardType, Evolution } from '../../types';
 import Button from '../Button';
 import Card from '../Card';
 import { sfx } from '../../data/sounds';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../../firebaseConfig';
 
 interface EvoProps {
     gameState: GameState;
@@ -13,7 +15,8 @@ interface EvoProps {
     t: (key: TranslationKey, replacements?: Record<string, string | number>) => string;
     playSfx: (soundKey: keyof typeof sfx) => void;
     allCards: CardType[];
-    evolutions: Evolution[]; // Added prop
+    evolutions: Evolution[];
+    isAdmin?: boolean;
 }
 
 const isCardEligible = (card: CardType, eligibility: Evolution['eligibility']) => {
@@ -23,15 +26,19 @@ const isCardEligible = (card: CardType, eligibility: Evolution['eligibility']) =
     return true;
 };
 
-const Evo: React.FC<EvoProps> = ({ gameState, onStartEvo, onClaimEvo, t, playSfx, allCards, evolutions }) => {
+const Evo: React.FC<EvoProps> = ({ gameState, onStartEvo, onClaimEvo, t, playSfx, allCards, evolutions, isAdmin }) => {
     const [selectedEvo, setSelectedEvo] = useState<Evolution | null>(null);
     const { activeEvolution } = gameState;
 
     const allPlayerCards = useMemo(() => [...Object.values(gameState.formation).filter(Boolean) as CardType[], ...gameState.storage], [gameState.formation, gameState.storage]);
     
     const availableEvos = useMemo(() => {
-        return evolutions.filter(evo => !(gameState.completedEvoIds || []).includes(evo.id));
-    }, [gameState.completedEvoIds, evolutions]);
+        return evolutions.filter(evo => {
+            if (isAdmin) return true; // Admin see all
+            if (evo.active === false) return false;
+            return !(gameState.completedEvoIds || []).includes(evo.id);
+        });
+    }, [gameState.completedEvoIds, evolutions, isAdmin]);
 
     const completedEvos = useMemo(() => {
         return evolutions.filter(evo => (gameState.completedEvoIds || []).includes(evo.id));
@@ -54,12 +61,19 @@ const Evo: React.FC<EvoProps> = ({ gameState, onStartEvo, onClaimEvo, t, playSfx
         prevAllTasksComplete.current = allTasksComplete;
     }, [allTasksComplete, playSfx]);
 
+    const handleAdminToggle = async (e: React.MouseEvent, evoId: string, currentStatus?: boolean) => {
+        e.stopPropagation();
+        try {
+            const newList = evolutions.map(ev => ev.id === evoId ? { ...ev, active: !currentStatus } : ev);
+            await setDoc(doc(db, 'settings', 'evolutions'), { list: newList }, { merge: true });
+        } catch(e) { console.error(e); }
+    };
 
     if (activeEvolution && activeEvoDef) {
         const evolvingCard = allPlayerCards.find(c => c.id === activeEvolution.cardId);
         const resultCardTemplate = allCards.find(c => c.id === activeEvoDef?.resultCardId);
 
-        if (!evolvingCard || !resultCardTemplate) return null; // Should not happen
+        if (!evolvingCard || !resultCardTemplate) return null; 
 
         return (
             <div className="animate-fadeIn">
@@ -140,13 +154,26 @@ const Evo: React.FC<EvoProps> = ({ gameState, onStartEvo, onClaimEvo, t, playSfx
                 {availableEvos.length > 0 ? availableEvos.map(evo => {
                     const baseCardTemplate = allCards.find(c => c.name === evo.eligibility.cardName && c.rarity === evo.eligibility.rarity);
                     const resultCardTemplate = allCards.find(c => c.id === evo.resultCardId);
+                    const isActive = evo.active !== false;
+                    const isCompleted = (gameState.completedEvoIds || []).includes(evo.id);
 
                     if (!baseCardTemplate || !resultCardTemplate) return null;
 
                     return (
-                        <div key={evo.id} onClick={() => setSelectedEvo(evo)} className="bg-gradient-to-br from-light-gray to-darker-gray p-5 rounded-lg border border-gold-dark/30 cursor-pointer transition-all duration-300 hover:border-gold-light hover:-translate-y-1">
-                            <h3 className="font-header text-2xl text-gold-light">{evo.title}</h3>
+                        <div key={evo.id} onClick={() => isActive && setSelectedEvo(evo)} className={`relative bg-gradient-to-br from-light-gray to-darker-gray p-5 rounded-lg border transition-all duration-300 hover:border-gold-light hover:-translate-y-1 ${!isActive ? 'opacity-60 grayscale' : ''} ${isCompleted ? 'border-green-500/50' : 'border-gold-dark/30'}`}>
+                            <h3 className="font-header text-2xl text-gold-light">{evo.title} {isCompleted && <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded ml-2 uppercase">Completed</span>}</h3>
                             <p className="text-gray-400 mb-4">{evo.description}</p>
+                            
+                            {/* Admin Controls */}
+                            {isAdmin && (
+                                <button 
+                                    onClick={(e) => handleAdminToggle(e, evo.id, evo.active)} 
+                                    className={`absolute top-4 right-4 px-3 py-1 rounded text-xs font-bold z-20 ${isActive ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}
+                                >
+                                    {isActive ? 'Active' : 'Inactive'}
+                                </button>
+                            )}
+
                             <div className="flex justify-center items-center gap-2 md:gap-4 mt-4">
                                 <Card card={baseCardTemplate} className="!w-[144px] !h-[216px] md:!w-[180px] md:!h-[270px]"/>
                                 <span className="text-2xl md:text-4xl text-gold-light font-header mx-2 md:mx-4">→</span>
@@ -159,7 +186,7 @@ const Evo: React.FC<EvoProps> = ({ gameState, onStartEvo, onClaimEvo, t, playSfx
                 )}
             </div>
 
-            {completedEvos.length > 0 && (
+            {completedEvos.length > 0 && !isAdmin && (
                 <div className="mt-8">
                     <h3 className="font-header text-2xl text-center mb-4">{t('evo_completed')}</h3>
                     <div className="space-y-4">
