@@ -19,10 +19,23 @@ export const calculateQuickSellValue = (card: Card): number => {
       return Math.round(card.value * 0.20);
     case 'legend':
     case 'event':
-      // Default for unspecified high-tier cards
       return Math.round(card.value * 0.25);
     default:
-      // Fallback for any other rarity
-      return Math.round(card.value * 0.05);
+      // NEW LOGIC: Dynamic range based on OVR (Rating)
+      // Base: 6000 for 80 OVR. Max: 15000 for 99 OVR.
+      // Approx 475 coins per rating point above 80.
+      
+      const minPrice = 6000;
+      const maxPrice = 15000;
+      const minOvr = 80; // Starting point for the scale
+      
+      // Calculate difference
+      const ovrDiff = Math.max(0, card.ovr - minOvr);
+      const pricePerPoint = 475; // (15000 - 6000) / 19 points approx
+      
+      const calculated = minPrice + (ovrDiff * pricePerPoint);
+      
+      // Ensure it stays within your requested bounds
+      return Math.round(Math.min(maxPrice, Math.max(minPrice, calculated)));
   }
 };
